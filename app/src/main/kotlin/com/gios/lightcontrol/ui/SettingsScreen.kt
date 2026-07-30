@@ -131,12 +131,12 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
 
             SectionLabel("TURNING THE WHEEL")
             MenuRow(
-                label = "In other apps",
+                label = "A turn means",
                 detail = turn.label,
                 sub = when (turn) {
-                    TurnAction.Brightness -> "like the home screen"
+                    TurnAction.Brightness -> "everywhere, including apps that scroll themselves"
                     TurnAction.Swipe -> "a synthetic finger-drag, so lists scroll"
-                    TurnAction.PassThrough -> "only apps that understand the wheel react"
+                    TurnAction.PassThrough -> "apps that understand the wheel scroll; others do nothing"
                 },
                 onClick = {
                     turn = when (turn) {

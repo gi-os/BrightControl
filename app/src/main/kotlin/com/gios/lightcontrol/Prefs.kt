@@ -216,7 +216,17 @@ object Policy {
             return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = false)
         }
         val bare = when (rule) {
-            AppRule.ScrollThrough -> TurnAction.PassThrough
+            // Brightness wins here, deliberately. An app carrying the hw/ module scrolls better
+            // than anything reachable from outside it, so scrolling is its job — but brightness
+            // has to mean brightness in every app, or the mode switch becomes something you have
+            // to remember the exceptions to. This is also what keeps brightness out of the apps
+            // themselves: they never need to know the mode exists, and turning it on doesn't mean
+            // shipping sixteen releases.
+            AppRule.ScrollThrough -> if (prefs.unknownAppTurn == TurnAction.Brightness) {
+                TurnAction.Brightness
+            } else {
+                TurnAction.PassThrough
+            }
             AppRule.BrightnessOnTurn -> TurnAction.Brightness
             AppRule.SwipeOnTurn -> TurnAction.Swipe
             else -> prefs.unknownAppTurn

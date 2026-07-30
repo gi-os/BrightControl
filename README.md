@@ -93,6 +93,12 @@ camera button does nothing; brightness still works.
 | `com.gios.*`, `com.lightfastread`, `com.lightrss.reader` | goes to the app, which scrolls per notch | ours |
 | everything else | brightness (or `SWIPE`, per app) | ours |
 
+The wheel's mode is global and outranks that table's scroll-aware row: in brightness mode a turn
+changes brightness in *every* app, including the ones carrying `hw/`. That is the point of putting
+it here rather than in the apps — they never need to know the mode exists, and switching it doesn't
+mean shipping sixteen releases. In scroll mode those apps get their turns back and scroll per
+notch, which is still better than any synthetic finger.
+
 Light's own tools are hands-off because the wheel already works there — anything
 intercepted would be a feature *removed*. Apps carrying a `hw/` scroll module get their
 turns passed through, because per-notch scrolling inside the app beats anything
