@@ -13,8 +13,8 @@ apps Light didn't write.
 | Hold the wheel | nothing — bind it to any app |
 | Tap the camera button | The Light camera |
 | Hold the camera button | nothing — bind it to any app |
-| Tap the home button | Light's home — rebind it to yours |
-| Hold the home button | Light's home, always |
+| Tap the home button | Home — whichever launcher is default |
+| Hold the home button | LightOS's dashboard, by name — rebind it to anything |
 | Volume keys, tap or hold | passed through, but bindable |
 
 ## What this is and why
@@ -108,13 +108,40 @@ so this table is visible in the UI, not folklore.
 
 ### The home button
 
-Tap and hold, like the others: bind the tap to your own home and the hold stays the way
-back to Light's dashboard. Both start out as Light's home, so out of the box the button
-does what it always did. The tap **cannot** be left as "pass through" — the service has
-to swallow the DOWN to see whether a hold is coming, and a key cannot be un-consumed
-after the fact, which is why `LightOS home` is a bindable action rather than an absence
-of one. If a bound app has been uninstalled or has no launcher entry, the press falls
-back to home rather than stranding you on the screen you were trying to leave.
+**Tap goes home. Hold opens LightOS's dashboard by name** — `com.lightos/.MainActivity`,
+not `CATEGORY_HOME` — because the thing a sideloaded LPIII loses is Light's own home
+screen: install a launcher that can see your APKs, make it the default, and the dashboard
+becomes unreachable. Both are rebindable to any installed app.
+
+This is the one button where the mechanism is worth understanding, because it is the one
+where the app can make the phone worse. Timing a hold means swallowing the DOWN and
+starting a clock, and a consumed key cannot be handed back once you know it was a tap —
+so from the moment the hold is bound, **LightControl is what makes the home button work**.
+That promise is one it refuses to make in five situations, each of which falls through to
+the same place:
+
+| Situation | Why |
+|---|---|
+| The takeover is off | By hand, or because it disarmed itself |
+| Screen off, or the phone is locked | That press is a wake or an unlock, not yours — and a background activity start is dropped behind a keyguard anyway |
+| LightOS is in front | Its dashboard and lock screen are one activity; home already goes there, so swallowing the key can only lose. Holds even with **LightOS screens** on |
+| A clock is in front, or something is ringing | The same rule every key follows — see [Failing safe](#failing-safe) |
+| The hold needs to start an activity and the overlay appop is missing | Without it Android 14 drops the start *in silence*, so the press would be consumed and nothing would happen |
+
+The fallback — "shadow" mode — consumes **nothing**. LightOS sees the entire press, long
+presses behave exactly as they do with this app uninstalled, and the tap binding fires on
+top afterwards if the press was short. It can't offer a hold, because by the time you know
+a press was long it has already been delivered; firing home twice over is invisible, which
+is why this shape is the home button's alone.
+
+**And it checks its work.** The tap goes through `performGlobalAction(GLOBAL_ACTION_HOME)`
+rather than an intent, deliberately: it needs no grant, isn't a background activity start,
+and — the point — it returns a boolean that means something. `startActivity` doesn't;
+Android 14 drops a blocked background start without throwing, so a launch that went nowhere
+is indistinguishable from one that worked. Two home presses in a row where nothing reported
+success and the takeover **disarms itself permanently**, handing the key back to the system
+and saying so on the front screen with a `RETRY` next to it. A feature that quietly stops
+working is a fair trade for a button that always does.
 
 ### Scrolling apps that never heard of the wheel
 
@@ -205,6 +232,11 @@ that fails at 6am.
 **Every fault answers "pass the key through".** `onKeyEvent` runs inside a catch that returns
 false, because passing a key on is always safe and consuming one is not.
 
+**The home takeover disarms itself.** The one binding that has to swallow the home button is
+also the one that can leave you unable to get home, so it is the only one that watches whether it
+worked: two presses in a row where nothing reported success and it hands the key back to the
+system for good, until you tap `RETRY`. See [The home button](#the-home-button).
+
 **Three faults in a minute and the service goes quiet** until the app is opened again. Retrying
 forever is how a single bug becomes a phone you can't dismiss an alarm on; a dormant filter is
 indistinguishable from an uninstalled one, which is the right thing to degrade into. The last
@@ -283,6 +315,10 @@ Real tags, oldest to newest:
 | v1.0.9 | Double-tap the wheel to switch it between brightness and scrolling, instead of holding it |
 | v1.0.10 | LightOS's own screens now take button bindings but leave turns untouched |
 | v1.0.11 | Home button added: tap and hold, bindable, falls back to Light's home |
+| v1.0.12 – v1.0.14 | Home tap follows the default launcher; the button is left alone until it's bound; brightness mode outranks an app's own scrolling |
+| v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
+| v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
+| v1.0.19 | A clock in front keeps every key it can see |
 
 Note: **v1.1.6 is a real tag**, not a typo introduced here — the `major.minor` base in
 `build.gradle.kts` was briefly `1.1` for that one release and reverted to `1.0` for the

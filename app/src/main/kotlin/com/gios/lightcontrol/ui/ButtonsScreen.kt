@@ -40,6 +40,8 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
+    val homeArmed = prefs.homeTakeover
+
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
@@ -80,12 +82,17 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                 }
                 if (button == Button.Home) {
                     MenuRow(
-                        label = "Hold left to the app",
-                        detail = "PASS",
-                        sub = "with the hold unbound, nothing is consumed: LightOS sees the whole " +
-                            "press and long-presses behave as they always did, and a short press " +
-                            "fires the tap on top. Bind the hold and the service takes the key " +
-                            "for both, because timing a hold means swallowing the press.",
+                        label = "Timing the hold takes the key",
+                        detail = if (homeArmed) "ON" else "OFF",
+                        sub = if (homeArmed) {
+                            "the press is swallowed and replayed, so both gestures work. Never " +
+                                "on the lock screen, with the screen off, or on LightOS's own " +
+                                "screens — there the whole press goes through untouched."
+                        } else {
+                            "the takeover is off, so nothing is consumed: LightOS sees every " +
+                                "press and the hold binding doesn't apply. Turn it back on in " +
+                                "Controls."
+                        },
                         dim = true,
                     )
                 }

@@ -12,7 +12,13 @@ enum class Button {
 
     VolumeDown,
 
-    /** The home button. Tap is yours, hold is Light's — see [Action.LightOsHome]. */
+    /**
+     * The home button. Tap is yours, hold opens LightOS — see [Action.LightOsHome].
+     *
+     * The only button whose *unbound* state is load-bearing: a phone you cannot get home on is
+     * broken in a way a dead flashlight isn't, so the service treats this one specially at every
+     * step. See `ControlService.onHome`.
+     */
     Home,
     ;
 
@@ -81,6 +87,20 @@ sealed interface Action {
     /** True if pressing actually does something. */
     val acts: Boolean get() = this != PassThrough && this != None
 
+    /**
+     * True if performing this means starting an activity from a service.
+     *
+     * Worth knowing about in advance, because a background activity start is dropped
+     * *silently* on Android 14 without the overlay appop — `startActivity` throws nothing and
+     * returns nothing, so there is no way to notice afterwards. On the home button that
+     * distinction is the difference between a binding that does nothing and a phone you can't
+     * get home on, so the service refuses to swallow the key for one of these until the grant
+     * is actually there. [DefaultHome] is deliberately absent: it goes through
+     * `performGlobalAction`, which needs no grant and answers honestly.
+     */
+    val needsActivityStart: Boolean
+        get() = this is Launch || this == LightOsHome || this == OpenCamera
+
     fun store(): String = when (this) {
         PassThrough -> "pass"
         None -> "none"
@@ -114,10 +134,13 @@ sealed interface Action {
          * consuming them by default would be taking away a function to add one.
          */
         fun default(button: Button, gesture: Gesture): Action = when {
-            // Tap goes home, hold stays the app's. This pair is special-cased in the service
-            // precisely so the hold can remain a real pass-through — see the comment there.
+            // Tap goes home; holding reaches LightOS's dashboard by name, which is the one
+            // thing a sideloaded phone loses — install a launcher that can see your APKs and
+            // Light's own home screen becomes unreachable. Binding the hold is what makes the
+            // service swallow the press, so every guard in `ControlService.onHome` exists
+            // because of this line.
             button == Button.Home ->
-                if (gesture == Gesture.Hold) PassThrough else DefaultHome
+                if (gesture == Gesture.Hold) LightOsHome else DefaultHome
             gesture == Gesture.Hold -> when (button) {
                 Button.VolumeUp, Button.VolumeDown -> PassThrough
                 else -> None

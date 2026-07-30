@@ -55,6 +55,8 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
+    var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
+    var homeFault by remember { mutableStateOf(prefs.homeFault()) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -80,6 +82,24 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                     onClick = {
                         prefs.clearFault()
                         fault = null
+                    },
+                )
+                Rule()
+            }
+
+            // Its own report, not folded into the fault block above: the home takeover disarms on
+            // a binding that answered "no", not on a crash, and the symptom is a hold that stopped
+            // working rather than a service that went quiet. Tapping re-arms it.
+            homeFault?.let { reason ->
+                SectionLabel("HOME BUTTON")
+                MenuRow(
+                    label = "Takeover disarmed itself",
+                    detail = "RETRY",
+                    sub = "$reason. Tap to arm it again.",
+                    onClick = {
+                        prefs.armHome()
+                        homeTakeover = true
+                        homeFault = null
                     },
                 )
                 Rule()
@@ -121,6 +141,26 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                     shortLabel(prefs.action(Button.Camera, Gesture.Tap)),
                 sub = "wheel click and camera button, tap and hold separately",
                 onClick = onButtons,
+            )
+            MenuRow(
+                label = "Hold home for LightOS",
+                detail = if (homeTakeover) {
+                    shortLabel(prefs.action(Button.Home, Gesture.Hold))
+                } else {
+                    "OFF"
+                },
+                sub = if (homeTakeover) {
+                    "timing a hold means swallowing the press, so this is the one binding that " +
+                        "makes the home button ours. Off gives it back: LightOS sees every press " +
+                        "and only the tap fires, on top."
+                } else {
+                    "the home button is the system's. Tap fires on top of it; the hold doesn't apply."
+                },
+                onClick = {
+                    homeTakeover = !homeTakeover
+                    if (homeTakeover) prefs.armHome() else prefs.homeTakeover = false
+                    homeFault = prefs.homeFault()
+                },
             )
             MenuRow(
                 label = "LightOS screens",

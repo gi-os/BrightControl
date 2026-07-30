@@ -119,6 +119,39 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
     /**
+     * Whether the service may swallow the home button in order to time a hold on it.
+     *
+     * Its own switch rather than just a binding, because this is the one key where the failure
+     * mode is a phone you cannot get home on. Off means the home button is never consumed: the
+     * hold binding stops applying, LightOS sees every press exactly as it does with this app
+     * uninstalled, and a short press still fires the tap binding on top ("shadow" mode in
+     * [ControlService]).
+     *
+     * It ships on, and it turns itself off — see [disarmHome]. A feature that quietly stops
+     * working is a fair price for a button that always does.
+     */
+    var homeTakeover: Boolean
+        get() = sp.getBoolean("home_takeover", true)
+        set(v) = sp.edit().putBoolean("home_takeover", v).apply()
+
+    /**
+     * Why the home takeover switched itself off, if it did.
+     *
+     * A disarm is deliberately sticky and deliberately loud: the button goes back to behaving
+     * natively and the settings screen says what happened, rather than retrying something that
+     * has already failed on the one key that has to work.
+     */
+    fun homeFault(): String? = sp.getString("home_fault", null)
+
+    fun disarmHome(reason: String) {
+        sp.edit().putBoolean("home_takeover", false).putString("home_fault", reason).apply()
+    }
+
+    fun armHome() {
+        sp.edit().putBoolean("home_takeover", true).remove("home_fault").apply()
+    }
+
+    /**
      * The last fault the key service hit, and whether it has gone quiet because of them.
      *
      * Recorded rather than only logged, because the symptom of a dormant filter is buttons that
