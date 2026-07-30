@@ -138,6 +138,13 @@ per-notch scrolling inside the app beats anything reachable from outside it.
 Per-app overrides cycle on tap through `AUTO → BRIGHT → SWIPE → APP → OFF`, and rows left on
 AUTO show what AUTO resolved to, so the table above is visible in the UI rather than folklore.
 
+**A camera in front keeps the camera button**, both stages, whatever is bound to it. The test
+is what the app declares — anything registered for `STILL_IMAGE_CAMERA` — rather than a list of
+package names, so it holds for cameras that don't exist yet. Without this the key is swallowed
+everywhere and its binding fires even when a camera is already open: a third-party camera's
+shutter is dead, which is precisely the thing you installed it for, and "open the camera" from
+inside a camera does nothing anyway. An explicit per-app rule of `OFF` still wins.
+
 The volume keys are bindable but pass through by default. They are the one pair that already
 works, and consuming them out of the box would be taking a function away to add one.
 

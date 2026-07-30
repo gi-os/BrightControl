@@ -78,6 +78,16 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                         dim = true,
                     )
                 }
+                if (button == Button.Camera) {
+                    MenuRow(
+                        label = "Inside a camera",
+                        detail = "PASS",
+                        sub = "both stages go to any app registered as a camera, whatever is " +
+                            "bound here. Its shutter needs them, and opening a camera from " +
+                            "inside one does nothing.",
+                        dim = true,
+                    )
+                }
                 Rule()
             }
             Gap(16)

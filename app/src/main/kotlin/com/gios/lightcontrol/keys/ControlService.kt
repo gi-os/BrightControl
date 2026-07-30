@@ -53,6 +53,13 @@ class ControlService : AccessibilityService() {
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
 
+    /**
+     * Which packages are cameras, memoised. Answering means a `PackageManager` query, and the
+     * question is asked on the key event — so it is asked once per app and then remembered.
+     * Cleared on unbind, which is also when an install would have had time to happen.
+     */
+    private val cameraPackages = HashMap<String, Boolean>()
+
     /** One press in flight: what it has already done, and its pending hold. */
     private class Press(
         var spent: Boolean = false,
@@ -98,7 +105,41 @@ class ControlService : AccessibilityService() {
 
         val button = LightKeys.buttonOf(key) ?: return false
         if (!behaviour.buttonsActive) return false
+        // A camera has first claim on the camera button. See [ownsCameraKey].
+        if (button == Button.Camera && ownsCameraKey(front)) return false
         return onButton(button, behaviour, event)
+    }
+
+    /**
+     * Whether the app in front is a camera, and so should be handed the camera button
+     * untouched.
+     *
+     * Without this, the camera key is swallowed everywhere and its bound action — by default
+     * "open the camera" — runs even when a camera is already open and in front. In a
+     * third-party camera that is worse than useless: the app never sees the key, so its
+     * shutter is dead, and the LPIII's two-stage release is exactly the thing you installed
+     * it for. Launching a camera from inside a camera is meaningless in any case.
+     *
+     * The test is what the app *declares*, not a list of package names: anything registered
+     * for `STILL_IMAGE_CAMERA` is a camera by the only definition the system has, so this
+     * keeps working for cameras that don't exist yet. Light's own camera is already hands-off
+     * by prefix; this covers `com.gios.lightcamera` and everyone else.
+     *
+     * An explicit per-app rule still wins — [Behaviour.buttonsActive] is checked first — so a
+     * camera can be forced back under the service's control if it ever needs to be.
+     */
+    private fun ownsCameraKey(pkg: String?): Boolean {
+        if (pkg == null) return false
+        if (pkg == packageName) return false
+        cameraPackages[pkg]?.let { return it }
+        val declared = runCatching {
+            packageManager.queryIntentActivities(
+                Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
+                0,
+            ).any { it.activityInfo?.packageName == pkg }
+        }.getOrDefault(false)
+        cameraPackages[pkg] = declared
+        return declared
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -106,6 +147,7 @@ class ControlService : AccessibilityService() {
         readout.dismiss()
         swipe.cancel()
         presses.clear()
+        cameraPackages.clear()
         return super.onUnbind(intent)
     }
 
