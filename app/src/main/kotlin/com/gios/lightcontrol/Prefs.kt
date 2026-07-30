@@ -43,7 +43,6 @@ enum class AppRule {
 /** The resolved behaviour for the app that is currently in front. */
 data class Behaviour(
     val bareTurn: TurnAction,
-    val pressTurnBrightness: Boolean,
     /** False for hands-off apps: no binding fires, nothing is consumed. */
     val buttonsActive: Boolean,
 )
@@ -92,33 +91,22 @@ class Prefs(context: Context) {
         }.getOrDefault(TurnAction.Brightness)
         set(v) = sp.edit().putString("turn", v.name).apply()
 
-    var pressTurnBrightness: Boolean
-        get() = sp.getBoolean("press_turn", true)
-        set(v) = sp.edit().putBoolean("press_turn", v).apply()
+    /**
+     * Whether a double tap of the wheel switches what turning it does.
+     *
+     * This replaced hold-and-turn. Holding the wheel in while turning it read as a deliberate
+     * gesture on paper and as a wrestling match in the hand — it needs two motions at once on a
+     * control the size of a fingernail, and every accidental version of it changed the screen
+     * brightness. Two taps is one motion, repeated, and it tells you what it did.
+     */
+    var doubleTapSwitchesTurn: Boolean
+        get() = sp.getBoolean("double_tap", true)
+        set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
     /** Notches from dimmest to brightest. */
     var brightnessSteps: Int
         get() = sp.getInt("steps", 24)
         set(v) = sp.edit().putInt("steps", v.coerceIn(8, 64)).apply()
-
-    /**
-     * Whether the bindings apply on LightOS's own screens — the lock screen *and* the home
-     * dashboard, which are not separable.
-     *
-     * They are one window: `com.lightos/com.lightos.MainActivity`, same task, whether the phone
-     * is locked or sitting on the dashboard. LightOS swaps views inside a single activity, so
-     * there is no class name, no separate window and no keyguard flag to tell them apart —
-     * `KeyguardManager.isKeyguardLocked` is false on that lock screen, because it isn't a
-     * keyguard. The only way to distinguish them would be reading the screen, which this app
-     * does not do.
-     *
-     * So this is one switch for both, off by default: turning it on replaces working LightOS
-     * behaviour with this app's version of it, which is a trade to make deliberately rather
-     * than one to inherit.
-     */
-    var lightOsScreens: Boolean
-        get() = sp.getBoolean("lightos_screens", false)
-        set(v) = sp.edit().putBoolean("lightos_screens", v).apply()
 
     /** Whether to flash the level on screen. Needs the overlay appop to appear at all. */
     var showReadout: Boolean
@@ -203,22 +191,9 @@ object Policy {
     }
 
     fun behaviourFor(prefs: Prefs, pkg: String?): Behaviour {
-        // LightOS's lock screen and dashboard are the same activity, so they are one decision.
-        // Checked ahead of the table because the table's whole job is to leave them alone.
-        if (pkg != null && pkg.startsWith("com.lightos") && prefs.lightOsScreens) {
-            return Behaviour(
-                bareTurn = TurnAction.Brightness,
-                pressTurnBrightness = prefs.pressTurnBrightness,
-                buttonsActive = true,
-            )
-        }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)
         if (rule == AppRule.Off) {
-            return Behaviour(
-                bareTurn = TurnAction.PassThrough,
-                pressTurnBrightness = false,
-                buttonsActive = false,
-            )
+            return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = false)
         }
         val bare = when (rule) {
             AppRule.ScrollThrough -> TurnAction.PassThrough
@@ -226,10 +201,6 @@ object Policy {
             AppRule.SwipeOnTurn -> TurnAction.Swipe
             else -> prefs.unknownAppTurn
         }
-        return Behaviour(
-            bareTurn = bare,
-            pressTurnBrightness = prefs.pressTurnBrightness,
-            buttonsActive = true,
-        )
+        return Behaviour(bareTurn = bare, buttonsActive = true)
     }
 }

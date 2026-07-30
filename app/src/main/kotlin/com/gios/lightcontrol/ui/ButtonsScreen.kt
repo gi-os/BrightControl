@@ -71,10 +71,10 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                 }
                 if (button == Button.WheelClick) {
                     MenuRow(
-                        label = "Hold and turn",
-                        detail = "BRIGHTNESS",
-                        sub = "the phone's own gesture. A turn mid-press cancels the hold, so " +
-                            "adjusting brightness never fires either binding.",
+                        label = "Double tap",
+                        detail = "SWITCH TURN",
+                        sub = "flips turning between brightness and scrolling. A tap waits " +
+                            "for its partner, so a double tap never also fires the tap binding.",
                         dim = true,
                     )
                 }

@@ -5,7 +5,7 @@ write.
 
 | Gesture | Out of the box |
 |---|---|
-| Hold the wheel in and turn | Brightness, with the level shown at the bottom of the screen |
+| Double tap the wheel | Switches turning between brightness and scrolling, and says which |
 | Tap the wheel | Flashlight |
 | Hold the wheel | nothing — bind it to any app |
 | Tap the camera button | The Light camera |
@@ -88,23 +88,14 @@ It is still a synthetic finger, and it will never be as good as an app scrolling
 that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
 and it scrolls a WebView properly because it lives inside the app that owns it.
 
-## The lock screen, and why it comes with the dashboard
+## The lock screen
 
-LightOS's lock screen is not a keyguard. `KeyguardManager.isKeyguardLocked` is false while it's
-up, because it is a view inside LightOS's own single activity — locked or sitting on the home
-dashboard, the focused window is `com.lightos/com.lightos.MainActivity` in the same task either
-way. There is no class name, no separate window and no system flag that separates them, and the
-only thing that would is reading the screen, which this app does not do.
-
-So it is one switch for both: **LightOS screens**, off by default. On, a turn there is brightness
-and the buttons take their bindings — the same behaviour as everywhere else, including the torch,
-which is the one you want from a locked phone in the dark. Off, LightOS keeps its own handling and
-this app stays out of the way.
-
-Off by default because turning it on *replaces* behaviour that already works rather than adding
-behaviour that's missing, and that's a trade worth making on purpose. One thing it can't fix
-either way: a binding that opens an app is a background activity start, dropped behind a lock
-until the target itself declares `showWhenLocked`, which isn't ours to declare.
+Not supported, deliberately. LightOS's lock screen is not a keyguard — it's a view inside
+LightOS's own single activity, so locked or sitting on the dashboard the focused window is
+`com.lightos/com.lightos.MainActivity` in the same task either way. Nothing observable from
+outside separates them, which means taking the wheel on the lock screen means taking it on the
+home screen too, and consuming keys inside that activity made LightOS itself unstable. So it
+stays hands-off, and the lock screen keeps Light's own behaviour.
 
 ## Privacy
 

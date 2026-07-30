@@ -50,11 +50,10 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     val canOverlay = Grants.canDrawOverlays(context)
 
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
-    var pressTurn by remember { mutableStateOf(prefs.pressTurnBrightness) }
+    var doubleTap by remember { mutableStateOf(prefs.doubleTapSwitchesTurn) }
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
-    var lightOs by remember { mutableStateOf(prefs.lightOsScreens) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -108,23 +107,13 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                 onClick = onButtons,
             )
             MenuRow(
-                label = "LightOS screens",
-                detail = if (lightOs) "ON" else "OFF",
-                sub = "the lock screen and the home dashboard, which are one activity and so " +
-                    "one decision. On means this app's bindings replace LightOS's own there. " +
-                    "An app binding still waits for an unlock.",
+                label = "Double tap the wheel",
+                detail = if (doubleTap) "SWITCH TURN" else "OFF",
+                sub = "flips turning between brightness and scrolling, and says which. " +
+                    "Replaces hold-and-turn, which needed two motions at once.",
                 onClick = {
-                    lightOs = !lightOs
-                    prefs.lightOsScreens = lightOs
-                },
-            )
-            MenuRow(
-                label = "Hold wheel + turn",
-                detail = if (pressTurn) "BRIGHTNESS" else "OFF",
-                sub = "the phone's own gesture, in any app",
-                onClick = {
-                    pressTurn = !pressTurn
-                    prefs.pressTurnBrightness = pressTurn
+                    doubleTap = !doubleTap
+                    prefs.doubleTapSwitchesTurn = doubleTap
                 },
             )
             Rule()

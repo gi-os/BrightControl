@@ -45,6 +45,9 @@ class ControlService : AccessibilityService() {
     @Volatile
     private var foreground: String? = null
 
+    /** A wheel tap waiting to see whether a second one follows. */
+    private var pendingTap: Runnable? = null
+
     /** One press in progress per button. */
     private val presses = mutableMapOf<Button, Press>()
 
@@ -146,6 +149,7 @@ class ControlService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
         swipe.cancel()
+        pendingTap = null
         presses.clear()
         cameraPackages.clear()
         return super.onUnbind(intent)
@@ -169,8 +173,8 @@ class ControlService : AccessibilityService() {
 
         // Nothing bound. Don't touch the key at all — on the volume keys that would be
         // taking away volume control to add nothing.
-        val modifier = button == Button.WheelClick && behaviour.pressTurnBrightness
-        if (!tap.acts && !hold.acts && !modifier) return false
+        val switcher = button == Button.WheelClick && prefs.doubleTapSwitchesTurn
+        if (!tap.acts && !hold.acts && !switcher) return false
 
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
@@ -189,7 +193,30 @@ class ControlService : AccessibilityService() {
                 val press = presses.remove(button)
                 press?.pendingHold?.let { handler.removeCallbacks(it) }
                 val spent = press?.spent == true || press?.holdFired == true
-                if (!spent && tap.acts) perform(tap)
+                if (spent) return true
+                if (switcher) {
+                    // Second tap inside the window: the first one never happened, and turning
+                    // the wheel means the other thing now.
+                    val waiting = pendingTap
+                    if (waiting != null) {
+                        handler.removeCallbacks(waiting)
+                        pendingTap = null
+                        switchTurn()
+                        return true
+                    }
+                    // Hold the tap back until the window closes, so a double tap doesn't also
+                    // fire the flashlight on its way past.
+                    if (tap.acts) {
+                        val fire = Runnable {
+                            pendingTap = null
+                            perform(tap)
+                        }
+                        pendingTap = fire
+                        handler.postDelayed(fire, DOUBLE_TAP_MS)
+                    }
+                    return true
+                }
+                if (tap.acts) perform(tap)
             }
         }
         // The camera button's first stage is swallowed alongside the second, so the app never
@@ -215,15 +242,24 @@ class ControlService : AccessibilityService() {
 
     // --------------------------------------------------------------------- the wheel
 
-    private fun onTurn(behaviour: Behaviour, notches: Int, down: Boolean): Boolean {
-        val press = presses[Button.WheelClick]
-        if (press != null && behaviour.pressTurnBrightness) {
-            // The press has become a modifier, so whatever it was going to do, it isn't.
-            press.spent = true
-            press.pendingHold?.let { handler.removeCallbacks(it) }
-            if (down) adjustBrightness(notches)
-            return true
+    /**
+     * Flip what turning the wheel does, and say so on screen.
+     *
+     * Only ever between brightness and scrolling: those are the two things a turn can mean, and
+     * the synthetic-swipe mode is a per-app decision rather than something to land on by
+     * accident while tapping.
+     */
+    private fun switchTurn() {
+        val next = if (prefs.unknownAppTurn == TurnAction.Brightness) {
+            TurnAction.PassThrough
+        } else {
+            TurnAction.Brightness
         }
+        prefs.unknownAppTurn = next
+        readout.show(if (next == TurnAction.Brightness) "BRIGHTNESS" else "SCROLL")
+    }
+
+    private fun onTurn(behaviour: Behaviour, notches: Int, down: Boolean): Boolean {
         return when (behaviour.bareTurn) {
             TurnAction.Brightness -> {
                 if (down) adjustBrightness(notches)
@@ -297,6 +333,9 @@ class ControlService : AccessibilityService() {
     private companion object {
         /** Long enough that a deliberate hold is unmistakable, short enough to feel answered. */
         const val HOLD_MS = 500L
+
+        /** Gap allowed between the two taps of a double tap. */
+        const val DOUBLE_TAP_MS = 320L
 
         /** Stroke duration. Slow enough not to register as a fling, quick enough to keep up. */
         const val SWIPE_MS = 60L
