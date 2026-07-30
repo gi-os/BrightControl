@@ -185,6 +185,31 @@ ui/PickerScreen.kt       what one gesture does: four fixed choices, then every a
 ui/AppListScreen.kt      every launchable app, tap to cycle its rule
 ```
 
+## Failing safe
+
+A key filter is the one kind of app that can make a phone worse by breaking. Swallow a press and
+then throw, and the key is simply gone — which on the wrong morning is an alarm that won't turn
+off. So three rules, all of them learned the hard way:
+
+**Nothing is intercepted while something is ringing.** If any active playback carries
+`USAGE_ALARM` or `USAGE_NOTIFICATION_RINGTONE`, every key goes straight through. Whatever is
+making the noise owns the dismiss gesture, and guessing which key it wants is exactly the guess
+that fails at 6am.
+
+**Every fault answers "pass the key through".** `onKeyEvent` runs inside a catch that returns
+false, because passing a key on is always safe and consuming one is not.
+
+**Three faults in a minute and the service goes quiet** until the app is opened again. Retrying
+forever is how a single bug becomes a phone you can't dismiss an alarm on; a dormant filter is
+indistinguishable from an uninstalled one, which is the right thing to degrade into. The last
+fault is shown on the front screen, because buttons that silently stopped working are worse than
+buttons that say why.
+
+The gesture path got the same treatment specifically. `StrokeDescription`, `continueStroke` and
+`addStroke` all throw `IllegalArgumentException` on a path the framework dislikes — a continuation
+that doesn't begin where the last ended, a coordinate off the display — and the lift runs from a
+Handler where no key-event catch can reach it.
+
 ## Gotchas, in the order they'll bite
 
 - **The accessibility setting is a list, not a flag.** `settings put secure

@@ -2,6 +2,9 @@ package com.gios.lightcontrol.keys
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.os.SystemClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Handler
@@ -57,6 +60,10 @@ class ControlService : AccessibilityService() {
 
     private var torchOn = false
 
+    /** Consecutive faults, and when the last one landed. See [dormant]. */
+    private var faults = 0
+    private var lastFaultAt = 0L
+
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
 
@@ -98,7 +105,71 @@ class ControlService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
-    override fun onKeyEvent(event: KeyEvent): Boolean {
+    /**
+     * Never let a fault take a key away.
+     *
+     * Everything below runs inside a catch that answers `false`, because the failure this app is
+     * uniquely able to cause is the one that matters: a key filter that throws is a key filter
+     * that swallowed a press and then crashed, and the morning it happens is the morning an
+     * alarm won't turn off. Passing the key through is always a safe answer; consuming one is
+     * not. Repeated faults put the service to sleep entirely — see [dormant].
+     */
+    override fun onKeyEvent(event: KeyEvent): Boolean = try {
+        if (dormant() || alarmSounding()) false else handleKey(event)
+    } catch (t: Throwable) {
+        recordFault(t)
+        false
+    }
+
+    /**
+     * Whether something is ringing or sounding an alarm right now.
+     *
+     * Nothing is worth intercepting in that moment. The dismiss gesture belongs to whatever is
+     * making the noise, and being clever about which key it needs is exactly the kind of guess
+     * that fails at 6am. `activePlaybackConfigurations` is the cheap honest signal — it reports
+     * what is actually playing and with what intent, rather than what the ringer mode says.
+     */
+    private fun alarmSounding(): Boolean = runCatching {
+        val audio = getSystemService(AudioManager::class.java) ?: return false
+        audio.activePlaybackConfigurations.any {
+            val usage = it.audioAttributes.usage
+            usage == AudioAttributes.USAGE_ALARM ||
+                usage == AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+        }
+    }.getOrDefault(false)
+
+    /**
+     * Whether the service has faulted often enough to stop trusting itself.
+     *
+     * Three throws inside a minute and it goes quiet until the app is opened again, which resets
+     * the count. The alternative — retrying forever — is what turns one bug into a phone you
+     * cannot dismiss an alarm on, and a dormant key filter is indistinguishable from an
+     * uninstalled one, which is the correct thing to degrade into.
+     */
+    private fun dormant(): Boolean {
+        if (OwnWindow.resumed) {
+            faults = 0
+            return false
+        }
+        return faults >= MAX_FAULTS
+    }
+
+    private fun recordFault(t: Throwable) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastFaultAt > FAULT_WINDOW_MS) faults = 0
+        lastFaultAt = now
+        faults++
+        // Kept for the settings screen rather than only logged: a filter that has gone quiet
+        // needs to be able to say why, or the only symptom is buttons that stopped working.
+        prefs.setFault("${t.javaClass.simpleName}: ${t.message}", faults >= MAX_FAULTS)
+        // Whatever was mid-gesture is now of unknown shape. Drop all of it.
+        runCatching { swipe.cancel() }
+        presses.clear()
+        pendingTap = null
+        handler.removeCallbacksAndMessages(null)
+    }
+
+    private fun handleKey(event: KeyEvent): Boolean {
         val key = LightKeys.of(event) ?: return false
         // Our own settings screen reports itself, because window-state events from this
         // package are ignored — the readout overlay raises them too.
@@ -385,6 +456,10 @@ class ControlService : AccessibilityService() {
     }.isSuccess
 
     private companion object {
+        /** Faults tolerated before the filter goes quiet, and the window they must fall in. */
+        const val MAX_FAULTS = 3
+        const val FAULT_WINDOW_MS = 60_000L
+
         /** Long enough that a deliberate hold is unmistakable, short enough to feel answered. */
         const val HOLD_MS = 500L
 

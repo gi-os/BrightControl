@@ -54,7 +54,7 @@ class WheelSwipe(private val service: AccessibilityService) {
     private var stroke: GestureDescription.StrokeDescription? = null
     private var dispatching = false
 
-    private val lift = Runnable { finish() }
+    private val lift = Runnable { runCatching { finish() } }
 
     /**
      * Move by [notches]. Positive notches move *down* the content, so the finger travels up.
@@ -104,24 +104,35 @@ class WheelSwipe(private val service: AccessibilityService) {
         }
 
         val previous = stroke
-        val next = if (previous == null) {
-            GestureDescription.StrokeDescription(path, 0, SEGMENT_MS, true)
-        } else {
-            // Continuations must begin exactly where the last one ended, which is why the
-            // position is remembered rather than derived.
-            previous.continueStroke(path, 0, SEGMENT_MS, true)
+        // Every one of these throws IllegalArgumentException on a path the framework doesn't
+        // like — a continuation that doesn't start where the last ended, a coordinate off the
+        // display, a duration it disagrees with. Uncaught, that used to take the whole key
+        // filter down with it, which is a scroll bug becoming a phone you can't dismiss an
+        // alarm on. Building and dispatching are one attempt, and failure means start over.
+        val next = runCatching {
+            if (previous == null) {
+                GestureDescription.StrokeDescription(path, 0, SEGMENT_MS, true)
+            } else {
+                previous.continueStroke(path, 0, SEGMENT_MS, true)
+            }
+        }.getOrNull()
+        val gesture = next?.let { runCatching { GestureDescription.Builder().addStroke(it).build() }.getOrNull() }
+        if (next == null || gesture == null) {
+            restart()
+            return
         }
 
-        val gesture = GestureDescription.Builder().addStroke(next).build()
         dispatching = true
-        val ok = service.dispatchGesture(
-            gesture,
-            object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(description: GestureDescription?) = step()
-                override fun onCancelled(description: GestureDescription?) = restart()
-            },
-            null,
-        )
+        val ok = runCatching {
+            service.dispatchGesture(
+                gesture,
+                object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(description: GestureDescription?) = step()
+                    override fun onCancelled(description: GestureDescription?) = restart()
+                },
+                null,
+            )
+        }.getOrDefault(false)
         if (!ok) {
             restart()
             return
@@ -162,6 +173,7 @@ class WheelSwipe(private val service: AccessibilityService) {
      */
     private fun finish() {
         val previous = stroke ?: return
+        dispatching = false
         val at = y ?: return
         stroke = null
         y = null
@@ -172,8 +184,11 @@ class WheelSwipe(private val service: AccessibilityService) {
             moveTo(x, at)
             lineTo(x, at + 1f)
         }
-        val end = previous.continueStroke(path, 0, 1, false)
+        // Guarded like the rest, and for a sharper reason: this one runs from a Handler, not
+        // from a key event, so nothing upstream is holding a catch for it. An uncaught throw
+        // here takes the process down a beat after the wheel stopped moving.
         runCatching {
+            val end = previous.continueStroke(path, 0, 1, false)
             service.dispatchGesture(GestureDescription.Builder().addStroke(end).build(), null, null)
         }
         dispatching = false

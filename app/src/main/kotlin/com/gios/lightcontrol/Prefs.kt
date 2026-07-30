@@ -118,6 +118,22 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("double_tap", true)
         set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
+    /**
+     * The last fault the key service hit, and whether it has gone quiet because of them.
+     *
+     * Recorded rather than only logged, because the symptom of a dormant filter is buttons that
+     * silently stopped working — and a phone that won't say why is worse than one that failed.
+     */
+    fun fault(): String? = sp.getString("fault", null)
+
+    fun faultDormant(): Boolean = sp.getBoolean("fault_dormant", false)
+
+    fun setFault(message: String?, dormant: Boolean) {
+        sp.edit().putString("fault", message).putBoolean("fault_dormant", dormant).apply()
+    }
+
+    fun clearFault() = sp.edit().remove("fault").putBoolean("fault_dormant", false).apply()
+
     /** Notches from dimmest to brightest. */
     var brightnessSteps: Int
         get() = sp.getInt("steps", 24)

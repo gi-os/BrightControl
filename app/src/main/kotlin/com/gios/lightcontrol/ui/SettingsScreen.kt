@@ -70,6 +70,21 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll)) {
 
+            var fault by remember { mutableStateOf(prefs.fault()) }
+            if (fault != null) {
+                SectionLabel("FAULT")
+                MenuRow(
+                    label = if (prefs.faultDormant()) "Key service went quiet" else "Last fault",
+                    detail = "CLEAR",
+                    sub = "$fault — opening this app already re-armed it. Tap to forget.",
+                    onClick = {
+                        prefs.clearFault()
+                        fault = null
+                    },
+                )
+                Rule()
+            }
+
             SectionLabel("SETUP")
             GrantRow(
                 label = "Key service",
