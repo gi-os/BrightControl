@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.11.** See [Version history](#version-history).
+**Current version: v1.0.21.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -319,6 +319,7 @@ Real tags, oldest to newest:
 | v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
 | v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
 | v1.0.19 | A clock in front keeps every key it can see |
+| v1.0.21 | **Hold home opens LightOS's dashboard by name.** The takeover refuses the key when the screen is off, the phone is locked, LightOS is in front, or the hold would need an activity start it hasn't been granted — and disarms itself permanently after two dispatches that report failure |
 
 Note: **v1.1.6 is a real tag**, not a typo introduced here — the `major.minor` base in
 `build.gradle.kts` was briefly `1.1` for that one release and reverted to `1.0` for the
