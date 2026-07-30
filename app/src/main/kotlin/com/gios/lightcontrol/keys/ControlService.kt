@@ -1,9 +1,7 @@
 package com.gios.lightcontrol.keys
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
 import android.content.Intent
-import android.graphics.Path
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Handler
@@ -18,8 +16,6 @@ import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
-import kotlin.math.abs
-import kotlin.math.min
 
 /**
  * The wheel and the buttons, everywhere on the phone.
@@ -54,9 +50,8 @@ class ControlService : AccessibilityService() {
 
     private var torchOn = false
 
-    /** Notches waiting to become one swipe, and whether a swipe is already in flight. */
-    private var swipeDebt = 0f
-    private var swiping = false
+    /** The synthetic finger that scrolls apps which don't understand the wheel. */
+    private lateinit var swipe: WheelSwipe
 
     /** One press in flight: what it has already done, and its pending hold. */
     private class Press(
@@ -70,6 +65,7 @@ class ControlService : AccessibilityService() {
         prefs = Prefs(this)
         brightness = Brightness(this)
         readout = Readout(this)
+        swipe = WheelSwipe(this)
     }
 
     /**
@@ -108,6 +104,7 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
+        swipe.cancel()
         presses.clear()
         return super.onUnbind(intent)
     }
@@ -191,7 +188,7 @@ class ControlService : AccessibilityService() {
                 true
             }
             TurnAction.Swipe -> {
-                if (down) swipe(notches)
+                if (down) swipe.turn(notches, prefs.swipeDp)
                 true
             }
             // Passed through, so the app in front can scroll with it.
@@ -202,59 +199,6 @@ class ControlService : AccessibilityService() {
     private fun adjustBrightness(notches: Int) {
         val percent = brightness.step(notches, prefs.brightnessSteps) ?: return
         if (prefs.showReadout) readout.show("BRIGHTNESS $percent%")
-    }
-
-    /**
-     * Scrolling an app that has never heard of the wheel, by drawing a finger on it.
-     *
-     * `dispatchGesture` is the only route that doesn't require reading the screen — the
-     * alternative, `ACTION_SCROLL_FORWARD` on a node, needs `canRetrieveWindowContent` and
-     * moves a whole screenful per notch. The drag is well past touch slop so it can't be
-     * mistaken for a tap, and notches are coalesced: a gesture takes ~60 ms to play, which is
-     * slower than the sensor emits, so firing one per notch would queue them into treacle.
-     * Instead the debt accumulates while a swipe is in flight and the next one carries the lot.
-     */
-    private fun swipe(notches: Int) {
-        val density = resources.displayMetrics.density
-        swipeDebt += notches * prefs.swipeDp * density
-        if (swiping) return
-
-        val metrics = resources.displayMetrics
-        // Cap at most of a screen: a longer path is read as a fling, which overshoots.
-        val limit = metrics.heightPixels * 0.6f
-        val distance = swipeDebt.coerceIn(-limit, limit)
-        swipeDebt -= distance
-        if (abs(distance) < 1f) return
-
-        val x = metrics.widthPixels / 2f
-        val centre = metrics.heightPixels / 2f
-        val half = min(abs(distance), limit) / 2f
-        // Positive notches move down the page, so the finger travels up the screen.
-        val from = centre + if (distance > 0) half else -half
-        val to = centre - if (distance > 0) half else -half
-
-        val path = Path().apply {
-            moveTo(x, from)
-            lineTo(x, to)
-        }
-        val stroke = GestureDescription.StrokeDescription(path, 0, SWIPE_MS)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-
-        swiping = true
-        val done = object : GestureResultCallback() {
-            override fun onCompleted(description: GestureDescription?) = finish()
-            override fun onCancelled(description: GestureDescription?) = finish()
-
-            private fun finish() {
-                swiping = false
-                // Anything that piled up during the stroke goes out as one more.
-                if (abs(swipeDebt) >= 1f) swipe(0)
-            }
-        }
-        if (!dispatchGesture(gesture, done, null)) {
-            swiping = false
-            swipeDebt = 0f
-        }
     }
 
     // -------------------------------------------------------------------- the actions

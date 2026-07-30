@@ -62,11 +62,27 @@ exist from out here, and only one of them is acceptable:
   per notch, and requires `canRetrieveWindowContent` — the service would be able to read
   everything on screen in order to scroll a list. Not worth it.
 
-`SWIPE` is off by default and set per app. The drag is 64 dp a notch, well past touch slop so
-it can't land as a tap, and notches are coalesced: a stroke takes ~60 ms to play, slower than
-the sensor emits, so firing one per notch would queue them into treacle. Instead the distance
-accumulates while a stroke is in flight and the next one carries the lot, capped at 0.6 of a
-screen because a longer path reads as a fling and overshoots.
+With root the better answer would be a keylayout that also emits `PAGE_UP`/`PAGE_DOWN`, and
+apps would scroll for free — but this is a user build.
+
+`SWIPE` is off by default and set per app. It is **one finger that never lifts**, not a series
+of flicks: a `StrokeDescription` marked `willContinue` leaves the finger down, and
+`continueStroke` moves it as the wheel turns. The first version dispatched a separate flick per
+burst and felt like it — every stroke was a fresh touch-down-drag-lift, so the app saw a queue
+of small flings whose momentum fought the next one.
+
+Two things make it fiddly, and both are visible in `keys/WheelSwipe.kt`:
+
+- **A continuation must start exactly where the last one ended**, so the finger's position is
+  tracked rather than recomputed.
+- **A finger cannot leave the screen.** It stays inside the middle 18–82% — away from the edges
+  where a drag becomes the system back or home gesture — and when it reaches the end of that
+  band it lifts, with the next notch starting a fresh stroke from the middle. That relift is
+  the one visible seam, and it is unavoidable: a real thumb has the same limit, which is why
+  people swipe repeatedly instead of dragging one screen-length inch.
+
+If a real finger touches the screen mid-scroll the gesture is cancelled, and the synthetic one
+gives up rather than fighting it — that is how you avoid a scroll that won't stop.
 
 It is still a synthetic finger, and it will never be as good as an app scrolling itself. Apps
 that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
@@ -161,6 +177,7 @@ Bindings.kt              buttons, gestures, actions, and the out-of-the-box defa
 keys/LightKeys.kt        the seven keycodes, resolved by label then by scancode
 keys/ControlService.kt   the filter service: gesture split, consume rules, foreground app
 keys/Brightness.kt       system brightness with a derived scale
+keys/WheelSwipe.kt       the synthetic finger: one continued stroke, tracked and relifted
 keys/Readout.kt          the level, as one reused overlay window
 keys/Grants.kt           what's granted, and the volatile own-window flag
 Prefs.kt                 settings, plus the table that decides untouched apps
