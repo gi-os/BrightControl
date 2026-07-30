@@ -191,6 +191,12 @@ A key filter is the one kind of app that can make a phone worse by breaking. Swa
 then throw, and the key is simply gone — which on the wrong morning is an alarm that won't turn
 off. So three rules, all of them learned the hard way:
 
+**A clock keeps every key, always.** Anything registered for `SHOW_ALARMS` or `SET_ALARM` — on this
+phone `com.android.deskclock`, which is not in the hands-off prefix list — is passed through
+entirely. The ringing check below only catches the moment audio is playing, and a silenced alarm, a
+pre-alarm screen or a snooze countdown are all a clock in front with something urgent to dismiss and
+no sound to detect. An alarm is the one thing here where being clever costs you a morning.
+
 **Nothing is intercepted while something is ringing.** If any active playback carries
 `USAGE_ALARM` or `USAGE_NOTIFICATION_RINGTONE`, every key goes straight through. Whatever is
 making the noise owns the dismiss gesture, and guessing which key it wants is exactly the guess

@@ -9,6 +9,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Handler
 import android.os.Looper
+import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
@@ -72,6 +73,9 @@ class ControlService : AccessibilityService() {
      * Cleared on unbind, which is also when an install would have had time to happen.
      */
     private val cameraPackages = HashMap<String, Boolean>()
+
+    /** Which packages are clocks, memoised for the same reason. */
+    private val alarmPackages = HashMap<String, Boolean>()
 
     /** One press in flight: what it has already done, and its pending hold. */
     private class Press(
@@ -173,6 +177,8 @@ class ControlService : AccessibilityService() {
         // Our own settings screen reports itself, because window-state events from this
         // package are ignored — the readout overlay raises them too.
         val front = if (OwnWindow.resumed) packageName else foreground
+        // A clock owns every key it can see. See [ownsAlarmKeys].
+        if (ownsAlarmKeys(front)) return false
         val behaviour = Policy.behaviourFor(prefs, front)
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
@@ -185,6 +191,34 @@ class ControlService : AccessibilityService() {
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
         return onButton(button, behaviour, event)
+    }
+
+    /**
+     * Whether the app in front is a clock, and so keeps every key untouched.
+     *
+     * The alarm-sounding check catches the moment audio is actually playing, which is most of
+     * what matters — but not all of it. A ringing alarm that has been silenced, a pre-alarm
+     * screen, a snooze countdown: all of those are a clock in front with something urgent to
+     * dismiss and no sound to detect. And an alarm is the one thing on a phone where the cost
+     * of being clever is oversleeping.
+     *
+     * So a clock is hands-off entirely, identified by what it declares rather than by name:
+     * anything registered for `SHOW_ALARMS` or `SET_ALARM` is a clock by the only definition
+     * the system has. On this phone that is `com.android.deskclock`, which is not in the
+     * hands-off prefix list and, before this, was being intercepted like any other app.
+     */
+    private fun ownsAlarmKeys(pkg: String?): Boolean {
+        if (pkg == null) return false
+        if (pkg == packageName) return false
+        alarmPackages[pkg]?.let { return it }
+        val declared = runCatching {
+            listOf(AlarmClock.ACTION_SHOW_ALARMS, AlarmClock.ACTION_SET_ALARM).any { action ->
+                packageManager.queryIntentActivities(Intent(action), 0)
+                    .any { it.activityInfo?.packageName == pkg }
+            }
+        }.getOrDefault(false)
+        alarmPackages[pkg] = declared
+        return declared
     }
 
     /**
@@ -226,6 +260,7 @@ class ControlService : AccessibilityService() {
         pendingTap = null
         presses.clear()
         cameraPackages.clear()
+        alarmPackages.clear()
         return super.onUnbind(intent)
     }
 
