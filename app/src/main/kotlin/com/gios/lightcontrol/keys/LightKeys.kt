@@ -25,6 +25,9 @@ enum class LightKey {
 
     /** On its own device, `pmic_resin`, scancode 114. */
     VolumeDown,
+
+    /** On `gpio-keys`, scancode 102. Ordinary `KEYCODE_HOME`. */
+    Home,
 }
 
 /**
@@ -68,6 +71,7 @@ object LightKeys {
     private const val SCAN_CAMERA = 27 // KEY_RIGHTBRACE
     private const val SCAN_VOLUME_DOWN = 114 // KEY_VOLUMEDOWN
     private const val SCAN_VOLUME_UP = 115 // KEY_VOLUMEUP
+    private const val SCAN_HOME = 102 // KEY_HOME
 
     /** The only devices these scancodes may be trusted from. */
     private val trustedDevices = setOf("Pixart pat9126ja", "gpio-keys", "pmic_resin")
@@ -80,6 +84,7 @@ object LightKeys {
         SCAN_CAMERA to LightKey.Camera,
         SCAN_VOLUME_UP to LightKey.VolumeUp,
         SCAN_VOLUME_DOWN to LightKey.VolumeDown,
+        SCAN_HOME to LightKey.Home,
     )
 
     private val byKeyCode: Map<Int, LightKey> = buildMap {
@@ -90,6 +95,7 @@ object LightKeys {
         putLabel("CAMERA", LightKey.Camera)
         putLabel("VOLUME_UP", LightKey.VolumeUp)
         putLabel("VOLUME_DOWN", LightKey.VolumeDown)
+        putLabel("HOME", LightKey.Home)
     }
 
     private fun MutableMap<Int, LightKey>.putLabel(label: String, key: LightKey) {
@@ -119,6 +125,7 @@ object LightKeys {
         LightKey.WheelClick -> Button.WheelClick
         LightKey.VolumeUp -> Button.VolumeUp
         LightKey.VolumeDown -> Button.VolumeDown
+        LightKey.Home -> Button.Home
         LightKey.WheelUp, LightKey.WheelDown -> null
     }
 }

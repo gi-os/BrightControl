@@ -236,6 +236,7 @@ class ControlService : AccessibilityService() {
             Action.Torch -> toggleTorch()
             Action.OpenCamera -> openCamera()
             is Action.Launch -> launch(action.pkg)
+            Action.LightOsHome -> goHome()
             Action.None, Action.PassThrough -> Unit
         }
     }
@@ -317,8 +318,19 @@ class ControlService : AccessibilityService() {
 
     private fun launch(pkg: String) {
         val intent = runCatching { packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
-            ?: return
-        start(intent)
+        // Nothing to launch — an app uninstalled since it was bound, or one with no launcher
+        // entry. Fall back to home rather than swallowing the press: on the home button that
+        // would strand the user on whatever screen they were trying to leave.
+        if (intent == null || !start(intent)) goHome()
+    }
+
+    /** Light's own home, fired deliberately, because a consumed key can't be given back. */
+    private fun goHome() {
+        start(
+            Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 
     /**

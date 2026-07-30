@@ -10,6 +10,8 @@ write.
 | Hold the wheel | nothing — bind it to any app |
 | Tap the camera button | The Light camera |
 | Hold the camera button | nothing — bind it to any app |
+| Tap the home button | Light's home — rebind it to yours |
+| Hold the home button | Light's home, always |
 | Volume keys, tap or hold | passed through, but bindable |
 | Turn the wheel | Brightness — or a swipe, or passed through, per app |
 
@@ -87,6 +89,19 @@ gives up rather than fighting it — that is how you avoid a scroll that won't s
 It is still a synthetic finger, and it will never be as good as an app scrolling itself. Apps
 that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
 and it scrolls a WebView properly because it lives inside the app that owns it.
+
+## The home button
+
+Tap and hold, like the others: bind the tap to your own home and the hold stays the way back to
+Light's dashboard.
+
+Both start out as Light's home, so out of the box the button does what it always did. And the tap
+cannot be left as "pass through", which is worth knowing before you try it: the service has to
+swallow the DOWN to see whether a hold is coming, and a key cannot be un-consumed — "let it
+through after all" is not something the framework offers. That is why `LightOS home` is an action
+you can bind rather than an absence of one. If a bound app has been uninstalled, or has no
+launcher entry, the press falls back to home rather than stranding you on the screen you were
+trying to leave.
 
 ## The lock screen
 

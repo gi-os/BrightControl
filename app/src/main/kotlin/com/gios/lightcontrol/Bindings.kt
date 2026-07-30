@@ -11,6 +11,9 @@ enum class Button {
     VolumeUp,
 
     VolumeDown,
+
+    /** The home button. Tap is yours, hold is Light's — see [Action.LightOsHome]. */
+    Home,
     ;
 
     val label: String
@@ -19,6 +22,7 @@ enum class Button {
             Camera -> "Camera button"
             VolumeUp -> "Volume up"
             VolumeDown -> "Volume down"
+            Home -> "Home button"
         }
 }
 
@@ -52,6 +56,16 @@ sealed interface Action {
 
     data class Launch(val pkg: String) : Action
 
+    /**
+     * Whatever the system considers home — LightOS's dashboard, here.
+     *
+     * This exists because a key cannot be un-consumed. Once the service swallows the home
+     * button's DOWN to see whether a hold follows, the original press is gone; "let it through
+     * after all" is not a thing the framework offers. So the way back to Light's home is an
+     * action that fires it deliberately, which also makes it bindable anywhere else.
+     */
+    data object LightOsHome : Action
+
     /** True if this action means the service should swallow the key. */
     val consumes: Boolean get() = this != PassThrough
 
@@ -64,6 +78,7 @@ sealed interface Action {
         Torch -> "torch"
         OpenCamera -> "camera"
         is Launch -> "launch:$pkg"
+        LightOsHome -> "home"
     }
 
     companion object {
@@ -73,6 +88,7 @@ sealed interface Action {
             raw == "none" -> None
             raw == "torch" -> Torch
             raw == "camera" -> OpenCamera
+            raw == "home" -> LightOsHome
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
             else -> null
         }
@@ -87,6 +103,12 @@ sealed interface Action {
          * consuming them by default would be taking away a function to add one.
          */
         fun default(button: Button, gesture: Gesture): Action = when {
+            // Both gestures on the home button start out as Light's home, so out of the box the
+            // button does exactly what it did before. Bind the tap to your own home and the hold
+            // is already the way back to theirs — which is the whole point of the pairing, and
+            // why the tap cannot be left as PassThrough: the service has to swallow the DOWN to
+            // see whether a hold is coming, so a tap that "passes through" would pass nothing.
+            button == Button.Home -> LightOsHome
             gesture == Gesture.Hold -> when (button) {
                 Button.VolumeUp, Button.VolumeDown -> PassThrough
                 else -> None
