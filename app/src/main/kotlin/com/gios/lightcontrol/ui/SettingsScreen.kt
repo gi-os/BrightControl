@@ -51,6 +51,7 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
 
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
     var doubleTap by remember { mutableStateOf(prefs.doubleTapSwitchesTurn) }
+    var lightOs by remember { mutableStateOf(prefs.lightOsScreens) }
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
@@ -105,6 +106,16 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                     shortLabel(prefs.action(Button.Camera, Gesture.Tap)),
                 sub = "wheel click and camera button, tap and hold separately",
                 onClick = onButtons,
+            )
+            MenuRow(
+                label = "LightOS screens",
+                detail = if (lightOs) "BUTTONS" else "OFF",
+                sub = "the lock screen and the dashboard, which are one activity. Buttons only " +
+                    "— turning stays LightOS's, which is what it already does well.",
+                onClick = {
+                    lightOs = !lightOs
+                    prefs.lightOsScreens = lightOs
+                },
             )
             MenuRow(
                 label = "Double tap the wheel",

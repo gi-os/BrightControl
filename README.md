@@ -90,12 +90,18 @@ and it scrolls a WebView properly because it lives inside the app that owns it.
 
 ## The lock screen
 
-Not supported, deliberately. LightOS's lock screen is not a keyguard — it's a view inside
-LightOS's own single activity, so locked or sitting on the dashboard the focused window is
-`com.lightos/com.lightos.MainActivity` in the same task either way. Nothing observable from
-outside separates them, which means taking the wheel on the lock screen means taking it on the
-home screen too, and consuming keys inside that activity made LightOS itself unstable. So it
-stays hands-off, and the lock screen keeps Light's own behaviour.
+LightOS's lock screen is not a keyguard — it's a view inside LightOS's own single activity, so
+locked or sitting on the dashboard the focused window is `com.lightos/com.lightos.MainActivity`
+in the same task either way. Nothing observable from outside separates them, so it is one
+decision for both: **LightOS screens**, off by default.
+
+On, it takes the **buttons only**. The first version took the turns as well and made LightOS
+unstable, and turns were the part worth least — LightOS already puts brightness on them, on both
+screens. What's missing there is the flashlight you want from a locked phone and whatever else
+you have bound, so that's all this claims. Every turn still goes to LightOS untouched.
+
+A binding that opens an app still waits for an unlock: a background activity start behind a lock
+is dropped unless the target declares `showWhenLocked`, which isn't ours to declare.
 
 ## Privacy
 

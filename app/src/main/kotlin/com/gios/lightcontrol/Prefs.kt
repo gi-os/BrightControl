@@ -92,6 +92,21 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putString("turn", v.name).apply()
 
     /**
+     * Whether the button bindings apply on LightOS's own screens — the lock screen and the home
+     * dashboard, which are one activity and so one decision.
+     *
+     * Deliberately narrow. The first attempt took the *turns* there too and made LightOS
+     * unstable, and turns were the part worth least: LightOS already puts brightness on them,
+     * on both screens. What is missing there is the buttons — the flashlight you actually want
+     * from a locked phone, and whatever else you have bound. So this takes the wheel click and
+     * the camera button and leaves every turn to LightOS, which is both the smaller change and
+     * the one with something to gain.
+     */
+    var lightOsScreens: Boolean
+        get() = sp.getBoolean("lightos_screens", false)
+        set(v) = sp.edit().putBoolean("lightos_screens", v).apply()
+
+    /**
      * Whether a double tap of the wheel switches what turning it does.
      *
      * This replaced hold-and-turn. Holding the wheel in while turning it read as a deliberate
@@ -191,6 +206,11 @@ object Policy {
     }
 
     fun behaviourFor(prefs: Prefs, pkg: String?): Behaviour {
+        // LightOS's lock screen and dashboard are one activity, so they are one decision — and
+        // the turns stay theirs, because taking those is what broke it.
+        if (pkg != null && pkg.startsWith("com.lightos") && prefs.lightOsScreens) {
+            return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = true)
+        }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)
         if (rule == AppRule.Off) {
             return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = false)
