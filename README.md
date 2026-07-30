@@ -88,6 +88,21 @@ It is still a synthetic finger, and it will never be as good as an app scrolling
 that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
 and it scrolls a WebView properly because it lives inside the app that owns it.
 
+## The lock screen
+
+The keyguard is LightOS's own window and its package sits under the hands-off prefix, so by
+package alone the answer would always be "leave it alone" — and the bindings would stop existing
+exactly where the flashlight matters most. So the keyguard is asked about directly
+(`KeyguardManager.isKeyguardLocked`, per key event, because it changes without any window-state
+event this service can see) and gets its own behaviour: turns are brightness, since there is
+nothing there to scroll, and the buttons keep their bindings.
+
+Two of those bindings genuinely work locked — the torch and brightness — which is why they are
+the defaults. A binding that opens an app does not: a background activity start behind the
+keyguard is dropped unless the target itself declares `showWhenLocked`, which isn't ours to
+declare, so it waits for an unlock. Turn the whole thing off with **On the lock screen** if you
+would rather have LightOS's behaviour back.
+
 ## Privacy
 
 The service declares one event type and `canRetrieveWindowContent="false"`. What it can

@@ -54,6 +54,7 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
+    var lockScreen by remember { mutableStateOf(prefs.lockScreen) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -105,6 +106,16 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                     shortLabel(prefs.action(Button.Camera, Gesture.Tap)),
                 sub = "wheel click and camera button, tap and hold separately",
                 onClick = onButtons,
+            )
+            MenuRow(
+                label = "On the lock screen",
+                detail = if (lockScreen) "ON" else "OFF",
+                sub = "the keyguard is LightOS's own window, so without this nothing here " +
+                    "applies there. A binding that opens an app still waits for an unlock.",
+                onClick = {
+                    lockScreen = !lockScreen
+                    prefs.lockScreen = lockScreen
+                },
             )
             MenuRow(
                 label = "Hold wheel + turn",

@@ -101,6 +101,17 @@ class Prefs(context: Context) {
         get() = sp.getInt("steps", 24)
         set(v) = sp.edit().putInt("steps", v.coerceIn(8, 64)).apply()
 
+    /**
+     * Whether the bindings apply on the lock screen.
+     *
+     * The keyguard is LightOS's own window and sits under a hands-off prefix, so without this
+     * the wheel there does whatever LightOS does and nothing here applies. On by default: the
+     * flashlight and brightness are exactly what you want from a locked phone in the dark.
+     */
+    var lockScreen: Boolean
+        get() = sp.getBoolean("lock_screen", true)
+        set(v) = sp.edit().putBoolean("lock_screen", v).apply()
+
     /** Whether to flash the level on screen. Needs the overlay appop to appear at all. */
     var showReadout: Boolean
         get() = sp.getBoolean("readout", true)
