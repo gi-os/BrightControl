@@ -49,7 +49,8 @@ fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
         Choice(Action.None, "Nothing", "swallowed, does nothing"),
         Choice(Action.Torch, "Flashlight", "on or off"),
         Choice(Action.OpenCamera, "Camera", "opens the Light camera"),
-        Choice(Action.LightOsHome, "LightOS home", "Light's own dashboard"),
+        Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
+        Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
     )
 
     val apps = remember {

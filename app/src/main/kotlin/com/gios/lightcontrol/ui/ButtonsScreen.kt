@@ -108,7 +108,8 @@ fun shortLabel(action: Action): String = when (action) {
     Action.None -> "NONE"
     Action.Torch -> "TORCH"
     Action.OpenCamera -> "CAMERA"
-    Action.LightOsHome -> "HOME"
+    Action.DefaultHome -> "HOME"
+    Action.LightOsHome -> "LIGHTOS"
     is Action.Launch -> "APP"
 }
 
@@ -117,7 +118,8 @@ fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
     Action.None -> "swallowed, does nothing"
     Action.Torch -> "flashlight on or off"
     Action.OpenCamera -> "opens the Light camera"
-    Action.LightOsHome -> "Light's own dashboard"
+    Action.DefaultHome -> "whichever launcher is default"
+    Action.LightOsHome -> "Light's dashboard, by name"
     is Action.Launch -> appLabel(pm, action.pkg)
 }
 

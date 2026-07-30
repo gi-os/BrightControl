@@ -57,12 +57,21 @@ sealed interface Action {
     data class Launch(val pkg: String) : Action
 
     /**
-     * Whatever the system considers home — LightOS's dashboard, here.
+     * Home — whichever launcher is set as default.
      *
-     * This exists because a key cannot be un-consumed. Once the service swallows the home
+     * A plain `CATEGORY_HOME` intent, so it follows the system's own choice rather than naming
+     * anything. If that choice is LightOS, this and [LightOsHome] do the same thing.
+     */
+    data object DefaultHome : Action
+
+    /**
+     * LightOS's dashboard specifically, named rather than resolved — the point of it is to reach
+     * Light's home *when it isn't* the default any more.
+     *
+     * Both of these exist because a key cannot be un-consumed. Once the service swallows the home
      * button's DOWN to see whether a hold follows, the original press is gone; "let it through
-     * after all" is not a thing the framework offers. So the way back to Light's home is an
-     * action that fires it deliberately, which also makes it bindable anywhere else.
+     * after all" is not a thing the framework offers. So home is something to fire deliberately,
+     * which also makes both bindable anywhere else.
      */
     data object LightOsHome : Action
 
@@ -78,7 +87,8 @@ sealed interface Action {
         Torch -> "torch"
         OpenCamera -> "camera"
         is Launch -> "launch:$pkg"
-        LightOsHome -> "home"
+        DefaultHome -> "home"
+        LightOsHome -> "lightoshome"
     }
 
     companion object {
@@ -88,7 +98,8 @@ sealed interface Action {
             raw == "none" -> None
             raw == "torch" -> Torch
             raw == "camera" -> OpenCamera
-            raw == "home" -> LightOsHome
+            raw == "home" -> DefaultHome
+            raw == "lightoshome" -> LightOsHome
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
             else -> null
         }
@@ -103,12 +114,13 @@ sealed interface Action {
          * consuming them by default would be taking away a function to add one.
          */
         fun default(button: Button, gesture: Gesture): Action = when {
-            // Both gestures on the home button start out as Light's home, so out of the box the
-            // button does exactly what it did before. Bind the tap to your own home and the hold
-            // is already the way back to theirs — which is the whole point of the pairing, and
-            // why the tap cannot be left as PassThrough: the service has to swallow the DOWN to
-            // see whether a hold is coming, so a tap that "passes through" would pass nothing.
-            button == Button.Home -> LightOsHome
+            // Tap follows the default launcher, hold names LightOS. With LightOS as the default
+            // both do the same thing, so the button behaves as it always did until you point the
+            // default somewhere else — at which point the hold is already the way back to Light's
+            // dashboard. Neither can be PassThrough: the service has to swallow the DOWN to see
+            // whether a hold is coming, so a tap that "passed through" would pass nothing.
+            button == Button.Home ->
+                if (gesture == Gesture.Hold) LightOsHome else DefaultHome
             gesture == Gesture.Hold -> when (button) {
                 Button.VolumeUp, Button.VolumeDown -> PassThrough
                 else -> None

@@ -236,7 +236,8 @@ class ControlService : AccessibilityService() {
             Action.Torch -> toggleTorch()
             Action.OpenCamera -> openCamera()
             is Action.Launch -> launch(action.pkg)
-            Action.LightOsHome -> goHome()
+            Action.DefaultHome -> goHome()
+            Action.LightOsHome -> goLightOsHome()
             Action.None, Action.PassThrough -> Unit
         }
     }
@@ -324,7 +325,19 @@ class ControlService : AccessibilityService() {
         if (intent == null || !start(intent)) goHome()
     }
 
-    /** Light's own home, fired deliberately, because a consumed key can't be given back. */
+    /**
+     * LightOS's dashboard by name, because resolving `CATEGORY_HOME` would just return whatever
+     * launcher is default — and reaching Light's home when it *isn't* the default is the entire
+     * job of this action. Falls back to the default home if that component ever moves.
+     */
+    private fun goLightOsHome() {
+        val explicit = Intent(Intent.ACTION_MAIN)
+            .setClassName("com.lightos", "com.lightos.MainActivity")
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!start(explicit)) goHome()
+    }
+
+    /** Home, as the system understands it: whichever launcher is set as default. */
     private fun goHome() {
         start(
             Intent(Intent.ACTION_MAIN)
