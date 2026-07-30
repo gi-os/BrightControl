@@ -114,13 +114,10 @@ sealed interface Action {
          * consuming them by default would be taking away a function to add one.
          */
         fun default(button: Button, gesture: Gesture): Action = when {
-            // The home button starts out untouched, both gestures, so LightOS's own handling of
-            // it stays visible — including whatever it does with a long press, which is worth
-            // knowing before overwriting. Bind either gesture and the service takes the key from
-            // that point on: it has to swallow the DOWN to see whether a hold is coming, and a
-            // consumed key cannot be handed back, so "pass through" and "bound" are all-or-nothing
-            // per button rather than per gesture.
-            button == Button.Home -> PassThrough
+            // Tap goes home, hold stays the app's. This pair is special-cased in the service
+            // precisely so the hold can remain a real pass-through — see the comment there.
+            button == Button.Home ->
+                if (gesture == Gesture.Hold) PassThrough else DefaultHome
             gesture == Gesture.Hold -> when (button) {
                 Button.VolumeUp, Button.VolumeDown -> PassThrough
                 else -> None

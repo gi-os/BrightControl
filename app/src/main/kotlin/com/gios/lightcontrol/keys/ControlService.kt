@@ -5,6 +5,7 @@ import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.provider.MediaStore
 import android.view.KeyEvent
@@ -44,6 +45,9 @@ class ControlService : AccessibilityService() {
     /** The app in front, from window-state events. Null until the first one arrives. */
     @Volatile
     private var foreground: String? = null
+
+    /** When an unconsumed press started, for the shadowed home button. */
+    private var shadowDownAt = 0L
 
     /** A wheel tap waiting to see whether a second one follows. */
     private var pendingTap: Runnable? = null
@@ -175,6 +179,31 @@ class ControlService : AccessibilityService() {
         // taking away volume control to add nothing.
         val switcher = button == Button.WheelClick && prefs.doubleTapSwitchesTurn
         if (!tap.acts && !hold.acts && !switcher) return false
+
+        // Tap bound, hold left to the app. Every other binding works by swallowing the DOWN and
+        // timing the release, which is exactly what makes a pass-through hold impossible: a
+        // consumed key cannot be handed back once you know it was a hold.
+        //
+        // So this combination doesn't consume anything at all. The app sees the whole press —
+        // long presses included, behaving as they always did — and the service merely times it
+        // and, on a short one, fires the tap action afterwards. That lands on top of whatever
+        // the app already did with the press, which is why it is offered on the home button and
+        // not in general: going home twice is invisible, and most actions wouldn't be.
+        if (!hold.acts && tap.acts && button == Button.Home) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                    shadowDownAt = SystemClock.uptimeMillis()
+                }
+                KeyEvent.ACTION_UP -> {
+                    val started = shadowDownAt
+                    shadowDownAt = 0L
+                    if (started != 0L && SystemClock.uptimeMillis() - started < HOLD_MS) {
+                        perform(tap)
+                    }
+                }
+            }
+            return false
+        }
 
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {

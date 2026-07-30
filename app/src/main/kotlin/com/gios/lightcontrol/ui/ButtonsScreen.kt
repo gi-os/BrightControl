@@ -80,12 +80,12 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                 }
                 if (button == Button.Home) {
                     MenuRow(
-                        label = "Both unbound",
+                        label = "Hold left to the app",
                         detail = "PASS",
-                        sub = "LightOS keeps the home button until you bind a gesture. Bind one " +
-                            "and the service takes the key for both, because it must swallow " +
-                            "the press to time the hold — so give the other gesture Home or " +
-                            "LightOS home to keep a way back.",
+                        sub = "with the hold unbound, nothing is consumed: LightOS sees the whole " +
+                            "press and long-presses behave as they always did, and a short press " +
+                            "fires the tap on top. Bind the hold and the service takes the key " +
+                            "for both, because timing a hold means swallowing the press.",
                         dim = true,
                     )
                 }
