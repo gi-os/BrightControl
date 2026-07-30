@@ -116,7 +116,8 @@ fun AppListScreen(onBack: () -> Unit) {
 
 private fun cycle(rule: AppRule): AppRule = when (rule) {
     AppRule.Default -> AppRule.BrightnessOnTurn
-    AppRule.BrightnessOnTurn -> AppRule.ScrollThrough
+    AppRule.BrightnessOnTurn -> AppRule.SwipeOnTurn
+    AppRule.SwipeOnTurn -> AppRule.ScrollThrough
     AppRule.ScrollThrough -> AppRule.Off
     AppRule.Off -> AppRule.Default
 }
@@ -124,6 +125,7 @@ private fun cycle(rule: AppRule): AppRule = when (rule) {
 private fun detail(rule: AppRule): String = when (rule) {
     AppRule.Default -> "AUTO"
     AppRule.BrightnessOnTurn -> "BRIGHT"
+    AppRule.SwipeOnTurn -> "SWIPE"
     AppRule.ScrollThrough -> "APP"
     AppRule.Off -> "OFF"
 }
@@ -131,6 +133,7 @@ private fun detail(rule: AppRule): String = when (rule) {
 private fun describe(rule: AppRule): String = when (rule) {
     AppRule.Default -> "turn does whatever the global setting says"
     AppRule.BrightnessOnTurn -> "turning the wheel changes brightness"
+    AppRule.SwipeOnTurn -> "turning scrolls it, by synthetic swipe"
     AppRule.ScrollThrough -> "turns go to the app, it scrolls itself"
     AppRule.Off -> "hands off — every key goes straight through"
 }

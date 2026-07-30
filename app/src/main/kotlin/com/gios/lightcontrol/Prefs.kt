@@ -4,7 +4,23 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /** What a bare wheel turn does in an app. */
-enum class TurnAction { PassThrough, Brightness }
+enum class TurnAction {
+    /** The key reaches the app, which scrolls itself if it knows how. */
+    PassThrough,
+
+    Brightness,
+
+    /** A synthetic finger-drag, for apps that will never understand the wheel. */
+    Swipe,
+    ;
+
+    val label: String
+        get() = when (this) {
+            PassThrough -> "PASS THROUGH"
+            Brightness -> "BRIGHTNESS"
+            Swipe -> "SWIPE"
+        }
+}
 
 /** How one app is treated. */
 enum class AppRule {
@@ -17,23 +33,27 @@ enum class AppRule {
     /** Turns reach the app so it can scroll; press-and-turn, click and camera key are ours. */
     ScrollThrough,
 
-    /** A bare turn adjusts brightness, for apps that wouldn't scroll anyway. */
+    /** A bare turn adjusts brightness. */
     BrightnessOnTurn,
+
+    /** A bare turn scrolls by synthetic swipe, for apps that ignore the wheel. */
+    SwipeOnTurn,
 }
 
 /** The resolved behaviour for the app that is currently in front. */
 data class Behaviour(
     val bareTurn: TurnAction,
     val pressTurnBrightness: Boolean,
-    val clickTorch: Boolean,
-    val cameraKeyOpensCamera: Boolean,
+    /** False for hands-off apps: no binding fires, nothing is consumed. */
+    val buttonsActive: Boolean,
 )
 
 /**
- * Settings, and the table that decides what an app gets when you haven't said.
+ * Settings: the button bindings, the wheel, and the table that decides apps you haven't
+ * touched.
  *
  * The defaults matter more than the settings screen does, because the point of the app is
- * that the wheel behaves sensibly without being configured:
+ * that the phone behaves sensibly without being configured:
  *
  *  - **Light's own tools** are left alone. They already implement the wheel themselves, so
  *    anything this service consumes is behaviour it would be *removing*.
@@ -47,26 +67,34 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences =
         context.getSharedPreferences("lightcontrol", Context.MODE_PRIVATE)
 
+    // ---------------------------------------------------------------- button bindings
+
+    fun action(button: Button, gesture: Gesture): Action =
+        Action.parse(sp.getString(bindKey(button, gesture), null))
+            ?: Action.default(button, gesture)
+
+    fun setAction(button: Button, gesture: Gesture, action: Action) {
+        sp.edit().putString(bindKey(button, gesture), action.store()).apply()
+    }
+
+    /** True if this binding is still whatever the app shipped with. */
+    fun isDefault(button: Button, gesture: Gesture): Boolean =
+        sp.getString(bindKey(button, gesture), null) == null
+
+    private fun bindKey(button: Button, gesture: Gesture) = "bind:${button.name}:${gesture.name}"
+
+    // -------------------------------------------------------------------- the wheel
+
     /** What a bare turn does in an app with no rule of its own and no entry in the table. */
     var unknownAppTurn: TurnAction
-        get() = if (sp.getBoolean("turn_brightness", true)) {
-            TurnAction.Brightness
-        } else {
-            TurnAction.PassThrough
-        }
-        set(v) = sp.edit().putBoolean("turn_brightness", v == TurnAction.Brightness).apply()
+        get() = runCatching {
+            TurnAction.valueOf(sp.getString("turn", null) ?: return TurnAction.Brightness)
+        }.getOrDefault(TurnAction.Brightness)
+        set(v) = sp.edit().putString("turn", v.name).apply()
 
     var pressTurnBrightness: Boolean
         get() = sp.getBoolean("press_turn", true)
         set(v) = sp.edit().putBoolean("press_turn", v).apply()
-
-    var clickTorch: Boolean
-        get() = sp.getBoolean("click_torch", true)
-        set(v) = sp.edit().putBoolean("click_torch", v).apply()
-
-    var cameraKeyOpensCamera: Boolean
-        get() = sp.getBoolean("camera_key", true)
-        set(v) = sp.edit().putBoolean("camera_key", v).apply()
 
     /** Notches from dimmest to brightest. */
     var brightnessSteps: Int
@@ -78,26 +106,33 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("readout", true)
         set(v) = sp.edit().putBoolean("readout", v).apply()
 
+    /** How far one notch drags the screen, in dp, when a turn is scrolling by swipe. */
+    var swipeDp: Int
+        get() = sp.getInt("swipe_dp", 64)
+        set(v) = sp.edit().putInt("swipe_dp", v.coerceIn(24, 200)).apply()
+
+    // ---------------------------------------------------------------- per-app rules
+
     fun ruleFor(pkg: String): AppRule =
-        runCatching { AppRule.valueOf(sp.getString(key(pkg), null) ?: return AppRule.Default) }
+        runCatching { AppRule.valueOf(sp.getString(appKey(pkg), null) ?: return AppRule.Default) }
             .getOrDefault(AppRule.Default)
 
     fun setRule(pkg: String, rule: AppRule) {
         sp.edit().apply {
-            if (rule == AppRule.Default) remove(key(pkg)) else putString(key(pkg), rule.name)
+            if (rule == AppRule.Default) remove(appKey(pkg)) else putString(appKey(pkg), rule.name)
         }.apply()
     }
 
     /** Every package the user has given an explicit rule, for the settings list. */
     fun overrides(): Map<String, AppRule> = sp.all.keys
-        .filter { it.startsWith(PREFIX) }
-        .associate { it.removePrefix(PREFIX) to ruleFor(it.removePrefix(PREFIX)) }
+        .filter { it.startsWith(APP_PREFIX) }
+        .associate { it.removePrefix(APP_PREFIX) to ruleFor(it.removePrefix(APP_PREFIX)) }
         .filterValues { it != AppRule.Default }
 
-    private fun key(pkg: String) = PREFIX + pkg
+    private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
-        const val PREFIX = "app:"
+        const val APP_PREFIX = "app:"
     }
 }
 
@@ -138,29 +173,25 @@ object Policy {
         return AppRule.Default
     }
 
-    /** True if the built-in table decided, rather than the user. Shown in the app list. */
-    fun isImplicit(prefs: Prefs, pkg: String): Boolean = prefs.ruleFor(pkg) == AppRule.Default
-
     fun behaviourFor(prefs: Prefs, pkg: String?): Behaviour {
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)
         if (rule == AppRule.Off) {
             return Behaviour(
                 bareTurn = TurnAction.PassThrough,
                 pressTurnBrightness = false,
-                clickTorch = false,
-                cameraKeyOpensCamera = false,
+                buttonsActive = false,
             )
         }
         val bare = when (rule) {
             AppRule.ScrollThrough -> TurnAction.PassThrough
             AppRule.BrightnessOnTurn -> TurnAction.Brightness
+            AppRule.SwipeOnTurn -> TurnAction.Swipe
             else -> prefs.unknownAppTurn
         }
         return Behaviour(
             bareTurn = bare,
             pressTurnBrightness = prefs.pressTurnBrightness,
-            clickTorch = prefs.clickTorch,
-            cameraKeyOpensCamera = prefs.cameraKeyOpensCamera,
+            buttonsActive = true,
         )
     }
 }

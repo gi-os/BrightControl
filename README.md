@@ -3,14 +3,25 @@
 The Light Phone III's brightness wheel and camera button, working inside apps Light didn't
 write.
 
-| Gesture | What happens |
+| Gesture | Out of the box |
 |---|---|
 | Hold the wheel in and turn | Brightness, with the level shown at the bottom of the screen |
-| Click the wheel | Flashlight |
-| Camera button | Opens the camera |
-| Turn the wheel | Brightness in most apps — or passed through to apps that scroll with it |
+| Tap the wheel | Flashlight |
+| Hold the wheel | nothing — bind it to any app |
+| Tap the camera button | The Light camera |
+| Hold the camera button | nothing — bind it to any app |
+| Volume keys, tap or hold | passed through, but bindable |
+| Turn the wheel | Brightness — or a swipe, or passed through, per app |
 
-Light's own tools are left strictly alone, and any app can be overridden individually.
+Every button has a **tap** and a **hold**, bound separately, and either can open any installed
+app. Light's own tools are left strictly alone, and any app can be overridden individually.
+
+Tap and hold are told apart by time, not by key repeat: a held key on this phone repeats
+never, so DOWN schedules the hold and UP either cancels it and runs the tap, or finds the hold
+already fired. The wheel click has a third possibility — a notch arriving mid-press turns the
+whole thing into a brightness gesture, which cancels the pending hold *and* suppresses the
+tap, because ending a brightness adjustment with the flashlight coming on is a nasty surprise
+in the dark.
 
 ## Why any of this is necessary
 
@@ -40,20 +51,26 @@ integers are Light's to change. They're resolved by label at runtime through
 and fall back to the raw Linux scancode, which is hardware and can't move. The fallback is
 gated on the input device name so a paired Bluetooth keyboard's `r` can't dim your screen.
 
-## What it doesn't do: scroll other apps
+## Scrolling apps that never heard of the wheel
 
-It could, two ways, and both are worse than not doing it:
+Nothing lets a normal app inject a scroll — `INJECT_EVENTS` is signature-only. Two routes
+exist from out here, and only one of them is acceptable:
 
-- **`dispatchGesture`** draws a synthetic swipe. Works anywhere, but a drag gets read as a
-  tap or a fling, gestures queue at ~60 ms each so a fast turn lags, and it fights real
-  touches.
-- **`ACTION_SCROLL_FORWARD`** on an accessibility node is precise, but moves a whole
-  screenful per notch, and requires `canRetrieveWindowContent` — the service would be able to
-  read everything on screen, to scroll a list.
+- **`dispatchGesture`** draws a synthetic finger-drag. It needs `canPerformGestures`, which
+  notably does *not* imply reading the screen. This is what `SWIPE` uses.
+- **`ACTION_SCROLL_FORWARD`** on an accessibility node is precise but moves a whole screenful
+  per notch, and requires `canRetrieveWindowContent` — the service would be able to read
+  everything on screen in order to scroll a list. Not worth it.
 
-So turns are passed through instead, and an app that wants per-notch scrolling implements it
-itself. That's the `hw/` module in the LightX apps — four files, no permissions, and it
-scrolls a WebView properly because it's inside the app that owns it.
+`SWIPE` is off by default and set per app. The drag is 64 dp a notch, well past touch slop so
+it can't land as a tap, and notches are coalesced: a stroke takes ~60 ms to play, slower than
+the sensor emits, so firing one per notch would queue them into treacle. Instead the distance
+accumulates while a stroke is in flight and the next one carries the lot, capped at 0.6 of a
+screen because a longer path reads as a fling and overshoots.
+
+It is still a synthetic finger, and it will never be as good as an app scrolling itself. Apps
+that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
+and it scrolls a WebView properly because it lives inside the app that owns it.
 
 ## Privacy
 
@@ -96,14 +113,17 @@ before anyone configures anything.
 |---|---|---|
 | `com.lightos*`, `com.thelightphone.*`, `com.lightphone.*`, the launcher, SystemUI, Camera2 | untouched | untouched |
 | `com.gios.*`, `com.lightfastread`, `com.lightrss.reader` | goes to the app, which scrolls per notch | ours |
-| everything else | brightness | ours |
+| everything else | brightness (or `SWIPE`, per app) | ours |
 
 Light's tools are hands-off because the wheel already works there — anything intercepted
 would be a feature *removed*. Apps carrying `hw/` get their turns passed through because
 per-notch scrolling inside the app beats anything reachable from outside it.
 
-Per-app overrides cycle on tap through `AUTO → BRIGHT → APP → OFF`, and rows left on AUTO
-show what AUTO resolved to, so the table above is visible in the UI rather than folklore.
+Per-app overrides cycle on tap through `AUTO → BRIGHT → SWIPE → APP → OFF`, and rows left on
+AUTO show what AUTO resolved to, so the table above is visible in the UI rather than folklore.
+
+The volume keys are bindable but pass through by default. They are the one pair that already
+works, and consuming them out of the box would be taking a function away to add one.
 
 ## Gotchas, in the order they'll bite
 
@@ -137,19 +157,23 @@ instead, from the platform's own two mirrors of the same value: `screen_brightne
 ## Layout
 
 ```
-keys/LightKeys.kt        the five keycodes, resolved by label then by scancode
+Bindings.kt              buttons, gestures, actions, and the out-of-the-box defaults
+keys/LightKeys.kt        the seven keycodes, resolved by label then by scancode
 keys/ControlService.kt   the filter service: gesture split, consume rules, foreground app
 keys/Brightness.kt       system brightness with a derived scale
 keys/Readout.kt          the level, as one reused overlay window
 keys/Grants.kt           what's granted, and the volatile own-window flag
 Prefs.kt                 settings, plus the table that decides untouched apps
 ui/SettingsScreen.kt     grants first, then the mapping
+ui/ButtonsScreen.kt      every button's tap and hold, side by side
+ui/PickerScreen.kt       what one gesture does: four fixed choices, then every app
 ui/AppListScreen.kt      every launchable app, tap to cycle its rule
 ```
 
 ## Not doing
 
-- **Scrolling other apps.** See above. The compromise isn't worth the permission.
-- **Remapping the volume keys or power.** They already work; there's nothing to fix.
+- **Node-based scrolling.** See above. Reading the screen to scroll a list isn't a trade worth
+  making.
+- **Remapping the power button.** Long-press is the hardware power menu, below the framework.
 - **A launcher tile per app.** The point is that the phone behaves consistently, not that
   there's more to configure.

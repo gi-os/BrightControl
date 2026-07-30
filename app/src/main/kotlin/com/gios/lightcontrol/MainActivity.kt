@@ -3,6 +3,7 @@ package com.gios.lightcontrol
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -14,19 +15,29 @@ import com.gios.lightcontrol.keys.LightKey
 import com.gios.lightcontrol.keys.LightKeys
 import com.gios.lightcontrol.keys.OwnWindow
 import com.gios.lightcontrol.ui.AppListScreen
+import com.gios.lightcontrol.ui.ButtonsScreen
+import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.SettingsScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
+/** Four screens, one level deep each — a nav library would be more code than this. */
+private sealed interface Screen {
+    data object Settings : Screen
+    data object Buttons : Screen
+    data object Apps : Screen
+    data class Pick(val button: Button, val gesture: Gesture) : Screen
+}
+
 /**
- * The settings screen, and the one place the wheel is handled in-app rather than in the
+ * The settings screens, and the one place the wheel is handled in-app rather than in the
  * service.
  *
  * LightControl resolves to `ScrollThrough` for itself — it's a `com.gios.` package — so the
  * service passes turns straight here. Which is the point being demonstrated: an app that
- * handles the wheel gets per-notch scrolling, and one that doesn't gets brightness.
+ * handles the wheel scrolls per notch, and one that doesn't gets brightness or a swipe.
  */
 class MainActivity : ComponentActivity() {
 
@@ -37,11 +48,32 @@ class MainActivity : ComponentActivity() {
         setContent {
             LightControlTheme {
                 CompositionLocalProvider(LocalNotches provides notches.asSharedFlow()) {
-                    var showApps by remember { mutableStateOf(false) }
-                    if (showApps) {
-                        AppListScreen(onBack = { showApps = false })
-                    } else {
-                        SettingsScreen(onPerApp = { showApps = true })
+                    var screen by remember { mutableStateOf<Screen>(Screen.Settings) }
+                    val home = { screen = Screen.Settings }
+
+                    BackHandler(enabled = screen != Screen.Settings) {
+                        // The picker belongs to the buttons screen; everything else to home.
+                        screen = if (screen is Screen.Pick) Screen.Buttons else Screen.Settings
+                    }
+
+                    when (val current = screen) {
+                        Screen.Settings -> SettingsScreen(
+                            onButtons = { screen = Screen.Buttons },
+                            onPerApp = { screen = Screen.Apps },
+                        )
+
+                        Screen.Buttons -> ButtonsScreen(
+                            onPick = { button, gesture -> screen = Screen.Pick(button, gesture) },
+                            onBack = home,
+                        )
+
+                        Screen.Apps -> AppListScreen(onBack = home)
+
+                        is Screen.Pick -> PickerScreen(
+                            button = current.button,
+                            gesture = current.gesture,
+                            onDone = { screen = Screen.Buttons },
+                        )
                     }
                 }
             }
@@ -59,26 +91,21 @@ class MainActivity : ComponentActivity() {
         OwnWindow.resumed = false
     }
 
+    /**
+     * The wheel, in here. The service passes turns through for this package, and the activity
+     * is the only thing that sees them before the view hierarchy does.
+     */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            when (LightKeys.of(event)) {
-                LightKey.WheelUp -> {
-                    notches.tryEmit(1)
-                    return true
-                }
-                LightKey.WheelDown -> {
-                    notches.tryEmit(-1)
-                    return true
-                }
-                else -> Unit
+        when (LightKeys.of(event)) {
+            LightKey.WheelUp -> {
+                if (event.action == KeyEvent.ACTION_DOWN) notches.tryEmit(1)
+                return true
             }
-        }
-        // Swallow the matching UP so a turn can't also register as a keypress somewhere.
-        if (event.action == KeyEvent.ACTION_UP) {
-            when (LightKeys.of(event)) {
-                LightKey.WheelUp, LightKey.WheelDown -> return true
-                else -> Unit
+            LightKey.WheelDown -> {
+                if (event.action == KeyEvent.ACTION_DOWN) notches.tryEmit(-1)
+                return true
             }
+            else -> Unit
         }
         return super.dispatchKeyEvent(event)
     }

@@ -5,11 +5,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.gios.lightcontrol.Button
+import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
@@ -36,22 +38,21 @@ import com.gios.lightcontrol.ui.theme.Dim
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onPerApp: () -> Unit) {
+fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val brightness = remember { Brightness(context) }
 
-    // Read once per composition pass; a grant only changes while the app is in the
-    // background, so recomposition on resume is soon enough.
+    // Read on each composition; a grant only changes while the app is in the background, so
+    // recomposing on resume is soon enough.
     val serviceOn = Grants.serviceEnabled(context)
     val canWrite = Grants.canWriteSettings(context)
     val canOverlay = Grants.canDrawOverlays(context)
 
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
     var pressTurn by remember { mutableStateOf(prefs.pressTurnBrightness) }
-    var click by remember { mutableStateOf(prefs.clickTorch) }
-    var camera by remember { mutableStateOf(prefs.cameraKeyOpensCamera) }
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
+    var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
 
     val scroll = rememberScrollState()
@@ -83,7 +84,7 @@ fun SettingsScreen(onPerApp: () -> Unit) {
             GrantRow(
                 label = "Overlay",
                 ok = canOverlay,
-                sub = "the level readout, and starting the camera from the service",
+                sub = "the level readout, and opening an app from the service",
                 fix = "adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow",
             )
             if (!LightKeys.wheelLabelsPresent()) {
@@ -97,7 +98,14 @@ fun SettingsScreen(onPerApp: () -> Unit) {
             }
             Rule()
 
-            SectionLabel("EVERY APP")
+            SectionLabel("BUTTONS")
+            MenuRow(
+                label = "Tap and hold",
+                detail = "${shortLabel(prefs.action(Button.WheelClick, Gesture.Tap))} · " +
+                    shortLabel(prefs.action(Button.Camera, Gesture.Tap)),
+                sub = "wheel click and camera button, tap and hold separately",
+                onClick = onButtons,
+            )
             MenuRow(
                 label = "Hold wheel + turn",
                 detail = if (pressTurn) "BRIGHTNESS" else "OFF",
@@ -107,35 +115,22 @@ fun SettingsScreen(onPerApp: () -> Unit) {
                     prefs.pressTurnBrightness = pressTurn
                 },
             )
-            MenuRow(
-                label = "Click wheel",
-                detail = if (click) "FLASHLIGHT" else "OFF",
-                onClick = {
-                    click = !click
-                    prefs.clickTorch = click
-                },
-            )
-            MenuRow(
-                label = "Camera button",
-                detail = if (camera) "CAMERA" else "OFF",
-                onClick = {
-                    camera = !camera
-                    prefs.cameraKeyOpensCamera = camera
-                },
-            )
             Rule()
 
             SectionLabel("TURNING THE WHEEL")
             MenuRow(
                 label = "In other apps",
-                detail = if (turn == TurnAction.Brightness) "BRIGHTNESS" else "PASS THROUGH",
-                sub = "Apps that scroll by wheel themselves are passed through whatever " +
-                    "this says. Light's own tools are never touched.",
+                detail = turn.label,
+                sub = when (turn) {
+                    TurnAction.Brightness -> "like the home screen"
+                    TurnAction.Swipe -> "a synthetic finger-drag, so lists scroll"
+                    TurnAction.PassThrough -> "only apps that understand the wheel react"
+                },
                 onClick = {
-                    turn = if (turn == TurnAction.Brightness) {
-                        TurnAction.PassThrough
-                    } else {
-                        TurnAction.Brightness
+                    turn = when (turn) {
+                        TurnAction.Brightness -> TurnAction.Swipe
+                        TurnAction.Swipe -> TurnAction.PassThrough
+                        TurnAction.PassThrough -> TurnAction.Brightness
                     }
                     prefs.unknownAppTurn = turn
                 },
@@ -143,8 +138,22 @@ fun SettingsScreen(onPerApp: () -> Unit) {
             MenuRow(
                 label = "Per-app",
                 detail = "${prefs.overrides().size}",
-                sub = "override any single app",
+                sub = "override any single app. Light's own tools are never touched.",
                 onClick = onPerApp,
+            )
+            MenuRow(
+                label = "Swipe distance",
+                detail = "$swipeDp dp",
+                sub = "how far one notch drags, where turning scrolls by swipe",
+                onClick = {
+                    swipeDp = when (swipeDp) {
+                        48 -> 64
+                        64 -> 96
+                        96 -> 128
+                        else -> 48
+                    }
+                    prefs.swipeDp = swipeDp
+                },
             )
             Rule()
 

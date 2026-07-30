@@ -1,6 +1,7 @@
 package com.gios.lightcontrol.keys
 
 import android.view.KeyEvent
+import com.gios.lightcontrol.Button
 
 /** The physical controls the LPIII sends to whichever app has focus. */
 enum class LightKey {
@@ -18,6 +19,12 @@ enum class LightKey {
 
     /** Camera button, first stage. Arrives paired with [Camera], order not guaranteed. */
     Focus,
+
+    /** On `gpio-keys` alongside the wheel click, scancode 115. */
+    VolumeUp,
+
+    /** On its own device, `pmic_resin`, scancode 114. */
+    VolumeDown,
 }
 
 /**
@@ -59,9 +66,11 @@ object LightKeys {
     private const val SCAN_WHEEL_CLICK = 66 // KEY_F8
     private const val SCAN_FOCUS = 80 // KEY_KP2
     private const val SCAN_CAMERA = 27 // KEY_RIGHTBRACE
+    private const val SCAN_VOLUME_DOWN = 114 // KEY_VOLUMEDOWN
+    private const val SCAN_VOLUME_UP = 115 // KEY_VOLUMEUP
 
-    /** The only two devices these scancodes may be trusted from. */
-    private val trustedDevices = setOf("Pixart pat9126ja", "gpio-keys")
+    /** The only devices these scancodes may be trusted from. */
+    private val trustedDevices = setOf("Pixart pat9126ja", "gpio-keys", "pmic_resin")
 
     private val byScanCode = mapOf(
         SCAN_WHEEL_UP to LightKey.WheelUp,
@@ -69,6 +78,8 @@ object LightKeys {
         SCAN_WHEEL_CLICK to LightKey.WheelClick,
         SCAN_FOCUS to LightKey.Focus,
         SCAN_CAMERA to LightKey.Camera,
+        SCAN_VOLUME_UP to LightKey.VolumeUp,
+        SCAN_VOLUME_DOWN to LightKey.VolumeDown,
     )
 
     private val byKeyCode: Map<Int, LightKey> = buildMap {
@@ -77,6 +88,8 @@ object LightKeys {
         putLabel("WHEEL_CLICK", LightKey.WheelClick)
         putLabel("FOCUS", LightKey.Focus)
         putLabel("CAMERA", LightKey.Camera)
+        putLabel("VOLUME_UP", LightKey.VolumeUp)
+        putLabel("VOLUME_DOWN", LightKey.VolumeDown)
     }
 
     private fun MutableMap<Int, LightKey>.putLabel(label: String, key: LightKey) {
@@ -99,12 +112,13 @@ object LightKeys {
     /** Whether this LightOS build labels the wheel at all, for the settings readout. */
     fun wheelLabelsPresent(): Boolean = byKeyCode.containsValue(LightKey.WheelUp)
 
-    /** A readable name for a keycode, so a settings screen can show what it saw. */
-    fun describe(key: LightKey): String = when (key) {
-        LightKey.WheelUp -> "Wheel up"
-        LightKey.WheelDown -> "Wheel down"
-        LightKey.WheelClick -> "Wheel click"
-        LightKey.Camera -> "Camera button"
-        LightKey.Focus -> "Camera button (focus)"
+    /** The bindable button a key belongs to, or null for the wheel's turns. */
+    fun buttonOf(key: LightKey): Button? = when (key) {
+        // Both stages of the camera button are one button as far as bindings go.
+        LightKey.Camera, LightKey.Focus -> Button.Camera
+        LightKey.WheelClick -> Button.WheelClick
+        LightKey.VolumeUp -> Button.VolumeUp
+        LightKey.VolumeDown -> Button.VolumeDown
+        LightKey.WheelUp, LightKey.WheelDown -> null
     }
 }
