@@ -88,20 +88,23 @@ It is still a synthetic finger, and it will never be as good as an app scrolling
 that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
 and it scrolls a WebView properly because it lives inside the app that owns it.
 
-## The lock screen
+## The lock screen, and why it comes with the dashboard
 
-The keyguard is LightOS's own window and its package sits under the hands-off prefix, so by
-package alone the answer would always be "leave it alone" — and the bindings would stop existing
-exactly where the flashlight matters most. So the keyguard is asked about directly
-(`KeyguardManager.isKeyguardLocked`, per key event, because it changes without any window-state
-event this service can see) and gets its own behaviour: turns are brightness, since there is
-nothing there to scroll, and the buttons keep their bindings.
+LightOS's lock screen is not a keyguard. `KeyguardManager.isKeyguardLocked` is false while it's
+up, because it is a view inside LightOS's own single activity — locked or sitting on the home
+dashboard, the focused window is `com.lightos/com.lightos.MainActivity` in the same task either
+way. There is no class name, no separate window and no system flag that separates them, and the
+only thing that would is reading the screen, which this app does not do.
 
-Two of those bindings genuinely work locked — the torch and brightness — which is why they are
-the defaults. A binding that opens an app does not: a background activity start behind the
-keyguard is dropped unless the target itself declares `showWhenLocked`, which isn't ours to
-declare, so it waits for an unlock. Turn the whole thing off with **On the lock screen** if you
-would rather have LightOS's behaviour back.
+So it is one switch for both: **LightOS screens**, off by default. On, a turn there is brightness
+and the buttons take their bindings — the same behaviour as everywhere else, including the torch,
+which is the one you want from a locked phone in the dark. Off, LightOS keeps its own handling and
+this app stays out of the way.
+
+Off by default because turning it on *replaces* behaviour that already works rather than adding
+behaviour that's missing, and that's a trade worth making on purpose. One thing it can't fix
+either way: a binding that opens an app is a background activity start, dropped behind a lock
+until the target itself declares `showWhenLocked`, which isn't ours to declare.
 
 ## Privacy
 

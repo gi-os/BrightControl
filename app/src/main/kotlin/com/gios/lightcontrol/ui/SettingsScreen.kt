@@ -54,7 +54,7 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
-    var lockScreen by remember { mutableStateOf(prefs.lockScreen) }
+    var lightOs by remember { mutableStateOf(prefs.lightOsScreens) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -108,13 +108,14 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                 onClick = onButtons,
             )
             MenuRow(
-                label = "On the lock screen",
-                detail = if (lockScreen) "ON" else "OFF",
-                sub = "the keyguard is LightOS's own window, so without this nothing here " +
-                    "applies there. A binding that opens an app still waits for an unlock.",
+                label = "LightOS screens",
+                detail = if (lightOs) "ON" else "OFF",
+                sub = "the lock screen and the home dashboard, which are one activity and so " +
+                    "one decision. On means this app's bindings replace LightOS's own there. " +
+                    "An app binding still waits for an unlock.",
                 onClick = {
-                    lockScreen = !lockScreen
-                    prefs.lockScreen = lockScreen
+                    lightOs = !lightOs
+                    prefs.lightOsScreens = lightOs
                 },
             )
             MenuRow(

@@ -1,7 +1,6 @@
 package com.gios.lightcontrol.keys
 
 import android.accessibilityservice.AccessibilityService
-import android.app.KeyguardManager
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -97,7 +96,7 @@ class ControlService : AccessibilityService() {
         // Our own settings screen reports itself, because window-state events from this
         // package are ignored — the readout overlay raises them too.
         val front = if (OwnWindow.resumed) packageName else foreground
-        val behaviour = if (locked()) lockScreenBehaviour() else Policy.behaviourFor(prefs, front)
+        val behaviour = Policy.behaviourFor(prefs, front)
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
             val notches = if (key == LightKey.WheelUp) 1 else -1
@@ -109,44 +108,6 @@ class ControlService : AccessibilityService() {
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
         return onButton(button, behaviour, event)
-    }
-
-    /**
-     * Whether the keyguard is up.
-     *
-     * The lock screen is LightOS's own window, and its package sits under a hands-off prefix —
-     * so by package alone the answer would always be "leave it alone", and the bindings would
-     * stop existing exactly where the flashlight matters most. Asked per key event because it
-     * changes without any window-state event we can see.
-     */
-    private fun locked(): Boolean = runCatching {
-        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
-    }.getOrDefault(false)
-
-    /**
-     * What the controls do while locked.
-     *
-     * Turns are brightness rather than pass-through: there is nothing on the lock screen to
-     * scroll, and a notch that does nothing is worse than the behaviour LightOS was giving.
-     *
-     * A binding that opens an app is a different matter — a background activity start behind
-     * the keyguard is dropped unless the target itself declares `showWhenLocked`, which is not
-     * ours to declare. The torch and brightness are the two that genuinely work here, so those
-     * are what the default bindings do; anything else silently waits for an unlock, and the
-     * README says so rather than pretending.
-     */
-    private fun lockScreenBehaviour(): Behaviour = if (prefs.lockScreen) {
-        Behaviour(
-            bareTurn = TurnAction.Brightness,
-            pressTurnBrightness = prefs.pressTurnBrightness,
-            buttonsActive = true,
-        )
-    } else {
-        Behaviour(
-            bareTurn = TurnAction.PassThrough,
-            pressTurnBrightness = false,
-            buttonsActive = false,
-        )
     }
 
     /**
