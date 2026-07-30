@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Brightness. An appop rather than a runtime permission, and LightOS has no Settings
+      screen that grants it, so it is granted once over adb:
+
+        adb shell appops set com.gios.lightcontrol WRITE_SETTINGS allow
+
+      Unlike an app adjusting its own window, a service has no window to fall back on:
+      without this grant the wheel cannot change brightness at all, which is why the
+      settings screen reports the grant rather than failing quietly.
+    -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+    <!--
+      Two jobs: the brightness readout is an overlay window, and on Android 14 this appop
+      is also what exempts a sideloaded app from background-activity-start restrictions —
+      which is what lets the camera button open the camera from a service.
+
+        adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
+      The per-app override list needs the names of installed apps. QUERY_ALL_PACKAGES is
+      the blunt instrument, but the alternative is a <queries> block that can only ask
+      about packages known in advance, and the whole point is a list of everything the
+      user has sideloaded.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LightControl">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.LightControl">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".keys.ControlService"
+            android:exported="true"
+            android:label="@string/service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/control_service" />
+        </service>
+    </application>
+</manifest>
