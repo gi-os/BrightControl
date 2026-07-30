@@ -158,18 +158,28 @@ object Policy {
     /**
      * Apps that handle wheel turns themselves — the ones carrying the `hw/` module. They
      * scroll per notch, which nothing outside the app can do, so their turns pass through.
+     *
+     * Note what is deliberately *absent*: the light-sdk tools (`com.thelightphone.*`) scroll
+     * with the wheel too, but they stay hands-off, because in an SDK tool an unclaimed key is
+     * forwarded to LightOS — which already does the right thing with it. Claiming their
+     * buttons would remove behaviour that works.
      */
     private val scrollAwarePrefixes = listOf(
         "com.gios.",
         "com.lightfastread",
         "com.lightrss.reader",
+        // Giovanni's phono fork ships under a Light-looking id, so it would otherwise be
+        // caught by the hands-off list below and lose its button bindings for no reason.
+        "com.lightphone.spotify",
     )
 
     fun ruleFor(prefs: Prefs, pkg: String): AppRule {
         val explicit = prefs.ruleFor(pkg)
         if (explicit != AppRule.Default) return explicit
-        if (handsOffPrefixes.any { pkg.startsWith(it) }) return AppRule.Off
+        // Scroll-aware is checked first because it holds the more specific ids: one of them
+        // sits inside a hands-off prefix, and being ours is the stronger fact.
         if (scrollAwarePrefixes.any { pkg.startsWith(it) }) return AppRule.ScrollThrough
+        if (handsOffPrefixes.any { pkg.startsWith(it) }) return AppRule.Off
         return AppRule.Default
     }
 
