@@ -8,7 +8,6 @@ import android.os.SystemClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Handler
-import android.os.SystemClock
 import android.os.Looper
 import android.provider.MediaStore
 import android.view.KeyEvent
