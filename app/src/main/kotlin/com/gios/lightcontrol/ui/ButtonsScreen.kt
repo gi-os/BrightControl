@@ -78,6 +78,17 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                         dim = true,
                     )
                 }
+                if (button == Button.Home) {
+                    MenuRow(
+                        label = "Both unbound",
+                        detail = "PASS",
+                        sub = "LightOS keeps the home button until you bind a gesture. Bind one " +
+                            "and the service takes the key for both, because it must swallow " +
+                            "the press to time the hold — so give the other gesture Home or " +
+                            "LightOS home to keep a way back.",
+                        dim = true,
+                    )
+                }
                 if (button == Button.Camera) {
                     MenuRow(
                         label = "Inside a camera",

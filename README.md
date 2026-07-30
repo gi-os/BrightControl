@@ -1,34 +1,29 @@
 # LightControl
 
-The Light Phone III's brightness wheel and camera button, working inside apps Light didn't
-write.
+The Light Phone III's brightness wheel, camera button, and home button, working inside
+apps Light didn't write.
+
+**Current version: v1.0.11.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
+| Turn the wheel | Brightness — or a per-notch scroll, or passed through, per app |
 | Double tap the wheel | Switches turning between brightness and scrolling, and says which |
 | Tap the wheel | Flashlight |
 | Hold the wheel | nothing — bind it to any app |
 | Tap the camera button | The Light camera |
 | Hold the camera button | nothing — bind it to any app |
-| Tap the home button | Home — whichever launcher is default |
-| Hold the home button | LightOS's dashboard, by name |
+| Tap the home button | Light's home — rebind it to yours |
+| Hold the home button | Light's home, always |
 | Volume keys, tap or hold | passed through, but bindable |
-| Turn the wheel | Brightness — or a swipe, or passed through, per app |
 
-Every button has a **tap** and a **hold**, bound separately, and either can open any installed
-app. Light's own tools are left strictly alone, and any app can be overridden individually.
+## What this is and why
 
-Tap and hold are told apart by time, not by key repeat: a held key on this phone repeats
-never, so DOWN schedules the hold and UP either cancels it and runs the tap, or finds the hold
-already fired. The wheel click has a third possibility — a notch arriving mid-press turns the
-whole thing into a brightness gesture, which cancels the pending hold *and* suppresses the
-tap, because ending a brightness adjustment with the flashlight coming on is a nasty surprise
-in the dark.
-
-## Why any of this is necessary
-
-Light patched `/system/usr/keylayout/Generic.kl`, the layout every input device on the phone
-loads, so the wheel and camera button arrive as ordinary key events:
+Every wheel notch, camera-button press and home-button press on the LPIII arrives at
+whichever app has focus as an ordinary `KeyEvent` — Light patched
+`/system/usr/keylayout/Generic.kl`, the keylayout every input device on the phone loads,
+so the brightness ramp and flashlight you get in Light's own tools are just app-layer
+code in those tools:
 
 ```
 key 19    WHEEL_CCW      # wheel up       (Pixart pat9126ja, was R)
@@ -38,104 +33,39 @@ key 80    FOCUS          # camera stage 1 (gpio-keys, was NUMPAD_2)
 key 27    CAMERA         # camera stage 2 (gpio-keys, was RIGHT_BRACKET)
 ```
 
-Nothing intercepts them in `PhoneWindowManager`. They go to the focused window, and the
-brightness ramp and flashlight live in the app layer of Light's own tools — so in any
-sideloaded app the keys arrive and nothing listens. This is that missing layer, for
-everything else.
+Nothing intercepts these in `PhoneWindowManager`. In any sideloaded app the keys arrive
+and nothing listens. LightControl is that missing layer for everything else — an
+`AccessibilityService` with `flagRequestFilterKeyEvents`, the only way to see a key you
+don't have window focus for (`INJECT_EVENTS` is signature-only; this is the same
+mechanism [LightVoice](https://github.com/gi-os/LightVoice) uses for its push-to-talk).
+It declares exactly one event type (`typeWindowStateChanged`, to track the foreground
+package) and `canRetrieveWindowContent="false"` — screen content is unreachable by
+declaration, not merely by promise.
 
-The wheel is not a rotary encoder either. It's an optical sensor firing one discrete DOWN+UP
-pair per notch, ~35–60 ms apart, so `AXIS_SCROLL` and `onRotaryScrollEvent` never see a
-thing.
+The wheel itself is not a rotary encoder. It's an optical sensor (`Pixart pat9126ja`)
+firing one discrete DOWN+UP pair per notch, ~35–60 ms apart, so `AXIS_SCROLL` and
+`onRotaryScrollEvent` never see a thing — this has to be built on raw key events.
+`WHEEL_CCW`, `WHEEL_CW` and `WHEEL_CLICK` aren't AOSP keycodes; they're resolved by
+label at runtime via `KeyEvent.keyCodeFromString` and fall back to the raw Linux
+scancode, gated on the input device name so a paired Bluetooth keyboard's `r` can't dim
+the screen.
 
-`WHEEL_CCW`, `WHEEL_CW` and `WHEEL_CLICK` aren't AOSP keycodes — Light added them — so the
-integers are Light's to change. They're resolved by label at runtime through
-`KeyEvent.keyCodeFromString`, which reads the same native table the keylayout parser does,
-and fall back to the raw Linux scancode, which is hardware and can't move. The fallback is
-gated on the input device name so a paired Bluetooth keyboard's `r` can't dim your screen.
+Every button carries a **tap** and a **hold**, bound separately, and either can open any
+installed app. Light's own tools are left strictly alone by default, and any app can be
+overridden individually. Tap and hold are told apart by time, not by key repeat — a held
+key on this phone never repeats, so DOWN schedules the hold and UP either cancels it and
+runs the tap, or finds the hold already fired. The wheel click has a third case: a notch
+arriving mid-press turns the whole thing into a brightness gesture, cancelling the
+pending hold *and* suppressing the tap, so a brightness adjustment never ends with the
+flashlight coming on by surprise.
 
-## Scrolling apps that never heard of the wheel
-
-Nothing lets a normal app inject a scroll — `INJECT_EVENTS` is signature-only. Two routes
-exist from out here, and only one of them is acceptable:
-
-- **`dispatchGesture`** draws a synthetic finger-drag. It needs `canPerformGestures`, which
-  notably does *not* imply reading the screen. This is what `SWIPE` uses.
-- **`ACTION_SCROLL_FORWARD`** on an accessibility node is precise but moves a whole screenful
-  per notch, and requires `canRetrieveWindowContent` — the service would be able to read
-  everything on screen in order to scroll a list. Not worth it.
-
-With root the better answer would be a keylayout that also emits `PAGE_UP`/`PAGE_DOWN`, and
-apps would scroll for free — but this is a user build.
-
-`SWIPE` is off by default and set per app. It is **one finger that never lifts**, not a series
-of flicks: a `StrokeDescription` marked `willContinue` leaves the finger down, and
-`continueStroke` moves it as the wheel turns. The first version dispatched a separate flick per
-burst and felt like it — every stroke was a fresh touch-down-drag-lift, so the app saw a queue
-of small flings whose momentum fought the next one.
-
-Two things make it fiddly, and both are visible in `keys/WheelSwipe.kt`:
-
-- **A continuation must start exactly where the last one ended**, so the finger's position is
-  tracked rather than recomputed.
-- **A finger cannot leave the screen.** It stays inside the middle 18–82% — away from the edges
-  where a drag becomes the system back or home gesture — and when it reaches the end of that
-  band it lifts, with the next notch starting a fresh stroke from the middle. That relift is
-  the one visible seam, and it is unavoidable: a real thumb has the same limit, which is why
-  people swipe repeatedly instead of dragging one screen-length inch.
-
-If a real finger touches the screen mid-scroll the gesture is cancelled, and the synthetic one
-gives up rather than fighting it — that is how you avoid a scroll that won't stop.
-
-It is still a synthetic finger, and it will never be as good as an app scrolling itself. Apps
-that want per-notch scrolling implement it with the `hw/` module — four files, no permissions,
-and it scrolls a WebView properly because it lives inside the app that owns it.
-
-## The home button
-
-Tap follows the default launcher; hold names LightOS's dashboard. So the tap goes wherever you
-have pointed home, and the hold is still the way back to Light's own — which matters precisely
-because a home button that has been redirected usually loses the original.
-
-With LightOS as your default launcher both do the same thing, so out of the box the button behaves
-as it always did. Neither gesture can be "pass through", which is worth knowing before you try it: the service has to
-swallow the DOWN to see whether a hold is coming, and a key cannot be un-consumed — "let it
-through after all" is not something the framework offers. That is why `LightOS home` is an action
-you can bind rather than an absence of one. If a bound app has been uninstalled, or has no
-launcher entry, the press falls back to home rather than stranding you on the screen you were
-trying to leave.
-
-## The lock screen
-
-LightOS's lock screen is not a keyguard — it's a view inside LightOS's own single activity, so
-locked or sitting on the dashboard the focused window is `com.lightos/com.lightos.MainActivity`
-in the same task either way. Nothing observable from outside separates them, so it is one
-decision for both: **LightOS screens**, off by default.
-
-On, it takes the **buttons only**. The first version took the turns as well and made LightOS
-unstable, and turns were the part worth least — LightOS already puts brightness on them, on both
-screens. What's missing there is the flashlight you want from a locked phone and whatever else
-you have bound, so that's all this claims. Every turn still goes to LightOS untouched.
-
-A binding that opens an app still waits for an unlock: a background activity start behind a lock
-is dropped unless the target declares `showWhenLocked`, which isn't ours to declare.
-
-## Privacy
-
-The service declares one event type and `canRetrieveWindowContent="false"`. What it can
-observe is exactly two things: key codes, and the package name of the app that came to the
-front, which rides along with the event and needs no node access. Screen content is not
-reachable, by declaration rather than by promise.
-
-## Setup
-
-Three grants, none of which LightOS has a Settings screen for. The app's first screen reports
-all three and shows the line to paste for whichever is missing.
+## Quick start
 
 ```bash
-adb install -r LightControl-v1.0.x.apk
+adb install -r LightControl-v1.0.11.apk
 
-# 1. the key service. This *replaces* the enabled list, so if you also run LightVoice's
-#    push-to-talk, join them with a colon instead.
+# 1. the key service. This *replaces* the enabled list, so if you also run
+#    LightVoice's push-to-talk, join them with a colon instead.
 adb shell settings put secure enabled_accessibility_services \
   com.gios.lightcontrol/com.gios.lightcontrol.keys.ControlService
 adb shell settings put secure accessibility_enabled 1
@@ -147,14 +77,15 @@ adb shell appops set com.gios.lightcontrol WRITE_SETTINGS allow
 adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow
 ```
 
-Without (2) the wheel can't change brightness at all — a service has no window of its own, so
-there's no per-app override to fall back on. Without (3) the readout silently doesn't appear
-and the camera button does nothing; the brightness still works.
+The app's first screen re-checks all three grants and shows the exact command for
+whichever is missing, so this is recoverable without re-reading the README. Without (2)
+the wheel can't change brightness at all — a service has no window of its own, so
+there's no per-app fallback. Without (3) the readout silently doesn't appear and the
+camera button does nothing; brightness still works.
 
-## Defaults, and why
+## Configuration and usage
 
-The defaults matter more than the settings do, because the wheel should behave sensibly
-before anyone configures anything.
+### Defaults, and why
 
 | Apps | Turning the wheel | Everything else |
 |---|---|---|
@@ -162,51 +93,74 @@ before anyone configures anything.
 | `com.gios.*`, `com.lightfastread`, `com.lightrss.reader` | goes to the app, which scrolls per notch | ours |
 | everything else | brightness (or `SWIPE`, per app) | ours |
 
-Light's tools are hands-off because the wheel already works there — anything intercepted
-would be a feature *removed*. Apps carrying `hw/` get their turns passed through because
-per-notch scrolling inside the app beats anything reachable from outside it.
+Light's own tools are hands-off because the wheel already works there — anything
+intercepted would be a feature *removed*. Apps carrying a `hw/` scroll module get their
+turns passed through, because per-notch scrolling inside the app beats anything
+reachable from outside it. Per-app overrides cycle on tap through
+`AUTO → BRIGHT → SWIPE → APP → OFF`, and rows left on `AUTO` show what it resolved to,
+so this table is visible in the UI, not folklore.
 
-Per-app overrides cycle on tap through `AUTO → BRIGHT → SWIPE → APP → OFF`, and rows left on
-AUTO show what AUTO resolved to, so the table above is visible in the UI rather than folklore.
+### The home button
 
-**A camera in front keeps the camera button**, both stages, whatever is bound to it. The test
-is what the app declares — anything registered for `STILL_IMAGE_CAMERA` — rather than a list of
-package names, so it holds for cameras that don't exist yet. Without this the key is swallowed
-everywhere and its binding fires even when a camera is already open: a third-party camera's
-shutter is dead, which is precisely the thing you installed it for, and "open the camera" from
-inside a camera does nothing anyway. An explicit per-app rule of `OFF` still wins.
+Tap and hold, like the others: bind the tap to your own home and the hold stays the way
+back to Light's dashboard. Both start out as Light's home, so out of the box the button
+does what it always did. The tap **cannot** be left as "pass through" — the service has
+to swallow the DOWN to see whether a hold is coming, and a key cannot be un-consumed
+after the fact, which is why `LightOS home` is a bindable action rather than an absence
+of one. If a bound app has been uninstalled or has no launcher entry, the press falls
+back to home rather than stranding you on the screen you were trying to leave.
 
-The volume keys are bindable but pass through by default. They are the one pair that already
-works, and consuming them out of the box would be taking a function away to add one.
+### Scrolling apps that never heard of the wheel
 
-## Gotchas, in the order they'll bite
+Nothing lets a normal app inject a scroll — `INJECT_EVENTS` is signature-only. Two
+routes exist from out here, and only one is acceptable: `dispatchGesture`, a synthetic
+finger-drag needing only `canPerformGestures` (which does *not* imply reading the
+screen) — this is what `SWIPE` uses — versus `ACTION_SCROLL_FORWARD` on an accessibility
+node, which is precise but moves a whole screenful per notch and requires
+`canRetrieveWindowContent`, i.e. the service could read everything on screen. Not worth
+it for a scroll.
 
-**The accessibility setting is a list, not a flag.** `settings put secure
-enabled_accessibility_services` overwrites whatever was there. Enabling LightControl this way
-will silently turn off LightVoice's push-to-talk unless both components are in one
-colon-separated string.
+`SWIPE` is off by default and set per app. It's **one finger that never lifts**, not a
+series of flicks: a `StrokeDescription` marked `willContinue` leaves the finger down,
+and `continueStroke` moves it as the wheel turns — 64dp a notch, coalesced while a
+stroke is in flight, capped at 0.6 screen or it reads as a fling. A continuation has to
+start exactly where the last one ended, and the finger stays inside the middle 18–82% of
+the screen — away from the edges where a drag becomes the system back/home gesture —
+relifting and starting a fresh stroke from the middle when it reaches the end of that
+band. That relift is the one visible seam and is unavoidable: a real thumb has the same
+limit. A real finger touching the screen mid-scroll cancels the synthetic one rather
+than fighting it. It's still a synthetic finger and never as good as an app scrolling
+itself — apps that want per-notch scrolling implement it with the `hw/` module instead,
+four files and no permissions, scrolling a `WebView` properly because it lives inside
+the app that owns it.
 
-**Consuming a key is the dangerous half.** Every key swallowed is a key some app doesn't get,
-so the service consumes only what it actually acted on, and only where the resolved behaviour
-asked for it. A bug here can't trap you: turns and clicks are inert keys in almost every app,
-and the camera button is the only one that could otherwise have done something.
+### The lock screen
 
-**The click is a modifier and a button at once.** A held `WHEEL_CLICK` produces no key
-repeat, so the press is remembered on DOWN and the torch only fires on UP if no notch arrived
-in between. Otherwise every brightness adjustment would end with the flashlight coming on.
+LightOS's lock screen isn't a keyguard window — it's a view inside LightOS's own single
+activity, so locked or on the dashboard the focused window is
+`com.lightos/com.lightos.MainActivity` either way, with no observable event marking the
+difference. `ControlService` calls `KeyguardManager.isKeyguardLocked()` per key event
+instead. **On the lock screen** (off by default) takes the **buttons only** — turns
+still go to LightOS untouched, since it already puts brightness there on both screens.
+The first version took turns too and made LightOS unstable. An app binding still waits
+for an unlock: a background activity start behind a lock is dropped unless the target
+declares `showWhenLocked`, which isn't LightControl's to declare.
 
-**The camera button sends two scancodes**, and the order flips between presses — `FOCUS`
-first sometimes, `CAMERA` first other times. Only `CAMERA` triggers anything; `FOCUS` is
-swallowed alongside it so the app never sees half a press.
+### Camera-in-front
 
-**The readout overlay raises window-state events of its own.** Trusting those would rewrite
-"the app in front" to LightControl mid-turn and swap the mapping underneath you. Events from
-this package are ignored, and the settings activity reports itself through a volatile flag
-instead — same process, no IPC.
+Anything registered for `STILL_IMAGE_CAMERA` gets both camera-button stages untouched
+(memoised per package), so a third-party camera's shutter is never dead and "open the
+camera" never fires again from inside a camera that's already open. An explicit per-app
+rule of `OFF` still wins over this. The volume keys are bindable but pass through by
+default — they're the one pair that already works, so consuming them out of the box
+would be taking a function away to add one.
 
-**Brightness has no fixed scale.** 255 is common; 1023, 2047 and 4095 all ship. It's derived
-instead, from the platform's own two mirrors of the same value: `screen_brightness` divided by
-`screen_brightness_float`.
+## Privacy
+
+The service declares one event type and `canRetrieveWindowContent="false"`. What it can
+observe is exactly two things: key codes, and the package name of the app that came to
+the front, which rides along with the event and needs no node access. Screen content is
+not reachable, by declaration rather than by promise.
 
 ## Layout
 
@@ -225,10 +179,79 @@ ui/PickerScreen.kt       what one gesture does: four fixed choices, then every a
 ui/AppListScreen.kt      every launchable app, tap to cycle its rule
 ```
 
+## Gotchas, in the order they'll bite
+
+- **The accessibility setting is a list, not a flag.** `settings put secure
+  enabled_accessibility_services` overwrites whatever was there — enabling LightControl
+  naively turns off LightVoice's push-to-talk unless both components are colon-joined.
+- **Consuming a key is the dangerous half.** The service consumes only what it actually
+  acted on, so a bug here can't trap you — turns and clicks are inert keys in almost
+  every app, and the camera and home buttons are the ones that could otherwise have done
+  something.
+- **The click is a modifier and a button at once.** A held `WHEEL_CLICK` produces no key
+  repeat, so the press is remembered on DOWN and the torch only fires on UP if no notch
+  arrived in between.
+- **The camera button sends two scancodes**, and the order flips between presses —
+  `FOCUS` sometimes first, `CAMERA` other times. Only `CAMERA` triggers a binding;
+  `FOCUS` is swallowed alongside it so the app never sees half a press.
+- **The readout overlay raises its own window-state events.** Trusting those would
+  rewrite "the app in front" to LightControl mid-turn. Events from this package are
+  ignored; the settings activity reports itself through a volatile flag instead, since
+  service and activity share a process.
+- **Brightness has no fixed scale.** 255 is common; 1023, 2047 and 4095 all ship. It's
+  derived from the platform's own two mirrors of the value:
+  `screen_brightness` divided by `screen_brightness_float`.
+
 ## Not doing
 
-- **Node-based scrolling.** See above. Reading the screen to scroll a list isn't a trade worth
-  making.
-- **Remapping the power button.** Long-press is the hardware power menu, below the framework.
-- **A launcher tile per app.** The point is that the phone behaves consistently, not that
-  there's more to configure.
+- **Node-based scrolling.** `ACTION_SCROLL_FORWARD` is precise but needs
+  `canRetrieveWindowContent` — reading the whole screen to scroll a list isn't a trade
+  worth making.
+- **Remapping the power button.** Long-press is the hardware power menu, below the
+  framework.
+- **A launcher tile per app.** The point is that the phone behaves consistently, not
+  that there's more to configure.
+
+## Building
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+## Contributing
+
+Solo repo, no PR workflow: commits go straight to `main`, and every push to `main`
+triggers CI, which builds, signs, and publishes a GitHub Release. **A push is a
+release, not a cosmetic action** — verify before pushing, not after.
+
+The keystore is committed under `keystore/`, so every build carries the same signing
+certificate and upgrades install over the top; CI pins the certificate's SHA-256 in
+`signing-fingerprint.txt` and fails on drift. `versionCode` is the workflow run number;
+`versionName` in the committed `build.gradle.kts` (currently `1.0.0`) is only the
+`major.minor` base — CI stamps `major.minor.RUN` at build time and tags it `vX.Y.Z`.
+
+## Version history
+
+Real tags, oldest to newest:
+
+| Version | What changed |
+| --- | --- |
+| v1.0.1 | Initial release — the wheel and camera button, working phone-wide |
+| v1.0.2 / v1.0.3 | Same commit, re-tagged (`.gitignore` restored after being lost in a sync) |
+| v1.0.4 | `SWIPE`: one continuous finger-drag per app, instead of discrete flicks |
+| v1.0.5 | LightPhono recognised as a `com.gios.*` app rather than falling under Light's defaults |
+| v1.1.6 | Camera button now goes to whatever camera app is in front, not just Light's |
+| v1.0.7 | Buttons and bindings now work on the lock screen |
+| v1.0.8 | Lock-screen detection reworked around `KeyguardManager`, since the lock screen is a view, not a separate window |
+| v1.0.9 | Double-tap the wheel to switch it between brightness and scrolling, instead of holding it |
+| v1.0.10 | LightOS's own screens now take button bindings but leave turns untouched |
+| v1.0.11 | Home button added: tap and hold, bindable, falls back to Light's home |
+
+Note: **v1.1.6 is a real tag**, not a typo introduced here — the `major.minor` base in
+`build.gradle.kts` was briefly `1.1` for that one release and reverted to `1.0` for the
+next, which is why the sequence goes `...v1.0.5, v1.1.6, v1.0.7...` rather than climbing
+in order. Worth a look before the next minor-version bump.
+
+## Licence
+
+MIT.
