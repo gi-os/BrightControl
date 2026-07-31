@@ -57,6 +57,7 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     var readout by remember { mutableStateOf(prefs.showReadout) }
     var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
+    var enabled by remember { mutableStateOf(prefs.enabled) }
     var logKeys by remember { mutableStateOf(prefs.logKeys) }
     var keyLog by remember { mutableStateOf(prefs.keyLog()) }
 
@@ -73,6 +74,26 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll)) {
+
+            // First thing on the screen, deliberately. Everything else here is a preference; this
+            // is the way out. An accessibility service that filters keys can make a phone worse,
+            // and the only other way to stop one is a `settings put secure` line that needs a
+            // computer — which is not what you have at 7am with an alarm going off.
+            MenuRow(
+                label = if (enabled) "Everything on" else "EVERYTHING OFF",
+                detail = if (enabled) "ON" else "OFF",
+                sub = if (enabled) {
+                    "tap to stop the app touching any key at all"
+                } else {
+                    "no key is intercepted anywhere — the wheel, the buttons and the home key all " +
+                        "behave as if this app were not installed. Tap to switch it back on."
+                },
+                onClick = {
+                    enabled = !enabled
+                    prefs.enabled = enabled
+                },
+            )
+            Rule()
 
             var fault by remember { mutableStateOf(prefs.fault()) }
             if (fault != null) {

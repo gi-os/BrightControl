@@ -119,6 +119,19 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
     /**
+     * The master switch. Off means this app does nothing to any key, anywhere.
+     *
+     * Not a convenience. An accessibility service that filters keys is the one kind of app that can
+     * make a phone unusable, and the accessibility setting that turns it off lives in a `settings
+     * put secure` line that needs a computer — which is exactly what you don't have at 7am with an
+     * alarm going. So there is one switch, at the top of the screen, checked before anything else
+     * in `onKeyEvent`: after it, the app is indistinguishable from uninstalled.
+     */
+    var enabled: Boolean
+        get() = sp.getBoolean("enabled", true)
+        set(v) = sp.edit().putBoolean("enabled", v).apply()
+
+    /**
      * Whether the service may swallow the home button in order to time a hold on it.
      *
      * Its own switch rather than just a binding, because this is the one key where the failure
@@ -127,8 +140,14 @@ class Prefs(context: Context) {
      * uninstalled, and a short press still fires the tap binding on top ("shadow" mode in
      * [ControlService]).
      *
-     * It ships on, and it turns itself off — see [disarmHome]. A feature that quietly stops
-     * working is a fair price for a button that always does.
+     * It ships on, and it turns itself off — see [disarmHome].
+     *
+     * It nearly shipped off. The morning LightOS died during an alarm, this was the obvious suspect;
+     * the crash log said otherwise — a different app of ours crash-looping a foreground service and
+     * flooding the task stack with several hundred permission-dialog tasks, and not one mention of
+     * this package. So the feature stays, and the guards the scare bought it stay too: the master
+     * switch above, the ring grace window, one activity start a second, and standing down when the
+     * same binding fires four times over.
      */
     var homeTakeover: Boolean
         get() = sp.getBoolean("home_takeover", true)

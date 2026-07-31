@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.27.** See [Version history](#version-history).
+**Current version: v1.0.29.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -245,6 +245,20 @@ ui/AppListScreen.kt      every launchable app, tap to cycle its rule
 
 ## Failing safe
 
+**One switch turns everything off**, first thing on the settings screen, checked before anything
+else in `onKeyEvent`: after it, the app is indistinguishable from uninstalled. It exists because the
+only other way to stop an accessibility service is
+
+```bash
+adb shell settings delete secure enabled_accessibility_services
+adb shell settings put secure accessibility_enabled 0
+```
+
+— a computer, in other words, which is not what you have at 7am with an alarm going off. (Re-enabling
+takes both services colon-joined, since that setting overwrites the whole list:
+`com.gios.lightcontrol/com.gios.lightcontrol.keys.ControlService:com.gios.lightvoice/com.gios.lightvoice.ptt.PttService`.)
+
+
 A key filter is the one kind of app that can make a phone worse by breaking. Swallow a press and
 then throw, and the key is simply gone — which on the wrong morning is an alarm that won't turn
 off. So three rules, all of them learned the hard way:
@@ -255,10 +269,21 @@ entirely. The ringing check below only catches the moment audio is playing, and 
 pre-alarm screen or a snooze countdown are all a clock in front with something urgent to dismiss and
 no sound to detect. An alarm is the one thing here where being clever costs you a morning.
 
-**Nothing is intercepted while something is ringing.** If any active playback carries
-`USAGE_ALARM` or `USAGE_NOTIFICATION_RINGTONE`, every key goes straight through. Whatever is
-making the noise owns the dismiss gesture, and guessing which key it wants is exactly the guess
-that fails at 6am.
+**Nothing is intercepted while something is ringing — or for thirty seconds afterwards.** Any active
+playback carrying a ring-ish usage (alarm, ringtone, notification, voice call), or the ringer or call
+audio mode being set, and every key goes straight through. Whatever is making the noise owns the
+dismiss gesture, and guessing which key it wants is exactly the guess that fails at 6am. The grace
+window is there because sampling only at key events means the moment an alarm is *silenced* looks
+identical to silence, while the screen with the stop button on it is still up and being pressed at.
+
+**Four presses of the same binding and the service stands down.** Someone pressing the same button
+over and over is someone whose phone is not doing what they asked; whatever the service thinks is
+happening, it is wrong, and the useful thing it can do is stop. A fight with a key filter is one the
+phone loses.
+
+**One activity start a second, at most.** The activity this most often starts is a launcher, and
+launchers here run as uid 1000. A launcher restarted repeatedly while it is showing something modal
+is a system process being asked to do something no user could ask it to do.
 
 **Every fault answers "pass the key through".** `onKeyEvent` runs inside a catch that returns
 false, because passing a key on is always safe and consuming one is not.
@@ -350,6 +375,7 @@ Real tags, oldest to newest:
 | v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
 | v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
 | v1.0.19 | A clock in front keeps every key it can see |
+| v1.0.29 | **A master switch**, first on the screen, after which the app is indistinguishable from uninstalled. Plus the guards a bad morning bought: hands off for 30 s after anything rings, widened to every ring-ish usage and the ringer/call modes; standing down when the same binding fires four times over; one activity start a second; and LightOS reached by home intent rather than by component when it *is* the default launcher. (The morning in question turned out not to be this app — a different one was crash-looping a foreground service and had flooded the task stack with several hundred permission dialogs — but every guard here is right regardless) |
 | v1.0.27 | The release decides: the hold no longer fires on a timer mid-press, so nothing comes to the front while the button is still down. The same binding twice inside 350 ms counts once. New on-screen **key log** — the last dozen decisions, for when a filter needs to explain itself and there's no adb in your pocket |
 | v1.0.25 | A press the service took is owned to the end: only a fresh DOWN consults the front-app rules, so a binding can't hand the rest of its own press to the thing it just launched. Holding home brought the dashboard over and then went on into the menu |
 | v1.0.23 | Home goes to the default launcher by intent again. `GLOBAL_ACTION_HOME` injects a `KEYCODE_HOME` rather than starting home, which LightOS read as "back to the idle face" — a flashed dashboard and a bounce to the lock screen. Synthetic keys are now refused before recognition |

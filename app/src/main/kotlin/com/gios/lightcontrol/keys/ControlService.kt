@@ -73,6 +73,16 @@ class ControlService : AccessibilityService() {
     private var lastAction: Action? = null
     private var lastActionAt = 0L
 
+    /** How many times the same binding has fired in a row, and when the run started. */
+    private var sameActionRun = 0
+    private var runStartedAt = 0L
+
+    /** When something last rang. See [ringing]. */
+    private var lastRingAt = 0L
+
+    /** When an activity was last started from here. See [start]. */
+    private var lastStartAt = 0L
+
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
 
@@ -123,27 +133,42 @@ class ControlService : AccessibilityService() {
      * not. Repeated faults put the service to sleep entirely — see [dormant].
      */
     override fun onKeyEvent(event: KeyEvent): Boolean = try {
-        if (dormant() || alarmSounding()) false else handleKey(event)
+        if (!prefs.enabled || dormant() || ringing()) false else handleKey(event)
     } catch (t: Throwable) {
         recordFault(t)
         false
     }
 
     /**
-     * Whether something is ringing or sounding an alarm right now.
+     * Whether something is ringing, alarming, or in a call — now or in the last [RING_GRACE_MS].
      *
      * Nothing is worth intercepting in that moment. The dismiss gesture belongs to whatever is
      * making the noise, and being clever about which key it needs is exactly the kind of guess
-     * that fails at 6am. `activePlaybackConfigurations` is the cheap honest signal — it reports
-     * what is actually playing and with what intent, rather than what the ringer mode says.
+     * that fails at 6am — which it duly did: LightOS went down during an alarm, and LightOS runs as
+     * uid 1000, so that is the whole interface. Widened afterwards from "alarm or ringtone playing"
+     * to every ring-ish usage, the ringer and call audio modes, and a grace window, because the
+     * previous version could only see the seconds when audio was actually coming out.
      */
-    private fun alarmSounding(): Boolean = runCatching {
+    private fun ringing(): Boolean = runCatching {
+        val now = SystemClock.uptimeMillis()
+        // Still inside the grace window from the last thing that rang. Sampling only at key events
+        // means the moment an alarm is *silenced* looks identical to silence, while the screen with
+        // the "stop" button on it is still up and being pressed at. Half a minute of hands-off
+        // after a ring costs nothing and covers the whole of that.
+        if (lastRingAt != 0L && now - lastRingAt < RING_GRACE_MS) return true
         val audio = getSystemService(AudioManager::class.java) ?: return false
-        audio.activePlaybackConfigurations.any {
-            val usage = it.audioAttributes.usage
-            usage == AudioAttributes.USAGE_ALARM ||
-                usage == AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+        val playing = audio.activePlaybackConfigurations.any {
+            it.audioAttributes.usage in ringUsages
         }
+        // Ringer and call modes are the other half of the same question, and they answer it even
+        // when nothing is coming out of the speaker yet.
+        val mode = audio.mode
+        val busy = playing ||
+            mode == AudioManager.MODE_RINGTONE ||
+            mode == AudioManager.MODE_IN_CALL ||
+            mode == AudioManager.MODE_IN_COMMUNICATION
+        if (busy) lastRingAt = now
+        busy
     }.getOrDefault(false)
 
     /**
@@ -506,6 +531,24 @@ class ControlService : AccessibilityService() {
             log("${button.name} ${action.store()} DUP dropped")
             return
         }
+        // Someone pressing the same button over and over is someone whose phone is not doing what
+        // they asked. Whatever the service thinks is happening, it is wrong, and the useful thing
+        // it can do is stop — a fight with a key filter is one the phone loses, and it was a run of
+        // presses like this that ended with an activity being started at a launcher over and over.
+        if (action == lastAction && now - runStartedAt < MASH_WINDOW_MS) {
+            sameActionRun++
+            if (sameActionRun >= MASH_PRESSES) {
+                faults = MAX_FAULTS
+                lastFaultAt = now
+                sameActionRun = 0
+                prefs.setFault("${action.store()} $MASH_PRESSES times over — stood down", true)
+                log("${button.name} MASH — stood down")
+                return
+            }
+        } else {
+            sameActionRun = 1
+            runStartedAt = now
+        }
         lastAction = action
         lastActionAt = now
         val ok = perform(action)
@@ -622,6 +665,12 @@ class ControlService : AccessibilityService() {
      * the interesting fallback — it costs a wrong destination but never a dead press.
      */
     private fun goLightOsHome(): Boolean {
+        // If LightOS is already the default launcher, this action and plain home are the same
+        // destination — and then the home intent is the *only* correct way to get there. Starting a
+        // home activity by component is how you put a launcher somewhere it doesn't belong in the
+        // task hierarchy, and this launcher is uid 1000. Ask by category when the answer is the
+        // same; name the component only when it isn't, which is the case this action exists for.
+        if (defaultHomeIsLightOs()) return goHome()
         val explicit = Intent(Intent.ACTION_MAIN)
             .setClassName(LIGHTOS, "$LIGHTOS.MainActivity")
         if (start(explicit)) return true
@@ -629,6 +678,14 @@ class ControlService : AccessibilityService() {
         if (published != null && start(published)) return true
         return goHome()
     }
+
+    /** Whether the launcher the system would go home to is LightOS's own. */
+    private fun defaultHomeIsLightOs(): Boolean = runCatching {
+        packageManager.resolveActivity(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
+            0,
+        )?.activityInfo?.packageName?.startsWith(LIGHTOS) == true
+    }.getOrDefault(false)
 
     /**
      * Home: the default launcher, brought to the front by name.
@@ -658,10 +715,24 @@ class ControlService : AccessibilityService() {
      * Starting an activity from a service is a background activity start, which Android 14
      * blocks unless the app holds the `SYSTEM_ALERT_WINDOW` appop — the same grant the
      * readout needs.
+     *
+     * Rate-limited to one a second, and that limit is the point rather than a nicety. The activity
+     * this most often starts is a *launcher*, LightOS's, which runs as uid 1000 — and a launcher
+     * being restarted repeatedly while it is showing something modal, an alarm say, is a system
+     * process being asked to do something no user could ask it to do. One start a second is more
+     * than any deliberate press produces and far less than a stuck key or a mashed button can.
      */
-    private fun start(intent: Intent): Boolean = runCatching {
-        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }.isSuccess
+    private fun start(intent: Intent): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastStartAt < START_INTERVAL_MS) {
+            log("start dropped — one a second")
+            return false
+        }
+        lastStartAt = now
+        return runCatching {
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.isSuccess
+    }
 
     private companion object {
         /** Faults tolerated before the filter goes quiet, and the window they must fall in. */
@@ -682,6 +753,26 @@ class ControlService : AccessibilityService() {
 
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L
+
+        /** The same binding this many times inside this window and the service stands down. */
+        const val MASH_PRESSES = 4
+        const val MASH_WINDOW_MS = 4_000L
+
+        /** Hands off for this long after anything last rang. See [ringing]. */
+        const val RING_GRACE_MS = 30_000L
+
+        /** Minimum gap between activity starts. See [start]. */
+        const val START_INTERVAL_MS = 1_000L
+
+        /** Playback usages that mean something is asking for the user, not entertaining them. */
+        val ringUsages = setOf(
+            AudioAttributes.USAGE_ALARM,
+            AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
+            AudioAttributes.USAGE_NOTIFICATION,
+            AudioAttributes.USAGE_NOTIFICATION_EVENT,
+            AudioAttributes.USAGE_VOICE_COMMUNICATION,
+            AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING,
+        )
 
         /** Stroke duration. Slow enough not to register as a fling, quick enough to keep up. */
         const val SWIPE_MS = 60L
