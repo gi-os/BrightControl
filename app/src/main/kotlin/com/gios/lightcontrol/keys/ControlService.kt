@@ -192,6 +192,21 @@ class ControlService : AccessibilityService() {
         }
 
         val button = LightKeys.buttonOf(key) ?: return false
+
+        // A press already taken is a press owned to the end.
+        //
+        // Every check below asks about the app in front, and the app in front changes *because of
+        // what this service just did*: the hold fires, an activity comes over, and the release
+        // arrives to a different set of answers than the press did. Re-deciding then is how a
+        // consumed DOWN grew an unconsumed UP — LightOS got a lone home release and read it as a
+        // home press of its own, so holding home brought its dashboard over and then walked
+        // straight on into the menu. A binding that launches something must not hand the rest of
+        // its own press to the thing it launched.
+        //
+        // Only a fresh DOWN gets to consult the rules. Everything after it belongs to the press.
+        val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+        if (!fresh && presses.containsKey(button)) return onButton(button, behaviour, event)
+
         if (!behaviour.buttonsActive) return false
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
@@ -223,6 +238,10 @@ class ControlService : AccessibilityService() {
      * Every one of those falls through to [shadowHome], which consumes nothing at all: LightOS
      * sees the whole press and behaves exactly as it would with this app uninstalled. Degrading
      * into "uninstalled" is the only correct failure for this key.
+     *
+     * Note that this only ever runs for a *fresh* press — see [handleKey]. Once the dashboard is
+     * over, the next hold falls through here to LightOS itself, which is what makes the second one
+     * open its menu.
      */
     private fun onHome(front: String?, behaviour: Behaviour, event: KeyEvent): Boolean {
         val hold = prefs.action(Button.Home, Gesture.Hold)

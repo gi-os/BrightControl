@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.23.** See [Version history](#version-history).
+**Current version: v1.0.25.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -127,6 +127,15 @@ the same place:
 | LightOS is in front | Its dashboard and lock screen are one activity; home already goes there, so swallowing the key can only lose. Holds even with **LightOS screens** on |
 | A clock is in front, or something is ringing | The same rule every key follows — see [Failing safe](#failing-safe) |
 | The hold needs to start an activity and the overlay appop is missing | Without it Android 14 drops the start *in silence*, so the press would be consumed and nothing would happen |
+
+**A press already taken is a press owned to the end.** Every one of those checks asks about the
+app in front, and the app in front changes *because of what the service just did* — the hold
+fires, the dashboard comes over, and the release arrives to different answers than the press
+did. Re-deciding at that point is how a consumed DOWN grew an unconsumed UP: LightOS got a lone
+home release, read it as a home press of its own, and holding home brought the dashboard over
+and then walked on into the menu. So only a fresh DOWN consults the rules; everything after it
+belongs to the press. Hold once and the dashboard comes over, and only the *next* hold — which
+is a fresh press, with LightOS now in front — reaches LightOS's own menu.
 
 The fallback — "shadow" mode — consumes **nothing**. LightOS sees the entire press, long
 presses behave exactly as they do with this app uninstalled, and the tap binding fires on
@@ -333,6 +342,7 @@ Real tags, oldest to newest:
 | v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
 | v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
 | v1.0.19 | A clock in front keeps every key it can see |
+| v1.0.25 | A press the service took is owned to the end: only a fresh DOWN consults the front-app rules, so a binding can't hand the rest of its own press to the thing it just launched. Holding home brought the dashboard over and then went on into the menu |
 | v1.0.23 | Home goes to the default launcher by intent again. `GLOBAL_ACTION_HOME` injects a `KEYCODE_HOME` rather than starting home, which LightOS read as "back to the idle face" — a flashed dashboard and a bounce to the lock screen. Synthetic keys are now refused before recognition |
 | v1.0.21 | **Hold home opens LightOS's dashboard by name.** The takeover refuses the key when the screen is off, the phone is locked, LightOS is in front, or the hold would need an activity start it hasn't been granted — and disarms itself permanently after two dispatches that report failure |
 
