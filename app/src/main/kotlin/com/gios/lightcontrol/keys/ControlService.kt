@@ -279,11 +279,16 @@ class ControlService : AccessibilityService() {
     /**
      * What to make of a home binding that reported failure.
      *
-     * The tap path answers honestly — `performGlobalAction` returns a boolean — so a run of
-     * presses where nothing worked is a real signal, and the response is to stop: the takeover
-     * disarms itself, the key goes back to the system, and the settings screen says why. Two in a
-     * row rather than one, because a single refusal mid-transition is plausible; permanent rather
-     * than timed, because "the home button works again in a minute" is not a thing to ship.
+     * Worth being clear about how much this can see, because it is less than it looks: a blocked
+     * background activity start is dropped *silently* on Android 14, and `performGlobalAction`
+     * returns true for "injected", not for "went home". So what reaches here is the honest
+     * failures — nothing resolves the intent, the component is gone, the start threw — and not
+     * every possible one. It is the last guard, not the first: the pre-flight checks in [onHome]
+     * are what actually keep the key safe.
+     *
+     * Two in a row rather than one, because a single refusal mid-transition is plausible;
+     * permanent rather than timed, because "the home button works again in a minute" is not a
+     * thing to ship.
      */
     private fun noteHomeDispatch(ok: Boolean, action: Action) {
         if (ok) {
@@ -574,23 +579,27 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * Home, and the one action that answers honestly about whether it worked.
+     * Home: the default launcher, brought to the front by name.
      *
-     * `performGlobalAction` is the accessibility route to the home screen: no permission, no
-     * appop, not a background activity start, and a boolean that means something. The intent is
-     * kept as a second attempt, but note what it cannot tell you — Android 14 drops a background
-     * activity start *silently* when the overlay appop is missing, so `startActivity` returning
-     * without throwing is not evidence that anything happened. That asymmetry is the reason the
-     * home tap goes through here and not through an intent: this is the button where a failure
-     * has to be detectable. See [noteHomeDispatch].
+     * It has to be the intent, and `GLOBAL_ACTION_HOME` is the interesting wrong answer. That
+     * global action does not start the home activity — AOSP's `SystemActionPerformer` implements
+     * it as `sendDownAndUpKeyEvents(KEYCODE_HOME)`, an *injected key event*. Injecting a home key
+     * hands the press to whatever already has focus, and LightOS reads a home press as "go back to
+     * the idle face" — so on LightOS's own screens the result was a flash of the dashboard and a
+     * bounce straight back to the lock screen, with the default launcher never reached. An
+     * activity start doesn't ask anybody: it puts the launcher in front.
+     *
+     * The global action stays as the fallback for the cases the intent can't cover — no resolvable
+     * home activity, a start that throws, or no overlay appop, without which the start would be
+     * dropped in silence. An injected key is a poor home button, but it needs no grant at all, so
+     * it is the right thing to be left holding.
      */
     private fun goHome(): Boolean {
-        if (runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }.getOrDefault(false)) return true
-        return start(
-            Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_HOME)
-                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        val intent = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_HOME)
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (Grants.canDrawOverlays(this) && start(intent)) return true
+        return runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }.getOrDefault(false)
     }
 
     /**

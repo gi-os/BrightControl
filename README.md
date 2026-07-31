@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.21.** See [Version history](#version-history).
+**Current version: v1.0.23.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -134,14 +134,28 @@ top afterwards if the press was short. It can't offer a hold, because by the tim
 a press was long it has already been delivered; firing home twice over is invisible, which
 is why this shape is the home button's alone.
 
-**And it checks its work.** The tap goes through `performGlobalAction(GLOBAL_ACTION_HOME)`
-rather than an intent, deliberately: it needs no grant, isn't a background activity start,
-and — the point — it returns a boolean that means something. `startActivity` doesn't;
-Android 14 drops a blocked background start without throwing, so a launch that went nowhere
-is indistinguishable from one that worked. Two home presses in a row where nothing reported
-success and the takeover **disarms itself permanently**, handing the key back to the system
-and saying so on the front screen with a `RETRY` next to it. A feature that quietly stops
-working is a fair trade for a button that always does.
+**Home is an activity start, not a synthetic key press.** This one cost a release to learn.
+`performGlobalAction(GLOBAL_ACTION_HOME)` looks like the tidy accessibility-native answer —
+no permission, no background activity start — but it doesn't start the home activity at all:
+AOSP implements it as `sendDownAndUpKeyEvents(KEYCODE_HOME)`, an *injected key*. Injecting a
+home key hands the press to whatever already has focus, and LightOS reads a home press as
+"back to the idle face" — so on LightOS's own screens v1.0.21 flashed the dashboard and
+bounced to the lock screen while the default launcher was never reached. A `CATEGORY_HOME`
+intent doesn't ask anyone's opinion. The global action stays only as the fallback for when
+there's no resolvable home activity or no overlay appop to start one with.
+
+The other half of that lesson: **synthetic keys are refused at the door.** All five LPIII
+controls are physical — a named input device, a nonzero Linux scancode — while an injected
+key has `VIRTUAL_KEYBOARD` for a device and scancode 0. `LightKeys` checks that before
+anything else, because a home binding that can see its own injected home press is a binding
+that feeds itself. (`FLAG_FROM_SYSTEM` is not the test; real hardware keys carry it too.)
+
+**And it disarms itself.** Two home dispatches in a row that report failure and the takeover
+switches off permanently, handing the key back to the system and saying so on the front
+screen with a `RETRY` next to it. Worth knowing how much that can catch, though: a blocked
+background start is dropped silently and the global action returns true for "injected", not
+for "went home", so this is the last guard rather than the first. The pre-flight refusals
+above are what actually keep the key safe.
 
 ### Scrolling apps that never heard of the wheel
 
@@ -319,6 +333,7 @@ Real tags, oldest to newest:
 | v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
 | v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
 | v1.0.19 | A clock in front keeps every key it can see |
+| v1.0.23 | Home goes to the default launcher by intent again. `GLOBAL_ACTION_HOME` injects a `KEYCODE_HOME` rather than starting home, which LightOS read as "back to the idle face" — a flashed dashboard and a bounce to the lock screen. Synthetic keys are now refused before recognition |
 | v1.0.21 | **Hold home opens LightOS's dashboard by name.** The takeover refuses the key when the screen is off, the phone is locked, LightOS is in front, or the hold would need an activity start it hasn't been granted — and disarms itself permanently after two dispatches that report failure |
 
 Note: **v1.1.6 is a real tag**, not a typo introduced here — the `major.minor` base in

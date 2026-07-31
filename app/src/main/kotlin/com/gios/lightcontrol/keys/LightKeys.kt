@@ -1,5 +1,6 @@
 package com.gios.lightcontrol.keys
 
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import com.gios.lightcontrol.Button
 
@@ -104,8 +105,20 @@ object LightKeys {
         if (code != KeyEvent.KEYCODE_UNKNOWN) put(code, key)
     }
 
-    /** Which control produced [event], or null if it wasn't one of ours. */
+    /**
+     * Which control produced [event], or null if it wasn't one of ours.
+     *
+     * Synthetic keys are refused before anything else. All five of these controls are physical:
+     * they arrive from a named input device with a nonzero Linux scancode. An *injected* key has
+     * neither — `KeyCharacterMap.VIRTUAL_KEYBOARD` for a device id and a scancode of 0 — and the
+     * one that matters is `KEYCODE_HOME`, because `performGlobalAction(GLOBAL_ACTION_HOME)`
+     * injects exactly that. Treating our own synthetic home press as a real one is how a home
+     * binding feeds itself, so the shape of the event is checked rather than trusted.
+     *
+     * Note that `FLAG_FROM_SYSTEM` is *not* the test: real hardware keys carry it too.
+     */
     fun of(event: KeyEvent): LightKey? {
+        if (event.deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD || event.scanCode == 0) return null
         byKeyCode[event.keyCode]?.let { return it }
         // Either the labels moved or this build doesn't have them. Trust the scancode, but
         // only from the two devices that physically own these controls — otherwise a paired
