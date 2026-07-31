@@ -152,6 +152,30 @@ class Prefs(context: Context) {
     }
 
     /**
+     * The last dozen things the key service decided, newest first.
+     *
+     * Kept in one string rather than a set of keys, because it is written from `onKeyEvent` and the
+     * cheapest correct thing there is one `apply()`. It exists because a key filter has no other
+     * way to explain itself: the phone has no adb attached when the button misbehaves, and "it
+     * flickered and went to the menu" is not enough to fix anything from.
+     */
+    fun keyLog(): List<String> =
+        sp.getString("key_log", null)?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+
+    fun appendLog(line: String) {
+        if (!logKeys) return
+        val kept = (listOf(line) + keyLog()).take(LOG_LINES)
+        sp.edit().putString("key_log", kept.joinToString("\n")).apply()
+    }
+
+    fun clearLog() = sp.edit().remove("key_log").apply()
+
+    /** Whether to keep the log at all. On, because the cost is one small write per press. */
+    var logKeys: Boolean
+        get() = sp.getBoolean("log_keys", true)
+        set(v) = sp.edit().putBoolean("log_keys", v).apply()
+
+    /**
      * The last fault the key service hit, and whether it has gone quiet because of them.
      *
      * Recorded rather than only logged, because the symptom of a dormant filter is buttons that
@@ -204,6 +228,9 @@ class Prefs(context: Context) {
 
     private companion object {
         const val APP_PREFIX = "app:"
+
+        /** Lines of key log kept. A dozen is two or three presses' worth of story. */
+        const val LOG_LINES = 12
     }
 }
 

@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.25.** See [Version history](#version-history).
+**Current version: v1.0.27.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -53,11 +53,12 @@ the screen.
 Every button carries a **tap** and a **hold**, bound separately, and either can open any
 installed app. Light's own tools are left strictly alone by default, and any app can be
 overridden individually. Tap and hold are told apart by time, not by key repeat — a held
-key on this phone never repeats, so DOWN schedules the hold and UP either cancels it and
-runs the tap, or finds the hold already fired. The wheel click has a third case: a notch
-arriving mid-press turns the whole thing into a brightness gesture, cancelling the
-pending hold *and* suppressing the tap, so a brightness adjustment never ends with the
-flashlight coming on by surprise.
+key on this phone never repeats — and **the release is what decides**. Nothing fires
+mid-press. That ordering matters more than it sounds: a hold that goes off while the button
+is still down brings an app to the front *during* the press, and the rest of the press then
+belongs to a foreground that changed underneath it. One press, one decision, dispatched
+once, after the key is already accounted for. It costs the feeling of a hold going off in
+your hand; it buys a button that does one thing.
 
 ## Quick start
 
@@ -127,6 +128,13 @@ the same place:
 | LightOS is in front | Its dashboard and lock screen are one activity; home already goes there, so swallowing the key can only lose. Holds even with **LightOS screens** on |
 | A clock is in front, or something is ringing | The same rule every key follows — see [Failing safe](#failing-safe) |
 | The hold needs to start an activity and the overlay appop is missing | Without it Android 14 drops the start *in silence*, so the press would be consumed and nothing would happen |
+
+Two rules keep one press to one action, and both were learned from the same bug — holding
+home brought LightOS's dashboard over and then carried on into its menu.
+
+**The release decides; nothing fires mid-press.** The hold used to go off on a timer while
+the button was still down, which put an activity in front of the user in the middle of their
+own press.
 
 **A press already taken is a press owned to the end.** Every one of those checks asks about the
 app in front, and the app in front changes *because of what the service just did* — the hold
@@ -342,6 +350,7 @@ Real tags, oldest to newest:
 | v1.0.15 / v1.0.16 | Home tap goes home and the hold stays LightOS's — nothing consumed unless the hold is bound |
 | v1.0.18 | Failing safe: a throw never takes a key away, and three faults in a minute put the filter to sleep |
 | v1.0.19 | A clock in front keeps every key it can see |
+| v1.0.27 | The release decides: the hold no longer fires on a timer mid-press, so nothing comes to the front while the button is still down. The same binding twice inside 350 ms counts once. New on-screen **key log** — the last dozen decisions, for when a filter needs to explain itself and there's no adb in your pocket |
 | v1.0.25 | A press the service took is owned to the end: only a fresh DOWN consults the front-app rules, so a binding can't hand the rest of its own press to the thing it just launched. Holding home brought the dashboard over and then went on into the menu |
 | v1.0.23 | Home goes to the default launcher by intent again. `GLOBAL_ACTION_HOME` injects a `KEYCODE_HOME` rather than starting home, which LightOS read as "back to the idle face" — a flashed dashboard and a bounce to the lock screen. Synthetic keys are now refused before recognition |
 | v1.0.21 | **Hold home opens LightOS's dashboard by name.** The takeover refuses the key when the screen is off, the phone is locked, LightOS is in front, or the hold would need an activity start it hasn't been granted — and disarms itself permanently after two dispatches that report failure |

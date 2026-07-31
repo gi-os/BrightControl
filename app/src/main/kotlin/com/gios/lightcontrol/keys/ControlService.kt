@@ -69,6 +69,10 @@ class ControlService : AccessibilityService() {
     /** Home presses in a row where nothing the service tried reported success. */
     private var homeMisses = 0
 
+    /** The last binding performed and when, so the same one twice over can be dropped. */
+    private var lastAction: Action? = null
+    private var lastActionAt = 0L
+
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
 
@@ -82,12 +86,8 @@ class ControlService : AccessibilityService() {
     /** Which packages are clocks, memoised for the same reason. */
     private val alarmPackages = HashMap<String, Boolean>()
 
-    /** One press in flight: what it has already done, and its pending hold. */
-    private class Press(
-        var spent: Boolean = false,
-        var holdFired: Boolean = false,
-        var pendingHold: Runnable? = null,
-    )
+    /** One press in flight. Nothing but when it started — the release does the deciding. */
+    private class Press(val downAt: Long)
 
     override fun onCreate() {
         super.onCreate()
@@ -145,6 +145,18 @@ class ControlService : AccessibilityService() {
                 usage == AudioAttributes.USAGE_NOTIFICATION_RINGTONE
         }
     }.getOrDefault(false)
+
+    /**
+     * One line in the on-screen key log.
+     *
+     * A key filter is close to undebuggable from the outside: the only symptom of anything going
+     * wrong is a button that did the wrong thing, and by the time you've noticed, the evidence is
+     * the memory of a flicker. There is no adb in a pocket. So the last dozen decisions are kept
+     * somewhere they can be read on the phone — what arrived, what was in front, what was done.
+     */
+    private fun log(line: String) {
+        runCatching { prefs.appendLog(line) }
+    }
 
     /**
      * Whether the service has faulted often enough to stop trusting itself.
@@ -205,9 +217,13 @@ class ControlService : AccessibilityService() {
         //
         // Only a fresh DOWN gets to consult the rules. Everything after it belongs to the press.
         val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+        if (fresh) log("${button.name} down · ${front?.substringAfterLast('.') ?: "?"}")
         if (!fresh && presses.containsKey(button)) return onButton(button, behaviour, event)
 
-        if (!behaviour.buttonsActive) return false
+        if (!behaviour.buttonsActive) {
+            if (fresh) log("${button.name} hands off")
+            return false
+        }
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
         // The home button is the one key the phone cannot do without. See [onHome].
@@ -244,10 +260,18 @@ class ControlService : AccessibilityService() {
      * open its menu.
      */
     private fun onHome(front: String?, behaviour: Behaviour, event: KeyEvent): Boolean {
+        val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         val hold = prefs.action(Button.Home, Gesture.Hold)
-        if (!hold.acts) return shadowHome(event)
-        if (front != null && front.startsWith(LIGHTOS)) return shadowHome(event)
-        if (!homeConsumable(hold)) return shadowHome(event)
+        val reason = when {
+            !hold.acts -> "hold unbound"
+            front != null && front.startsWith(LIGHTOS) -> "LightOS in front"
+            !homeConsumable(hold) -> "not consumable"
+            else -> null
+        }
+        if (reason != null) {
+            if (fresh) log("HOME shadow · $reason")
+            return shadowHome(event)
+        }
         return onButton(Button.Home, behaviour, event)
     }
 
@@ -274,10 +298,9 @@ class ControlService : AccessibilityService() {
      */
     private fun shadowHome(event: KeyEvent): Boolean {
         // A press that began under the takeover and arrived here instead — the screen went off
-        // mid-hold, or the binding changed — is dropped rather than completed. Otherwise its hold
-        // fires into a phone that is now locked, which is both useless and a failure the disarm
-        // counter would take seriously.
-        presses.remove(Button.Home)?.pendingHold?.let { handler.removeCallbacks(it) }
+        // mid-press, or the binding changed — is dropped rather than completed, so its release
+        // can't dispatch into a phone that is now locked.
+        presses.remove(Button.Home)
         val tap = prefs.action(Button.Home, Gesture.Tap)
         if (!tap.acts) return false
         when (event.action) {
@@ -398,12 +421,16 @@ class ControlService : AccessibilityService() {
     /**
      * Tap versus hold, for one button.
      *
-     * A held key on this phone produces no repeats, so the split is timed: DOWN schedules the
-     * hold action, UP either cancels it and runs the tap, or does nothing because the hold
-     * already fired. The wheel click has a third possibility — a notch arriving mid-press
-     * turns the whole thing into a brightness gesture, which cancels the pending hold and
-     * suppresses the tap, because ending a brightness adjustment with the flashlight coming
-     * on is a genuinely nasty surprise in the dark.
+     * **The release decides, and nothing happens before it.** A held key on this phone produces
+     * no repeats, so the two are told apart by time — but the timing is measured at the release
+     * rather than run off a timer that fires mid-press. That ordering is the whole point: a hold
+     * that fires while the button is still down brings an app to the front *during* the press, and
+     * the rest of the press then belongs to a foreground that has changed underneath it. That is
+     * what made one hold of the home button bring LightOS's dashboard over and then carry on into
+     * its menu. Deciding at the release means one press is one decision, dispatched once, with the
+     * key already accounted for.
+     *
+     * It costs the feeling of a hold "going off" in your hand. Worth it.
      */
     private fun onButton(button: Button, behaviour: Behaviour, event: KeyEvent): Boolean {
         val tap = prefs.action(button, Gesture.Tap)
@@ -417,14 +444,7 @@ class ControlService : AccessibilityService() {
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 if (event.repeatCount != 0) return tap.consumes || hold.consumes
-                val press = Press()
-                presses[button] = press
-                if (hold.acts) {
-                    // Held by reference so UP can cancel exactly this one.
-                    val fire = Runnable { fireHold(button, hold) }
-                    press.pendingHold = fire
-                    handler.postDelayed(fire, HOLD_MS)
-                }
+                presses[button] = Press(downAt = SystemClock.uptimeMillis())
             }
 
             KeyEvent.ACTION_UP -> {
@@ -434,10 +454,9 @@ class ControlService : AccessibilityService() {
                 // after the wake, so acting on it would fire home on the way out of unlocking.
                 // Half a press is not a press.
                 if (press == null && button == Button.Home) return false
-                press?.pendingHold?.let { handler.removeCallbacks(it) }
-                val spent = press?.spent == true || press?.holdFired == true
-                if (spent) return true
-                if (switcher) {
+                val held = press != null &&
+                    SystemClock.uptimeMillis() - press.downAt >= HOLD_MS
+                if (switcher && !held) {
                     // Second tap inside the window: the first one never happened, and turning
                     // the wheel means the other thing now.
                     val waiting = pendingTap
@@ -459,7 +478,8 @@ class ControlService : AccessibilityService() {
                     }
                     return true
                 }
-                if (tap.acts) act(button, tap)
+                val action = if (held) hold else tap
+                if (action.acts) act(button, action)
             }
         }
         // The camera button's first stage is swallowed alongside the second, so the app never
@@ -467,16 +487,29 @@ class ControlService : AccessibilityService() {
         return tap.consumes || hold.consumes
     }
 
-    private fun fireHold(button: Button, hold: Action) {
-        val press = presses[button] ?: return
-        if (press.spent || press.holdFired) return
-        press.holdFired = true
-        act(button, hold)
-    }
-
-    /** Perform a binding, and on the home button keep score of whether it worked. */
+    /**
+     * Perform a binding — once.
+     *
+     * The same action arriving twice inside [DEDUPE_MS] is dropped, and the window is short enough
+     * that no deliberate second gesture can fall inside it: a hold takes 500 ms of holding plus a
+     * release before it dispatches at all. What it does collapse is a duplicate nobody asked for —
+     * a key event delivered twice, another key-filtering service in the chain (LightVoice runs
+     * one), a binding somehow dispatched from two paths. Those show up as an action that "fires,
+     * then fires again", and on LightOS's dashboard firing twice is visible: the second one walks
+     * on into the menu.
+     *
+     * A launch that genuinely wants repeating at speed doesn't exist among these actions.
+     */
     private fun act(button: Button, action: Action) {
+        val now = SystemClock.uptimeMillis()
+        if (action == lastAction && now - lastActionAt < DEDUPE_MS) {
+            log("${button.name} ${action.store()} DUP dropped")
+            return
+        }
+        lastAction = action
+        lastActionAt = now
         val ok = perform(action)
+        log("${button.name} ${action.store()}${if (ok) "" else " FAILED"}")
         if (button == Button.Home) noteHomeDispatch(ok, action)
     }
 
@@ -646,6 +679,9 @@ class ControlService : AccessibilityService() {
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L
+
+        /** Window in which the same binding twice over is one binding. See [act]. */
+        const val DEDUPE_MS = 350L
 
         /** Stroke duration. Slow enough not to register as a fling, quick enough to keep up. */
         const val SWIPE_MS = 60L

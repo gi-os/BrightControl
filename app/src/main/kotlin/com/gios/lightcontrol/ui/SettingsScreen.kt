@@ -57,6 +57,8 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
     var readout by remember { mutableStateOf(prefs.showReadout) }
     var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
+    var logKeys by remember { mutableStateOf(prefs.logKeys) }
+    var keyLog by remember { mutableStateOf(prefs.keyLog()) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -254,6 +256,45 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                 sub = "worked out from the platform's own two copies of the value",
                 dim = true,
             )
+            Rule()
+
+            // Last, because it is for the mornings something is wrong. A key filter cannot explain
+            // itself any other way: there is no adb attached when the button misbehaves, and the
+            // whole event is over before you can look.
+            SectionLabel("KEY LOG")
+            MenuRow(
+                label = "Keep a log",
+                detail = if (logKeys) "ON" else "OFF",
+                sub = "the last dozen decisions: what arrived, what was in front, what was done",
+                onClick = {
+                    logKeys = !logKeys
+                    prefs.logKeys = logKeys
+                    if (!logKeys) {
+                        prefs.clearLog()
+                        keyLog = emptyList()
+                    }
+                },
+            )
+            if (keyLog.isNotEmpty()) {
+                keyLog.forEach { line ->
+                    MenuRow(label = line, dim = true)
+                }
+                MenuRow(
+                    label = "Clear",
+                    detail = "×",
+                    onClick = {
+                        prefs.clearLog()
+                        keyLog = emptyList()
+                    },
+                )
+            } else if (logKeys) {
+                MenuRow(
+                    label = "Nothing yet",
+                    sub = "press a button, then come back — reopening the screen re-reads it",
+                    dim = true,
+                )
+            }
+
             Gap(28)
             Text(
                 "The wheel and camera button are ordinary key events on this phone — Light " +
