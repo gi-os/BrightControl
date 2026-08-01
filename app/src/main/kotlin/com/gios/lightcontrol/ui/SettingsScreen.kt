@@ -38,7 +38,7 @@ import com.gios.lightcontrol.ui.theme.Dim
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
+fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val brightness = remember { Brightness(context) }
@@ -110,6 +110,32 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                 Rule()
             }
 
+            // Above the settings, because a crash is the one thing that stops you reaching them.
+            // Written by App's uncaught-exception handler on the way out; this is the only place
+            // it is ever visible, since LightOS has no crash dialog worth reading.
+            var crash by remember { mutableStateOf(prefs.lastCrash()) }
+            crash?.let { text ->
+                SectionLabel("LAST CRASH")
+                var full by remember { mutableStateOf(false) }
+                MenuRow(
+                    label = text.lineSequence().firstOrNull().orEmpty(),
+                    detail = if (full) "×" else "OPEN",
+                    sub = if (full) text else "tap to read the stack",
+                    onClick = { full = !full },
+                )
+                if (full) {
+                    MenuRow(
+                        label = "Forget it",
+                        detail = "CLEAR",
+                        onClick = {
+                            prefs.clearCrash()
+                            crash = null
+                        },
+                    )
+                }
+                Rule()
+            }
+
             // Its own report, not folded into the fault block above: the home takeover disarms on
             // a binding that answered "no", not on a crash, and the symptom is a hold that stopped
             // working rather than a service that went quiet. Tapping re-arms it.
@@ -164,6 +190,16 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit) {
                     shortLabel(prefs.action(Button.Camera, Gesture.Tap)),
                 sub = "wheel click and camera button, tap and hold separately",
                 onClick = onButtons,
+            )
+            // The home button's tap, on the front screen rather than two levels down in Buttons.
+            // It is the row people come here for — LightOS insists on holding the HOME *role* or
+            // it crash-loops, so pointing the *button* somewhere else is how you actually get a
+            // different home screen. Any launchable app; Luma is just the usual answer.
+            MenuRow(
+                label = "Home button opens",
+                detail = shortLabel(prefs.action(Button.Home, Gesture.Tap)),
+                sub = longLabel(context.packageManager, prefs.action(Button.Home, Gesture.Tap)),
+                onClick = onHomeTap,
             )
             MenuRow(
                 label = "Hold home for LightOS",

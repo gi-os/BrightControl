@@ -53,13 +53,19 @@ fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
         Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
     )
 
+    // Guarded: this is one binder call carrying every launchable activity on the phone, and on a
+    // busy boot it can come back as TransactionTooLargeException or DeadObjectException. An empty
+    // list loses the app rows; letting it throw loses the whole screen, which is how "it won't
+    // open" happens.
     val apps = remember {
-        val pm = context.packageManager
-        val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
-            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-            .distinctBy { it.first }
-            .sortedBy { it.second.lowercase() }
+        runCatching {
+            val pm = context.packageManager
+            val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
+                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                .distinctBy { it.first }
+                .sortedBy { it.second.lowercase() }
+        }.getOrDefault(emptyList())
     }
 
     val listState = rememberLazyListState()
@@ -101,7 +107,21 @@ fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
                 )
                 Rule()
             }
-            item { SectionLabel("OPEN AN APP") }
+            item {
+                SectionLabel(
+                    if (button == Button.Home) "OPEN AN APP INSTEAD OF HOME" else "OPEN AN APP",
+                )
+            }
+            if (apps.isEmpty()) {
+                item {
+                    MenuRow(
+                        label = "No apps listed",
+                        sub = "the package list came back empty — leave the screen and open it " +
+                            "again once the phone has settled",
+                        dim = true,
+                    )
+                }
+            }
             items(apps, key = { it.first }) { (pkg, label) ->
                 MenuRow(
                     label = label,

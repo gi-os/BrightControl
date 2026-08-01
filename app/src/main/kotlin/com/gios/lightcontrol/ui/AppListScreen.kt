@@ -45,18 +45,22 @@ fun AppListScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
+    // See PickerScreen: one binder call with every launchable activity in it, so a failure here
+    // is an empty list rather than a dead screen.
     val apps = remember {
-        val pm = context.packageManager
-        val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
-            .map {
-                Installed(
-                    label = it.loadLabel(pm).toString(),
-                    pkg = it.activityInfo.packageName,
-                )
-            }
-            .distinctBy { it.pkg }
-            .sortedBy { it.label.lowercase() }
+        runCatching {
+            val pm = context.packageManager
+            val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
+                .map {
+                    Installed(
+                        label = it.loadLabel(pm).toString(),
+                        pkg = it.activityInfo.packageName,
+                    )
+                }
+                .distinctBy { it.pkg }
+                .sortedBy { it.label.lowercase() }
+        }.getOrDefault(emptyList())
     }
 
     // Mirrors the stored rules so a tap redraws immediately; SharedPreferences is the

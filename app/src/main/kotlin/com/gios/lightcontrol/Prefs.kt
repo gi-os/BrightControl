@@ -210,6 +210,23 @@ class Prefs(context: Context) {
 
     fun clearFault() = sp.edit().remove("fault").putBoolean("fault_dormant", false).apply()
 
+    /**
+     * The last crash that killed the app, kept so the phone can show it.
+     *
+     * A sideloaded app on LightOS has no crash dialog worth reading and no adb attached when it
+     * matters — "it crashes when I open it" is the whole report otherwise. [com.gios.lightcontrol.App]
+     * writes here from the uncaught-exception handler, before the process goes, and the settings
+     * screen shows it on the next launch.
+     */
+    fun lastCrash(): String? = sp.getString("last_crash", null)
+
+    fun recordCrash(text: String) {
+        // commit(), not apply(): the process is about to die and apply() is asynchronous.
+        sp.edit().putString("last_crash", text.take(CRASH_CHARS)).commit()
+    }
+
+    fun clearCrash() = sp.edit().remove("last_crash").apply()
+
     /** Notches from dimmest to brightest. */
     var brightnessSteps: Int
         get() = sp.getInt("steps", 24)
@@ -250,6 +267,9 @@ class Prefs(context: Context) {
 
         /** Lines of key log kept. A dozen is two or three presses' worth of story. */
         const val LOG_LINES = 12
+
+        /** How much of a stack trace to keep. Enough for the cause and the top frames. */
+        const val CRASH_CHARS = 1600
     }
 }
 

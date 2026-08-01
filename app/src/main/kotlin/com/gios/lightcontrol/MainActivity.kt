@@ -28,7 +28,12 @@ private sealed interface Screen {
     data object Settings : Screen
     data object Buttons : Screen
     data object Apps : Screen
-    data class Pick(val button: Button, val gesture: Gesture) : Screen
+    /** [fromSettings] is only so Back returns where the picker was opened from. */
+    data class Pick(
+        val button: Button,
+        val gesture: Gesture,
+        val fromSettings: Boolean = false,
+    ) : Screen
 }
 
 /**
@@ -52,14 +57,22 @@ class MainActivity : ComponentActivity() {
                     val home = { screen = Screen.Settings }
 
                     BackHandler(enabled = screen != Screen.Settings) {
-                        // The picker belongs to the buttons screen; everything else to home.
-                        screen = if (screen is Screen.Pick) Screen.Buttons else Screen.Settings
+                        // The picker belongs to the buttons screen, unless it was opened straight
+                        // from the settings screen's home-button row.
+                        val current = screen
+                        screen = when {
+                            current is Screen.Pick && !current.fromSettings -> Screen.Buttons
+                            else -> Screen.Settings
+                        }
                     }
 
                     when (val current = screen) {
                         Screen.Settings -> SettingsScreen(
                             onButtons = { screen = Screen.Buttons },
                             onPerApp = { screen = Screen.Apps },
+                            onHomeTap = {
+                                screen = Screen.Pick(Button.Home, Gesture.Tap, fromSettings = true)
+                            },
                         )
 
                         Screen.Buttons -> ButtonsScreen(
@@ -72,7 +85,10 @@ class MainActivity : ComponentActivity() {
                         is Screen.Pick -> PickerScreen(
                             button = current.button,
                             gesture = current.gesture,
-                            onDone = { screen = Screen.Buttons },
+                            onDone = {
+                                screen =
+                                    if (current.fromSettings) Screen.Settings else Screen.Buttons
+                            },
                         )
                     }
                 }

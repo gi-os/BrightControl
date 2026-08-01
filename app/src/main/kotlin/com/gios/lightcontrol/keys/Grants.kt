@@ -1,8 +1,10 @@
 package com.gios.lightcontrol.keys
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 
 /**
  * Whether the three things this app needs have actually been granted.
@@ -13,15 +15,52 @@ import android.provider.Settings
  */
 object Grants {
 
+    /**
+     * Whether [ControlService] is actually enabled.
+     *
+     * Asked two ways, because `enabled_accessibility_services` is not stored in one canonical
+     * form. `flattenToString` produces
+     * `com.gios.lightcontrol/com.gios.lightcontrol.keys.ControlService`, but a service enabled
+     * with `settings put secure` is normally stored short —
+     * `com.gios.lightcontrol/.keys.ControlService` — and comparing those two as text reports OFF
+     * for a service that is bound and filtering keys. That is what this screen did on a phone
+     * whose service was running: the readout was wrong, not the service.
+     *
+     * So [AccessibilityManager] is asked first. It answers with resolved [ComponentName]s and so
+     * cannot disagree with itself. The settings string remains as a fallback for the moment
+     * before the manager has caught up — parsed rather than string-matched, with the short forms
+     * expanded.
+     */
     fun serviceEnabled(context: Context): Boolean {
-        val expected = ComponentName(context, ControlService::class.java).flattenToString()
-        val enabled = runCatching {
+        val expected = ComponentName(context, ControlService::class.java)
+        val fromManager = runCatching {
+            context.getSystemService(AccessibilityManager::class.java)
+                ?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                ?.any { info ->
+                    val service = info.resolveInfo?.serviceInfo ?: return@any false
+                    ComponentName(service.packageName, service.name) == expected
+                }
+        }.getOrNull()
+        if (fromManager == true) return true
+
+        val raw = runCatching {
             Settings.Secure.getString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
             )
         }.getOrNull().orEmpty()
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+        return raw.split(':').any { entry -> expand(entry.trim()) == expected }
+    }
+
+    /** `pkg/.Class` and `pkg/pkg.Class` name the same service. */
+    private fun expand(entry: String): ComponentName? {
+        val parsed = ComponentName.unflattenFromString(entry) ?: return null
+        val cls = parsed.className
+        return when {
+            cls.startsWith(".") -> ComponentName(parsed.packageName, parsed.packageName + cls)
+            !cls.contains('.') -> ComponentName(parsed.packageName, "${parsed.packageName}.$cls")
+            else -> parsed
+        }
     }
 
     fun canWriteSettings(context: Context): Boolean =
