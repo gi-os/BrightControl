@@ -52,6 +52,7 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () ->
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
     var doubleTap by remember { mutableStateOf(prefs.doubleTapSwitchesTurn) }
     var lightOs by remember { mutableStateOf(prefs.lightOsScreens) }
+    var lightOsBright by remember { mutableStateOf(prefs.lightOsBrightness) }
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
@@ -232,6 +233,21 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () ->
                 },
             )
             MenuRow(
+                label = "LightOS brightness",
+                detail = if (lightOsBright) "ON" else "BLOCKED",
+                sub = if (lightOsBright) {
+                    "a turn on the lock screen or the dashboard dims the screen, because " +
+                        "LightOS gets the notch. Tap to stop it getting them."
+                } else {
+                    "turns are swallowed on those screens and nothing acts on them, so the " +
+                        "brightness stays where you put it. No other app is affected."
+                },
+                onClick = {
+                    lightOsBright = !lightOsBright
+                    prefs.lightOsBrightness = lightOsBright
+                },
+            )
+            MenuRow(
                 label = "Double tap the wheel",
                 detail = if (doubleTap) "SWITCH TURN" else "OFF",
                 sub = "flips turning between brightness and scrolling, and says which. " +
@@ -251,12 +267,15 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () ->
                     TurnAction.Brightness -> "everywhere, including apps that scroll themselves"
                     TurnAction.Swipe -> "a synthetic finger-drag, so lists scroll"
                     TurnAction.PassThrough -> "apps that understand the wheel scroll; others do nothing"
+                    // Not reachable from this row — Policy is the only source of it.
+                    TurnAction.Consume -> "swallowed, so nothing acts on the notch"
                 },
                 onClick = {
                     turn = when (turn) {
                         TurnAction.Brightness -> TurnAction.Swipe
                         TurnAction.Swipe -> TurnAction.PassThrough
                         TurnAction.PassThrough -> TurnAction.Brightness
+                        TurnAction.Consume -> TurnAction.Brightness
                     }
                     prefs.unknownAppTurn = turn
                 },
