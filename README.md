@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.4.0.** See [Version history](#version-history).
+**Current version: v1.5.0.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -327,7 +327,13 @@ The rules are deliberately narrow, because this is the home button:
   and sometimes returns you to Settings is one you cannot trust. With nothing ticked, or nothing
   to go back to, the action *is* `Home`.
 - **Spent on use.** The first press consumes the offer, which is what makes the second press
-  mean home without a second binding or a timer.
+  mean something else without a second binding or a timer.
+- **The second press is yours to set.** **Otherwise open**, on the Resume apps screen: Home, or
+  any launchable app. This is not a nicety — LightOS has to hold the HOME role or it crash-loops,
+  so plain "home" means LightOS rather than whatever launcher you use, and without this the
+  action would trade your home screen for the feature. Point it at what the tap was bound to
+  before and Resume becomes purely additive. It is also where *most* presses land: nothing slept
+  in, nothing ticked, offer already spent.
 - **Withdrawn when you go elsewhere.** Any window from a package that isn't LightOS's clears it,
   so the offer only stands while you're still sitting on the lock screen or the dashboard, which
   is where a wake leaves you.
@@ -401,6 +407,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v1.5.0 | `Otherwise open`: Resume's second press is configurable, so it stops costing you Luma |
 | v1.4.0 | `Back to where you were`: home returns you to the app the screen slept in, once |
 | v1.0.1 | Initial release — the wheel and camera button, working phone-wide |
 | v1.0.2 / v1.0.3 | Same commit, re-tagged (`.gitignore` restored after being lost in a sync) |

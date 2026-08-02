@@ -139,7 +139,7 @@ fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
     Action.OpenCamera -> "opens the Light camera"
     Action.DefaultHome -> "whichever launcher is default"
     Action.LightOsHome -> "Light's dashboard, by name"
-    Action.Resume -> "back to a chosen app if the screen went off in it, otherwise home"
+    Action.Resume -> "back to a chosen app if the screen went off in it, else where you set"
     is Action.Launch -> appLabel(pm, action.pkg)
 }
 

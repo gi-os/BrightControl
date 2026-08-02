@@ -1,43 +1,23 @@
-## LightControl v1.4 — Back to where you were
+## LightControl v1.5 — Resume no longer costs you your home screen
 
-**A new home-button action that returns you to the app the screen went off in — once — and
-otherwise behaves exactly like home.**
+**"Back to where you were" now has a configurable second destination. Press home once after a
+wake and the app comes back; press again and you get whatever you choose — the default
+launcher, or an app like Luma.**
 
-Using a remote, or a recipe, or a boarding pass, is minutes of picking the phone up, doing one
-thing, and putting it down. The screen times out between every one of those and LightOS is what
-comes back, so a two-second task costs finding the app again first.
+v1.4 shipped Resume with plain home hardcoded as the fallback, which was wrong in a way that
+only shows up on this phone. LightOS has to keep the HOME *role* or it crash-loops, so pointing
+the home *button* at a different launcher is the only way to actually get a different home
+screen — and "home" therefore resolves to LightOS, not to the launcher you use. Anyone whose
+home tap was set to Luma and who then bound Resume over it would have silently lost their home
+screen in exchange for the new feature.
 
-Bind **Home button opens → Back to where you were**, then pick which apps qualify in the
-**Resume apps** row that appears under it. Sleep in one of them, wake the phone, press home: the
-app comes back. Press home again and you go home, because the offer is spent on use. So does any
-press after you have opened something else — reaching another app under your own steam withdraws
-it, rather than letting home yank you out of the thing you deliberately opened on the strength of
-what you were doing last night.
+So Resume no longer *replaces* the binding it sits on, it **wraps** it. Under **Resume apps**
+there is now an **Otherwise open** row: Home, or any launchable app. Set it to whatever the tap
+used to be and the feature becomes purely additive — the app comes back when there is one, and
+every other press does exactly what it always did.
 
-Nothing is chosen by default and nothing changes until something is. An app not on the list
-leaves the home button exactly as it was.
+That fallback is what most presses hit, which is the point. Nothing slept in, nothing ticked,
+already looking at the app in question, offer already spent: all of them land there.
 
-**Why this lives here and not in the apps themselves.** The obvious version — have an app
-relaunch itself when the screen comes on — cannot work on Android 14. A backgrounded app is
-cached, a cached app is frozen, and context-registered broadcasts to a frozen app are *queued
-until it is unfrozen*. `ACTION_SCREEN_ON` therefore arrives only once something has already
-brought the app forward, which is the thing it was supposed to do. An `AccessibilityService` is
-bound by the system, so this process is never cached and never frozen; it already watches which
-app is in front, and it already owns the home button. It was the only place the feature could
-actually go. LightRemote v1.14 shipped the version that cannot work, and v1.15 takes it back out.
-
-One wrinkle worth knowing about: LightOS's lock screen comes over *as* the screen goes off, so
-naively it is what gets recorded as "where you were". A LightOS window that arrived in the last
-two seconds before the broadcast is read as the lock screen arriving rather than somewhere you
-navigated to, and the app underneath it is what gets remembered.
-
-**Also fixed: a tap that launched something could have its press swallowed and its launch
-dropped, silently.** `homeConsumable` checked whether the *hold* needed a background activity
-start before agreeing to take the key, because the hold is the gesture that costs the key — but
-it never asked the same of the tap. A tap bound to an app, with the overlay appop missing, was
-therefore consumed and then dropped into the same silence the check exists to prevent. It now
-checks both gestures; which one caused a dead press makes no difference to the thumb.
-
-Also in this release: a `check.yml` workflow, so a change to a key filter can be compiled on a
-branch before it reaches a phone. Until now the only build that ever ran was the one that also
-published a release.
+An app chosen here that is later uninstalled falls through to home rather than doing nothing,
+the same as any other launch binding.

@@ -749,12 +749,28 @@ class ControlService : AccessibilityService() {
      */
     private fun resume(): Boolean {
         val pkg = slept
-        if (pkg == null || pkg !in prefs.resumeApps()) return goHome()
+        if (pkg == null || pkg !in prefs.resumeApps()) return resumeFallback()
         slept = null
         // Already looking at it — going back to where you are is not a thing anyone pressed home
-        // for, so this is home too.
-        if (pkg == foreground) return goHome()
+        // for, so this is the fallback too.
+        if (pkg == foreground) return resumeFallback()
         return launch(pkg)
+    }
+
+    /**
+     * What Resume does when there is nothing to resume, which is most of the time.
+     *
+     * The second press of a pair lands here, and so does every ordinary press. Configurable
+     * because Resume is bound *over* whatever the home tap used to be: on this phone LightOS
+     * holds the HOME role, so plain home means LightOS, and someone whose tap pointed at Luma
+     * would have lost their home screen by turning this feature on. Wrapping the old binding
+     * instead of replacing it is the whole difference.
+     */
+    private fun resumeFallback(): Boolean {
+        val fallback = prefs.resumeFallback
+        // launch() already falls back to home on an app that has been uninstalled, so a stale
+        // package here costs a wrong destination rather than a dead press.
+        return if (fallback is Action.Launch) launch(fallback.pkg) else goHome()
     }
 
     /**

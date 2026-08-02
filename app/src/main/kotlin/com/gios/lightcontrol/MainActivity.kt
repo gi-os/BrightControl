@@ -18,18 +18,20 @@ import com.gios.lightcontrol.ui.AppListScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
+import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SettingsScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
-/** Five screens, one level deep each — a nav library would be more code than this. */
+/** Six screens, one level deep each — a nav library would be more code than this. */
 private sealed interface Screen {
     data object Settings : Screen
     data object Buttons : Screen
     data object Apps : Screen
     data object ResumeApps : Screen
+    data object ResumeFallback : Screen
     /** [fromSettings] is only so Back returns where the picker was opened from. */
     data class Pick(
         val button: Button,
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
                         val current = screen
                         screen = when {
                             current is Screen.Pick && !current.fromSettings -> Screen.Buttons
+                            current is Screen.ResumeFallback -> Screen.ResumeApps
                             else -> Screen.Settings
                         }
                     }
@@ -85,7 +88,16 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Apps -> AppListScreen(onBack = home)
 
-                        Screen.ResumeApps -> ResumeAppsScreen(onBack = home)
+                        Screen.ResumeApps -> ResumeAppsScreen(
+                            onBack = home,
+                            onChooseFallback = { screen = Screen.ResumeFallback },
+                        )
+
+                        // Back from here returns to the resume list rather than all the way out,
+                        // because it was opened from a row on it.
+                        Screen.ResumeFallback -> ResumeFallbackScreen(
+                            onBack = { screen = Screen.ResumeApps },
+                        )
 
                         is Screen.Pick -> PickerScreen(
                             button = current.button,

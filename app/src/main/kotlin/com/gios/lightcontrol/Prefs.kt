@@ -285,6 +285,25 @@ class Prefs(context: Context) {
      */
     fun resumeApps(): Set<String> = sp.getStringSet(RESUME_APPS, emptySet()) ?: emptySet()
 
+    /**
+     * Where [Action.Resume] goes when there is nothing to resume — which is most presses.
+     *
+     * Only ever [Action.DefaultHome] or an [Action.Launch]. It exists because binding the home
+     * tap to Resume would otherwise *cost* you the binding it replaced: on a phone where LightOS
+     * has to keep the HOME role or it crash-loops, "home" resolves to LightOS, and anyone who
+     * had the tap pointed at Luma would have silently lost it. So Resume does not replace the
+     * old binding, it wraps it — the app comes back if there is one, and otherwise the button
+     * does exactly what it did before.
+     *
+     * Stored in the same encoding as a binding, so a value that no longer parses — an action
+     * removed in some future version — reads as home rather than as nothing.
+     */
+    var resumeFallback: Action
+        get() = Action.parse(sp.getString(RESUME_FALLBACK, null))
+            ?.takeIf { it is Action.Launch || it == Action.DefaultHome }
+            ?: Action.DefaultHome
+        set(v) = sp.edit().putString(RESUME_FALLBACK, v.store()).apply()
+
     fun toggleResumeApp(pkg: String) {
         val next = resumeApps().toMutableSet()
         if (!next.add(pkg)) next.remove(pkg)
@@ -317,6 +336,7 @@ class Prefs(context: Context) {
         const val APP_PREFIX = "app:"
 
         const val RESUME_APPS = "resume_apps"
+        const val RESUME_FALLBACK = "resume_fallback"
 
         /** Lines of key log kept. A dozen is two or three presses' worth of story. */
         const val LOG_LINES = 12
