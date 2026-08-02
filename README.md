@@ -3,7 +3,7 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.3.33.** See [Version history](#version-history).
+**Current version: v1.4.0.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -314,6 +314,36 @@ The gesture path got the same treatment specifically. `StrokeDescription`, `cont
 that doesn't begin where the last ended, a coordinate off the display — and the lift runs from a
 Handler where no key-event catch can reach it.
 
+### Back to where you were
+
+A home-button action, off until you bind it. Set **Home button opens** to *Back to where you
+were*, then tick the apps that qualify in **Resume apps**. Sleep in one of them and the next
+home press brings it back; the press after that goes home, and so does every press once you
+have opened something else yourself.
+
+The rules are deliberately narrow, because this is the home button:
+
+- **Opt-in per app.** Not "whatever you were last in" — a home button that sometimes goes home
+  and sometimes returns you to Settings is one you cannot trust. With nothing ticked, or nothing
+  to go back to, the action *is* `Home`.
+- **Spent on use.** The first press consumes the offer, which is what makes the second press
+  mean home without a second binding or a timer.
+- **Withdrawn when you go elsewhere.** Any window from a package that isn't LightOS's clears it,
+  so the offer only stands while you're still sitting on the lock screen or the dashboard, which
+  is where a wake leaves you.
+
+**This is the only place the feature could live.** An app cannot bring itself back when the
+screen comes on: a backgrounded app is cached, a cached app is frozen, and context-registered
+broadcasts to a frozen app are queued until it is unfrozen — so `ACTION_SCREEN_ON` is delivered
+only after something else has already brought the app forward. An `AccessibilityService` is
+bound by the system and so is never cached, never frozen, already watching the foreground
+package, and already holding the home key. LightRemote v1.14 shipped the version that can't
+work; v1.15 removed it.
+
+LightOS's lock screen appears *as* the screen goes off, which would otherwise be recorded as
+where you were. A LightOS window that arrived within two seconds of the broadcast is treated as
+the lock screen arriving, and the app underneath it is remembered instead.
+
 ## Gotchas, in the order they'll bite
 
 - **The accessibility setting is a list, not a flag.** `settings put secure
@@ -371,6 +401,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v1.4.0 | `Back to where you were`: home returns you to the app the screen slept in, once |
 | v1.0.1 | Initial release — the wheel and camera button, working phone-wide |
 | v1.0.2 / v1.0.3 | Same commit, re-tagged (`.gitignore` restored after being lost in a sync) |
 | v1.0.4 | `SWIPE`: one continuous finger-drag per app, instead of discrete flicks |

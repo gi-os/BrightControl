@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
@@ -38,7 +39,12 @@ import com.gios.lightcontrol.ui.theme.Dim
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () -> Unit) {
+fun SettingsScreen(
+    onButtons: () -> Unit,
+    onPerApp: () -> Unit,
+    onHomeTap: () -> Unit,
+    onResumeApps: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val brightness = remember { Brightness(context) }
@@ -202,6 +208,21 @@ fun SettingsScreen(onButtons: () -> Unit, onPerApp: () -> Unit, onHomeTap: () ->
                 sub = longLabel(context.packageManager, prefs.action(Button.Home, Gesture.Tap)),
                 onClick = onHomeTap,
             )
+            // Only shown once the tap is actually bound to Resume. A row for configuring an
+            // action nobody has chosen is a row that has to be read and dismissed on every visit.
+            if (prefs.action(Button.Home, Gesture.Tap) == Action.Resume) {
+                val chosen = prefs.resumeApps().size
+                MenuRow(
+                    label = "Resume apps",
+                    detail = if (chosen == 0) "NONE" else "$chosen",
+                    sub = if (chosen == 0) {
+                        "nothing chosen yet, so the home button still just goes home"
+                    } else {
+                        "sleep in one of these and home brings it back, once"
+                    },
+                    onClick = onResumeApps,
+                )
+            }
             MenuRow(
                 label = "Hold home for LightOS",
                 detail = if (homeTakeover) {

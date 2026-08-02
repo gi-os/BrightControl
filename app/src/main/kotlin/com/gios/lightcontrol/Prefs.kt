@@ -273,6 +273,26 @@ class Prefs(context: Context) {
         get() = sp.getInt("swipe_dp", 64)
         set(v) = sp.edit().putInt("swipe_dp", v.coerceIn(24, 200)).apply()
 
+    // ------------------------------------------------------------------ resume apps
+
+    /**
+     * The apps [Action.Resume] is allowed to take you back to.
+     *
+     * A list rather than "the last app you were in", because the home button is the one key on
+     * the phone whose wrong behaviour is not an annoyance. Opt-in per app means every press you
+     * did not set up goes home, which is the answer you can predict without remembering what you
+     * were doing before the screen timed out.
+     */
+    fun resumeApps(): Set<String> = sp.getStringSet(RESUME_APPS, emptySet()) ?: emptySet()
+
+    fun toggleResumeApp(pkg: String) {
+        val next = resumeApps().toMutableSet()
+        if (!next.add(pkg)) next.remove(pkg)
+        // A fresh set, not the one handed out by getStringSet — mutating that instance in place
+        // is documented as undefined and does not survive a process restart.
+        sp.edit().putStringSet(RESUME_APPS, next).apply()
+    }
+
     // ---------------------------------------------------------------- per-app rules
 
     fun ruleFor(pkg: String): AppRule =
@@ -295,6 +315,8 @@ class Prefs(context: Context) {
 
     private companion object {
         const val APP_PREFIX = "app:"
+
+        const val RESUME_APPS = "resume_apps"
 
         /** Lines of key log kept. A dozen is two or three presses' worth of story. */
         const val LOG_LINES = 12

@@ -2,12 +2,16 @@ package com.gios.lightcontrol.keys
 
 import android.accessibilityservice.AccessibilityService
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.os.SystemClock
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -50,6 +54,20 @@ class ControlService : AccessibilityService() {
     /** The app in front, from window-state events. Null until the first one arrives. */
     @Volatile
     private var foreground: String? = null
+
+    /** The one before it, and when the change happened. See [onScreenOff]. */
+    @Volatile
+    private var previous: String? = null
+
+    @Volatile
+    private var foregroundAt = 0L
+
+    /**
+     * The app the screen went off on, if it is worth offering back. Cleared as soon as it is
+     * used, or as soon as you go somewhere else. See [Action.Resume].
+     */
+    @Volatile
+    private var slept: String? = null
 
     /** When an unconsumed press started, for the shadowed home button. */
     private var shadowDownAt = 0L
@@ -105,6 +123,17 @@ class ControlService : AccessibilityService() {
         brightness = Brightness(this)
         readout = Readout(this)
         swipe = WheelSwipe(this)
+        // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
+        // required — passed anyway, because "not exported" is the true answer and the default
+        // has changed once already.
+        runCatching {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenOff, filter)
+            }
+        }
     }
 
     /**
@@ -118,7 +147,49 @@ class ControlService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg in transientPackages) return
-        foreground = pkg
+        if (pkg != foreground) {
+            previous = foreground
+            foreground = pkg
+            foregroundAt = SystemClock.uptimeMillis()
+        }
+        // The offer to go back only stands while you are still sitting on LightOS's lock screen
+        // or dashboard, which is where a wake leaves you. Reach any other app under your own
+        // steam and the offer is withdrawn — otherwise home would yank you out of the thing you
+        // deliberately opened, on the strength of what you happened to be doing last night.
+        val pending = slept
+        if (pending != null && pkg != pending && !pkg.startsWith(LIGHTOS)) slept = null
+    }
+
+    /**
+     * Remember what to offer back, at the moment the screen goes off.
+     *
+     * `ACTION_SCREEN_OFF` cannot be declared in a manifest — it is delivered only to receivers
+     * registered in code — which is exactly why this lives in the service and not in the apps
+     * themselves. A backgrounded app is cached and frozen, and its context-registered broadcasts
+     * are queued until something unfreezes it; this process is bound by the system and so is
+     * never either.
+     *
+     * The awkward case is LightOS's lock screen, which comes over *as* the screen goes off and
+     * would otherwise be recorded as where you were. So a LightOS window that arrived in the last
+     * breath before the broadcast is read as the lock screen arriving rather than somewhere you
+     * navigated to, and the app underneath it is what gets remembered.
+     */
+    private fun onScreenOff() {
+        val front = foreground
+        val justChanged = SystemClock.uptimeMillis() - foregroundAt < LOCK_GRACE_MS
+        slept = when {
+            front == null -> null
+            !front.startsWith(LIGHTOS) -> front
+            justChanged -> previous?.takeUnless { it.startsWith(LIGHTOS) }
+            else -> null
+        }
+        log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
+    }
+
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            runCatching { onScreenOff() }
+        }
     }
 
     override fun onInterrupt() = Unit
@@ -290,7 +361,7 @@ class ControlService : AccessibilityService() {
         val reason = when {
             !hold.acts -> "hold unbound"
             front != null && front.startsWith(LIGHTOS) -> "LightOS in front"
-            !homeConsumable(hold) -> "not consumable"
+            !homeConsumable(prefs.action(Button.Home, Gesture.Tap), hold) -> "not consumable"
             else -> null
         }
         if (reason != null) {
@@ -301,13 +372,19 @@ class ControlService : AccessibilityService() {
     }
 
     /** Whether this is a moment the home key may be swallowed in. See [onHome]. */
-    private fun homeConsumable(hold: Action): Boolean = runCatching {
+    private fun homeConsumable(tap: Action, hold: Action): Boolean = runCatching {
         if (!prefs.homeTakeover) return false
         val power = getSystemService(PowerManager::class.java)
         if (power != null && !power.isInteractive) return false
         val keyguard = getSystemService(KeyguardManager::class.java)
         if (keyguard != null && keyguard.isKeyguardLocked) return false
-        if (hold.needsActivityStart && !Grants.canDrawOverlays(this)) return false
+        // Both gestures, not just the hold. The hold was checked here from the start because it
+        // is the one that costs the key; the tap was not, and a tap bound to something that
+        // launches — an app, or Resume — then had its press swallowed and its launch dropped in
+        // the same silence. A press that does nothing is the failure this whole door exists to
+        // avoid, and which gesture caused it makes no difference to the thumb.
+        val launching = listOf(tap, hold).filter { it.acts && it.needsActivityStart }
+        if (launching.isNotEmpty() && !Grants.canDrawOverlays(this)) return false
         true
     }.getOrDefault(false) // An unreadable state is not one to start swallowing keys in.
 
@@ -431,6 +508,8 @@ class ControlService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        runCatching { unregisterReceiver(screenOff) }
+        slept = null
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
         swipe.cancel()
@@ -566,6 +645,7 @@ class ControlService : AccessibilityService() {
         is Action.Launch -> launch(action.pkg)
         Action.DefaultHome -> goHome()
         Action.LightOsHome -> goLightOsHome()
+        Action.Resume -> resume()
         Action.None, Action.PassThrough -> true
     }
 
@@ -655,6 +735,26 @@ class ControlService : AccessibilityService() {
         // would strand the user on whatever screen they were trying to leave.
         if (intent != null && start(intent)) return true
         return goHome()
+    }
+
+    /**
+     * Back to the app the screen went off on — or home, which is the answer most of the time.
+     *
+     * The membership test is done here rather than when the snapshot was taken, so removing an
+     * app from the list takes effect on the next press instead of the next sleep.
+     *
+     * The snapshot is spent on use. That is what makes the second press mean home: the first one
+     * brings the app over and empties the offer, and pressing again finds nothing to resume and
+     * falls through to exactly what the home button did before.
+     */
+    private fun resume(): Boolean {
+        val pkg = slept
+        if (pkg == null || pkg !in prefs.resumeApps()) return goHome()
+        slept = null
+        // Already looking at it — going back to where you are is not a thing anyone pressed home
+        // for, so this is home too.
+        if (pkg == foreground) return goHome()
+        return launch(pkg)
     }
 
     /**
@@ -750,6 +850,9 @@ class ControlService : AccessibilityService() {
 
         /** LightOS itself: its dashboard, its lock screen, its launcher entry. */
         const val LIGHTOS = "com.lightos"
+
+        /** How recently LightOS must have come forward to be read as its lock screen arriving. */
+        const val LOCK_GRACE_MS = 2_000L
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L

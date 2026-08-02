@@ -63,6 +63,29 @@ sealed interface Action {
     data class Launch(val pkg: String) : Action
 
     /**
+     * Back to the app the screen went off on — if it is one you chose — and otherwise home.
+     *
+     * The gap this fills: using a remote, or a recipe, or a map, is minutes of picking the phone
+     * up, doing one thing, and putting it down. The screen times out between every one of those
+     * and LightOS is what comes back, so a two-second task costs finding the app again.
+     *
+     * The obvious fix — have the app relaunch itself when the screen comes on — cannot work on
+     * Android 14. A backgrounded app is cached, a cached app is frozen, and context-registered
+     * broadcasts to a frozen app are *queued until it is unfrozen*: `ACTION_SCREEN_ON` arrives
+     * only once something has already brought the app forward, which is the thing it was meant
+     * to do. This service has no such problem. An accessibility service is bound by the system,
+     * so its process is never cached and never frozen, and it is already watching which app is
+     * in front.
+     *
+     * Which apps qualify is a list you pick, not "whatever you were last in". A home button that
+     * sometimes goes home and sometimes returns you to Settings is a home button you cannot
+     * trust, and this codebase's rule about that key is that it degrades into *uninstalled*, not
+     * into surprising. With nothing chosen, or nothing to go back to, this is exactly
+     * [DefaultHome].
+     */
+    data object Resume : Action
+
+    /**
      * Home — whichever launcher is set as default.
      *
      * A plain `CATEGORY_HOME` intent, so it follows the system's own choice rather than naming
@@ -99,7 +122,7 @@ sealed interface Action {
      * `performGlobalAction`, which needs no grant and answers honestly.
      */
     val needsActivityStart: Boolean
-        get() = this is Launch || this == LightOsHome || this == OpenCamera
+        get() = this is Launch || this == LightOsHome || this == OpenCamera || this == Resume
 
     fun store(): String = when (this) {
         PassThrough -> "pass"
@@ -109,6 +132,7 @@ sealed interface Action {
         is Launch -> "launch:$pkg"
         DefaultHome -> "home"
         LightOsHome -> "lightoshome"
+        Resume -> "resume"
     }
 
     companion object {
@@ -120,6 +144,7 @@ sealed interface Action {
             raw == "camera" -> OpenCamera
             raw == "home" -> DefaultHome
             raw == "lightoshome" -> LightOsHome
+            raw == "resume" -> Resume
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
             else -> null
         }

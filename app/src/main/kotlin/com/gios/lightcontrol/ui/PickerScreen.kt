@@ -39,7 +39,13 @@ private data class Choice(val action: Action, val label: String, val sub: String
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
+fun PickerScreen(
+    button: Button,
+    gesture: Gesture,
+    onDone: () -> Unit,
+    /** Straight on to choosing which apps, because the action does nothing until some are. */
+    onChooseResumeApps: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val current = remember { prefs.action(button, gesture) }
@@ -51,6 +57,7 @@ fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
         Choice(Action.OpenCamera, "Camera", "opens the Light camera"),
         Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
         Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
+        Choice(Action.Resume, "Back to where you were", "a chosen app if the screen slept in it"),
     )
 
     // Guarded: this is one binder call carrying every launchable activity on the phone, and on a
@@ -102,7 +109,10 @@ fun PickerScreen(button: Button, gesture: Gesture, onDone: () -> Unit) {
                     sub = choice.sub,
                     onClick = {
                         prefs.setAction(button, gesture, choice.action)
-                        onDone()
+                        // Picking Resume and landing back on a screen that says RESUME, with
+                        // nothing chosen to resume to, is a setting that reads as finished and
+                        // isn't. The list is the second half of this choice, not a follow-up.
+                        if (choice.action == Action.Resume) onChooseResumeApps() else onDone()
                     },
                 )
                 Rule()

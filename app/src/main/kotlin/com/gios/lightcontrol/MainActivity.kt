@@ -17,17 +17,19 @@ import com.gios.lightcontrol.keys.OwnWindow
 import com.gios.lightcontrol.ui.AppListScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.PickerScreen
+import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.SettingsScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
-/** Four screens, one level deep each — a nav library would be more code than this. */
+/** Five screens, one level deep each — a nav library would be more code than this. */
 private sealed interface Screen {
     data object Settings : Screen
     data object Buttons : Screen
     data object Apps : Screen
+    data object ResumeApps : Screen
     /** [fromSettings] is only so Back returns where the picker was opened from. */
     data class Pick(
         val button: Button,
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
                             onHomeTap = {
                                 screen = Screen.Pick(Button.Home, Gesture.Tap, fromSettings = true)
                             },
+                            onResumeApps = { screen = Screen.ResumeApps },
                         )
 
                         Screen.Buttons -> ButtonsScreen(
@@ -82,6 +85,8 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Apps -> AppListScreen(onBack = home)
 
+                        Screen.ResumeApps -> ResumeAppsScreen(onBack = home)
+
                         is Screen.Pick -> PickerScreen(
                             button = current.button,
                             gesture = current.gesture,
@@ -89,6 +94,7 @@ class MainActivity : ComponentActivity() {
                                 screen =
                                     if (current.fromSettings) Screen.Settings else Screen.Buttons
                             },
+                            onChooseResumeApps = { screen = Screen.ResumeApps },
                         )
                     }
                 }
