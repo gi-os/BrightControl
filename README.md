@@ -3,11 +3,11 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
-**Current version: v1.0.29.** See [Version history](#version-history).
+**Current version: v1.3.VER.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
-| Turn the wheel | Brightness — or a per-notch scroll, or passed through, per app |
+| Turn the wheel | Brightness — or a per-notch scroll, or passed through, per app. On LightOS's own screens it stays LightOS's, unless you switch that off |
 | Double tap the wheel | Switches turning between brightness and scrolling, and says which |
 | Tap the wheel | Flashlight |
 | Hold the wheel | nothing — bind it to any app |
@@ -210,6 +210,16 @@ The first version took turns too and made LightOS unstable. An app binding still
 for an unlock: a background activity start behind a lock is dropped unless the target
 declares `showWhenLocked`, which isn't LightControl's to declare.
 
+**LightOS brightness** (on by default) is the one lever over those turns, and it only has
+an off position. On, LightOS gets the notch and dims the screen. Off, the notch is
+swallowed and *nothing* acts on it — not LightControl's brightness either. That is the
+whole reason it can ship: what made LightOS unstable the first time was two owners writing
+the same system brightness value a notch apart, and dropping a key has no second writer in
+it. The switch is for keeping a brightness where you put it — a wheel that lives under a
+thumb in a pocket is a wheel that dims the screen on its own. It applies on both LightOS
+screens whether or not **LightOS screens** is on, since it takes behaviour away rather than
+claiming any, and it changes nothing in any other app.
+
 ### Camera-in-front
 
 Anything registered for `STILL_IMAGE_CAMERA` gets both camera-button stages untouched
@@ -352,7 +362,7 @@ release, not a cosmetic action** — verify before pushing, not after.
 The keystore is committed under `keystore/`, so every build carries the same signing
 certificate and upgrades install over the top; CI pins the certificate's SHA-256 in
 `signing-fingerprint.txt` and fails on drift. `versionCode` is the workflow run number;
-`versionName` in the committed `build.gradle.kts` (currently `1.0.0`) is only the
+`versionName` in the committed `build.gradle.kts` (currently `1.3.0`) is only the
 `major.minor` base — CI stamps `major.minor.RUN` at build time and tags it `vX.Y.Z`.
 
 ## Version history
@@ -379,6 +389,7 @@ Real tags, oldest to newest:
 | v1.0.27 | The release decides: the hold no longer fires on a timer mid-press, so nothing comes to the front while the button is still down. The same binding twice inside 350 ms counts once. New on-screen **key log** — the last dozen decisions, for when a filter needs to explain itself and there's no adb in your pocket |
 | v1.0.25 | A press the service took is owned to the end: only a fresh DOWN consults the front-app rules, so a binding can't hand the rest of its own press to the thing it just launched. Holding home brought the dashboard over and then went on into the menu |
 | v1.0.23 | Home goes to the default launcher by intent again. `GLOBAL_ACTION_HOME` injects a `KEYCODE_HOME` rather than starting home, which LightOS read as "back to the idle face" — a flashed dashboard and a bounce to the lock screen. Synthetic keys are now refused before recognition |
+| v1.3.VER | **LightOS brightness, switchable off.** A turn on the lock screen or the dashboard is swallowed instead of reaching LightOS, so its brightness ramp never runs and the level stays where it was put. Deliberately only an off position: nothing takes over those turns, because two owners writing one system brightness value is what made LightOS unstable the first time this service went near them |
 | v1.0.21 | **Hold home opens LightOS's dashboard by name.** The takeover refuses the key when the screen is off, the phone is locked, LightOS is in front, or the hold would need an activity start it hasn't been granted — and disarms itself permanently after two dispatches that report failure |
 
 Note: **v1.1.6 is a real tag**, not a typo introduced here — the `major.minor` base in

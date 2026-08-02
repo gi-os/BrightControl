@@ -12,6 +12,15 @@ enum class TurnAction {
 
     /** A synthetic finger-drag, for apps that will never understand the wheel. */
     Swipe,
+
+    /**
+     * The key is taken and nothing is done with it.
+     *
+     * Never selectable and never stored: [Policy] is the only thing that produces it, for
+     * LightOS's own screens once its brightness ramp has been switched off. The point of it is
+     * the absence — LightOS never sees the notch, so it cannot dim a screen on it.
+     */
+    Consume,
     ;
 
     val label: String
@@ -19,6 +28,7 @@ enum class TurnAction {
             PassThrough -> "PASS THROUGH"
             Brightness -> "BRIGHTNESS"
             Swipe -> "SWIPE"
+            Consume -> "BLOCKED"
         }
 }
 
@@ -105,6 +115,27 @@ class Prefs(context: Context) {
     var lightOsScreens: Boolean
         get() = sp.getBoolean("lightos_screens", false)
         set(v) = sp.edit().putBoolean("lightos_screens", v).apply()
+
+    /**
+     * Whether LightOS still gets the wheel on its own screens, where it means brightness.
+     *
+     * On, the shipping default, is the behaviour above: a turn on the lock screen or the
+     * dashboard passes through and LightOS dims the screen, the way it always has.
+     *
+     * Off swallows the turn instead — and swallowing is the whole of it. Not "brightness, but
+     * ours": the notch is consumed and nothing acts on it. That distinction is the reason this
+     * is shippable at all, because the last time this service claimed turns on those screens it
+     * made LightOS unstable, and what it was doing with them was writing the same system
+     * brightness LightOS was writing, a notch apart. Two owners of one value is the failure.
+     * Dropping the key has no second writer in it.
+     *
+     * What it costs is a lock screen and a dashboard whose wheel does nothing, which is exactly
+     * what someone reaching for this switch is asking for: a brightness that stays where it was
+     * put. Every other app is untouched by it.
+     */
+    var lightOsBrightness: Boolean
+        get() = sp.getBoolean("lightos_brightness", true)
+        set(v) = sp.edit().putBoolean("lightos_brightness", v).apply()
 
     /**
      * Whether a double tap of the wheel switches what turning it does.
@@ -321,10 +352,18 @@ object Policy {
     }
 
     fun behaviourFor(prefs: Prefs, pkg: String?): Behaviour {
-        // LightOS's lock screen and dashboard are one activity, so they are one decision — and
-        // the turns stay theirs, because taking those is what broke it.
-        if (pkg != null && pkg.startsWith("com.lightos") && prefs.lightOsScreens) {
-            return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = true)
+        // LightOS's lock screen and dashboard are one activity, so they are one decision.
+        if (pkg != null && pkg.startsWith("com.lightos")) {
+            // Turns are still never reinterpreted here — doing something with them is what broke
+            // it. The only choice is whether LightOS receives them at all: through, and it dims
+            // the screen; or dropped on the floor, and its brightness ramp never runs.
+            val turn = if (prefs.lightOsBrightness) TurnAction.PassThrough else TurnAction.Consume
+            if (prefs.lightOsScreens) return Behaviour(bareTurn = turn, buttonsActive = true)
+            // Blocking turns is its own switch, so it applies even with the buttons left alone.
+            // Hands-off for everything else, which is what the table would have said anyway.
+            if (turn == TurnAction.Consume) {
+                return Behaviour(bareTurn = turn, buttonsActive = false)
+            }
         }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)
         if (rule == AppRule.Off) {

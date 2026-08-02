@@ -598,6 +598,9 @@ class ControlService : AccessibilityService() {
                 if (down) swipe.turn(notches, prefs.swipeDp)
                 true
             }
+            // Taken and dropped. Nothing is done with the notch, which is the point: LightOS
+            // never sees it, so its own brightness ramp cannot run on it.
+            TurnAction.Consume -> true
             // Passed through, so the app in front can scroll with it.
             TurnAction.PassThrough -> false
         }
