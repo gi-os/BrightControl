@@ -1,30 +1,44 @@
-## LightControl v1.6 — Shake the phone to report a bug
+## LightControl v1.7 — The shake asks instead of interrupting
 
-**LightControl can now file its own bug reports, and you can say what went wrong in your own words.**
+**Two changes, one of them invisible: shaking the phone no longer throws a report sheet over what
+you were doing, and the reporting code behind it is now a shared library rather than a copy kept
+in this app.**
 
-Until now only Roll, Notebook and Phono could do this. Every other app on the phone failed
-silently: you would notice something wrong on the subway, have nowhere to put it, and have
-forgotten it by the time you were near a computer. This is the same feature, ported.
+### The shake offers a chip, not a sheet
 
-Shake the phone twice — there and back, twice — and a sheet comes up. Pick what happened from
-five chips, and add a note if you have something to add. The note is optional but it is the part
-that carries anything: "Something looks wrong" is a shrug, and what you type becomes the title of
-the issue. Under it the report carries the screen you were on, the app and firmware versions,
-free space, heap, and the stack trace if the app died the last time you had it open.
+The first version got the shape of the question wrong. A shake is a gesture the phone can
+misread — and the cost of misreading it was paid every single time, because a full-screen sheet
+landed on top of whatever you were looking at to ask about a problem that may not have existed. On
+a 3.92" panel that is a bad trade against a report that might not be real.
 
-Three things raise the sheet. A shake, because you noticed something. A crash last run, asked
-once on the next launch, because that is the only moment the stack trace is still worth anything.
-And a failure the app noticed by itself — those are the reports that otherwise never get filed,
-because a screen that quietly came back empty looks ordinary.
+So the offer is small, it sits out of the way, and **silence is an answer**. A shake puts a
+"SEND ERROR?" chip in the bottom corner; ignore it for four seconds and it fades. Nothing is lost
+by ignoring it: an unsent crash log stays on disk and is offered again on the next launch, and a
+failure the app noticed itself will not ask again for an hour. Only a tap opens the sheet.
 
-Reports queue on disk before anything is sent, always. A phone that reports a freeze is by
-definition a phone that was just misbehaving, and a report that exists only in flight is the one
-report guaranteed to be lost. If there is no network, or this build has no reporting key, it
-waits on the phone until a build that does installs over it.
+A crash offer stands for eight seconds rather than four. It is the one offer that cannot be
+reconstructed from nothing if you miss it.
 
-The gesture is tuned to be hard to trigger by accident: it counts reversals rather than force,
-because setting the phone down hard clears any threshold a shake clears, but only a shake
-*reverses*. Walking never fires it. That arithmetic now has unit tests in every app that has the
-feature.
+The chip is drawn in its own window rather than placed in the layout, so it lands in the same
+corner in every app regardless of how that app is built, and it cannot swallow a tap meant for
+what is underneath it.
 
-The accelerometer only runs while you are looking at the app.
+Issue titles now follow the same convention as every other app — `LightControl v1.7.x — <headline>`,
+labelled `control` — instead of the `control: <headline>` this app had invented.
+
+### Reporting is a library now
+
+The eight files under `com.gios.lightcontrol.report` are gone. They are
+`com.gios:light-common:1.0.1`, resolved from GitHub Packages and shared with every other app that
+was keeping its own copy of the same code.
+
+Nothing about this is visible on the phone. It matters because a fix to the reporter used to mean
+editing it in ten places and getting eight of them subtly wrong — which is exactly how the
+sheet-instead-of-chip mistake reached ten apps before anyone saw it once.
+
+One thing had to change shape. `BuildConfig` does not cross a library boundary, so the app hands
+its name, its triage label and its report key to `LightReport.install()` at startup rather than the
+reporter reading them out of the build. Skip that call and reporting is simply inert, which is a
+better failure than a reporter filing issues with a blank app name.
+
+Same note field, same queue-to-disk-first behaviour, same gesture tuning.
