@@ -98,8 +98,9 @@ class ControlService : AccessibilityService() {
     /** When something last rang. See [ringing]. */
     private var lastRingAt = 0L
 
-    /** When an activity was last started from here. See [start]. */
+    /** When an activity was last started from here, and where it was going. See [start]. */
     private var lastStartAt = 0L
+    private var lastStartTarget: String? = null
 
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
@@ -340,10 +341,11 @@ class ControlService : AccessibilityService() {
      *  - **The screen is off, or the phone is locked.** A home press there is a wake or an
      *    unlock, and neither belongs to us; a background activity start is dropped behind a
      *    keyguard anyway, so taking the key would trade a working button for nothing.
-     *  - **LightOS is in front.** Its dashboard and its lock screen are one activity ([Policy]),
-     *    and home already goes there — swallowing the key on the screen you were trying to reach
-     *    can only lose. This holds even with `lightOsScreens` on, which is otherwise the switch
-     *    that hands LightOS's screens their buttons.
+     *  - **LightOS is in front and the tap has nowhere of its own to go.** Its dashboard and its
+     *    lock screen are one activity ([Policy]), and home already goes there — swallowing the key
+     *    on the screen you were trying to reach can only lose. This holds even with
+     *    `lightOsScreens` on, which is otherwise the switch that hands LightOS's screens their
+     *    buttons. A tap bound to Resume or to an app is the exception, and see below for why.
      *  - **The hold needs an activity start and the overlay appop is missing**, which would mean
      *    a consumed press and a launch dropped in silence. See [Action.needsActivityStart].
      *
@@ -358,10 +360,18 @@ class ControlService : AccessibilityService() {
     private fun onHome(front: String?, behaviour: Behaviour, event: KeyEvent): Boolean {
         val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         val hold = prefs.action(Button.Home, Gesture.Hold)
+        val tap = prefs.action(Button.Home, Gesture.Tap)
+        // A tap that names its own destination is reason enough to take the key, and it is reason
+        // wherever you are standing. Shadow mode hands the identical press to LightOS, which reads
+        // home as "back to the idle face" — so the app you pointed the tap at opened *and* the idle
+        // face was summoned over it, and which of the two you were left looking at was a race this
+        // app kept losing. That was invisible while the tap could only be home; it stopped being
+        // invisible the moment Resume, or an app, could be bound to it. See [Action.picksDestination].
         val reason = when {
-            !hold.acts -> "hold unbound"
-            front != null && front.startsWith(LIGHTOS) -> "LightOS in front"
-            !homeConsumable(prefs.action(Button.Home, Gesture.Tap), hold) -> "not consumable"
+            !hold.acts && !tap.picksDestination -> "hold unbound"
+            !homeConsumable(tap, hold) -> "not consumable"
+            front != null && front.startsWith(LIGHTOS) && !tap.picksDestination ->
+                "LightOS in front"
             else -> null
         }
         if (reason != null) {
@@ -724,17 +734,27 @@ class ControlService : AccessibilityService() {
             Intent(Intent.ACTION_MAIN)
                 .setClassName("com.android.camera2", "com.android.camera.CameraActivity"),
         )
-        for (intent in attempts) if (start(intent)) return true
+        for (intent in attempts) if (start(intent, target = CAMERA_TARGET) != Start.Failed) return true
         return false
     }
 
+    /**
+     * An app, by its launcher entry.
+     *
+     * Falling back to home is for an app that *cannot be opened* — uninstalled since it was bound,
+     * or one with no launcher entry — because on the home button a refusal would strand the user on
+     * whatever screen they were trying to leave. It is emphatically not for a start the throttle
+     * declined: that one already has a launch of its own in flight, and substituting home for it
+     * meant a second press of home landed you home *instead of* the app you chose it to open. Doing
+     * nothing is the honest answer there, and the visible one, since the first launch is arriving.
+     */
     private fun launch(pkg: String): Boolean {
         val intent = runCatching { packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
-        // Nothing to launch — an app uninstalled since it was bound, or one with no launcher
-        // entry. Fall back to home rather than swallowing the press: on the home button that
-        // would strand the user on whatever screen they were trying to leave.
-        if (intent != null && start(intent)) return true
-        return goHome()
+            ?: return goHome()
+        return when (start(intent, target = pkg)) {
+            Start.Done, Start.Throttled -> true
+            Start.Failed -> goHome()
+        }
     }
 
     /**
@@ -792,9 +812,9 @@ class ControlService : AccessibilityService() {
         if (defaultHomeIsLightOs()) return goHome()
         val explicit = Intent(Intent.ACTION_MAIN)
             .setClassName(LIGHTOS, "$LIGHTOS.MainActivity")
-        if (start(explicit)) return true
+        if (start(explicit, target = LIGHTOS) != Start.Failed) return true
         val published = runCatching { packageManager.getLaunchIntentForPackage(LIGHTOS) }.getOrNull()
-        if (published != null && start(published)) return true
+        if (published != null && start(published, target = LIGHTOS) != Start.Failed) return true
         return goHome()
     }
 
@@ -826,7 +846,10 @@ class ControlService : AccessibilityService() {
         val intent = Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_HOME)
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (Grants.canDrawOverlays(this) && start(intent)) return true
+        // A throttled home start falls through to the global action rather than being called done:
+        // an injected home key needs no grant and no start slot, and home is the one destination
+        // where arriving twice costs nothing.
+        if (Grants.canDrawOverlays(this) && start(intent, target = HOME_TARGET) == Start.Done) return true
         return runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }.getOrDefault(false)
     }
 
@@ -835,23 +858,40 @@ class ControlService : AccessibilityService() {
      * blocks unless the app holds the `SYSTEM_ALERT_WINDOW` appop — the same grant the
      * readout needs.
      *
-     * Rate-limited to one a second, and that limit is the point rather than a nicety. The activity
-     * this most often starts is a *launcher*, LightOS's, which runs as uid 1000 — and a launcher
-     * being restarted repeatedly while it is showing something modal, an alarm say, is a system
-     * process being asked to do something no user could ask it to do. One start a second is more
-     * than any deliberate press produces and far less than a stuck key or a mashed button can.
+     * Rate-limited, and the limit is the point rather than a nicety. The activity this most often
+     * starts is a *launcher*, LightOS's, which runs as uid 1000 — and a launcher being restarted
+     * repeatedly while it is showing something modal, an alarm say, is a system process being asked
+     * to do something no user could ask it to do.
+     *
+     * The limit is **per destination**, which it did not used to be, and one flat second across all
+     * of them was wrong in a way only a two-press sequence shows: home tapped once opens the app you
+     * were in, and tapped again is supposed to move on to the fallback — a second press inside the
+     * same second, which the throttle ate. So the same target keeps its full second, and a start
+     * somewhere *else* only has to clear a much shorter floor. Repetition is what the guard is for,
+     * and a different destination is not repetition. Mashing is still covered upstream: the same
+     * binding twice inside [DEDUPE_MS] is one binding, and four times over stands the service down.
+     *
+     * Three answers, not two: a start the throttle declined is a different thing from one that
+     * failed, and [launch] is where telling them apart matters.
      */
-    private fun start(intent: Intent): Boolean {
+    private fun start(intent: Intent, target: String? = null): Start {
         val now = SystemClock.uptimeMillis()
-        if (now - lastStartAt < START_INTERVAL_MS) {
-            log("start dropped — one a second")
-            return false
+        val gap = now - lastStartAt
+        val repeat = target != null && target == lastStartTarget
+        if (gap < if (repeat) START_INTERVAL_MS else MIN_START_GAP_MS) {
+            log("start dropped — ${if (repeat) "one a second" else "too soon"}")
+            return Start.Throttled
         }
         lastStartAt = now
-        return runCatching {
+        lastStartTarget = target
+        val ok = runCatching {
             startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }.isSuccess
+        return if (ok) Start.Done else Start.Failed
     }
+
+    /** What became of an activity start. See [start]. */
+    private enum class Start { Done, Throttled, Failed }
 
     private companion object {
         /** Faults tolerated before the filter goes quiet, and the window they must fall in. */
@@ -883,8 +923,15 @@ class ControlService : AccessibilityService() {
         /** Hands off for this long after anything last rang. See [ringing]. */
         const val RING_GRACE_MS = 30_000L
 
-        /** Minimum gap between activity starts. See [start]. */
+        /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
         const val START_INTERVAL_MS = 1_000L
+
+        /** Minimum gap between starts aimed at different destinations. See [start]. */
+        const val MIN_START_GAP_MS = 250L
+
+        /** Throttle keys for the destinations that aren't named by package. See [start]. */
+        const val HOME_TARGET = "\u0000home"
+        const val CAMERA_TARGET = "\u0000camera"
 
         /** Playback usages that mean something is asking for the user, not entertaining them. */
         val ringUsages = setOf(

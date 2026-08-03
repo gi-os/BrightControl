@@ -124,6 +124,22 @@ sealed interface Action {
     val needsActivityStart: Boolean
         get() = this is Launch || this == LightOsHome || this == OpenCamera || this == Resume
 
+    /**
+     * True if this action names a destination of its own — somewhere that is *not* wherever a
+     * plain home press would land.
+     *
+     * The home button is the one that cares. Shadow mode (`ControlService.shadowHome`) works by
+     * consuming nothing and letting LightOS see the whole press, then firing the tap on top;
+     * LightOS reads a home press as "back to the idle face", so anything the tap opens is racing
+     * a launcher that was told to come forward. That is invisible when the tap *is* home and
+     * ruinous when it isn't — you chose an app and got the idle face. So a tap that picks a
+     * destination is a reason to take the key rather than shadow it.
+     *
+     * [DefaultHome] is absent on purpose: it agrees with what LightOS was going to do anyway.
+     */
+    val picksDestination: Boolean
+        get() = this is Launch || this == Resume || this == LightOsHome
+
     fun store(): String = when (this) {
         PassThrough -> "pass"
         None -> "none"

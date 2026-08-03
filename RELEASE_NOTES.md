@@ -1,3 +1,33 @@
+## LightControl v1.7 — The home button goes where you pointed it
+
+**Two presses of home, two destinations, and neither of them is home unless you said so.**
+
+*Back to where you were* shipped as a pair of presses: the first brings back the app the screen
+slept in, the second moves on to whatever you set under **Otherwise open**. Set that to an app and
+the second press still went home. Two separate things were doing it, and both were old defences
+firing at the wrong target.
+
+The first is the rate limit on opening things. This service starts activities from the background,
+and it has always allowed one a second — a real guard, because the activity it most often starts is
+LightOS's launcher, which runs as a system process, and restarting a launcher on a loop while it is
+showing an alarm is not something a thumb can ask for. But it counted starts, not destinations. Two
+presses inside a second are exactly what the resume pair *is*, so the second one was refused — and a
+refused launch was being read as "that app cannot be opened", which falls back to home on purpose so
+that an app uninstalled since you bound it can never leave you stranded. A queue is not a failure.
+The limit is now per destination: the same target keeps its full second, a different one waits a
+quarter of it, and a start that was merely early no longer gets home substituted for it.
+
+The second only happened on Light's own screens, which is where a press after a wake lands. The home
+button has a rule that it will not swallow the key while LightOS is in front, because home already
+goes there and taking the key could only lose. What it does instead is *shadow* the press: consume
+nothing, let LightOS have the whole thing, and fire your tap binding on top. That is invisible when
+the tap is home — the same destination twice — and it is a coin flip when the tap is an app, because
+LightOS reads a home press as "back to the idle face" and your app was racing a launcher. So a tap
+that names a destination of its own now takes the key wherever you are standing, Light's screens
+included. Everything that made the key safe is untouched: the takeover switch, the screen-off and
+locked-phone refusals, the missing-overlay-grant refusal, alarms and clocks owning every key they can
+see. Leave the tap on Home and nothing about this release changes anything.
+
 ## LightControl v1.6 — Shake the phone to report a bug
 
 **LightControl can now file its own bug reports, and you can say what went wrong in your own words.**
