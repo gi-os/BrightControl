@@ -1,23 +1,30 @@
-## LightControl v1.5 — Resume no longer costs you your home screen
+## LightControl v1.6 — Shake the phone to report a bug
 
-**"Back to where you were" now has a configurable second destination. Press home once after a
-wake and the app comes back; press again and you get whatever you choose — the default
-launcher, or an app like Luma.**
+**LightControl can now file its own bug reports, and you can say what went wrong in your own words.**
 
-v1.4 shipped Resume with plain home hardcoded as the fallback, which was wrong in a way that
-only shows up on this phone. LightOS has to keep the HOME *role* or it crash-loops, so pointing
-the home *button* at a different launcher is the only way to actually get a different home
-screen — and "home" therefore resolves to LightOS, not to the launcher you use. Anyone whose
-home tap was set to Luma and who then bound Resume over it would have silently lost their home
-screen in exchange for the new feature.
+Until now only Roll, Notebook and Phono could do this. Every other app on the phone failed
+silently: you would notice something wrong on the subway, have nowhere to put it, and have
+forgotten it by the time you were near a computer. This is the same feature, ported.
 
-So Resume no longer *replaces* the binding it sits on, it **wraps** it. Under **Resume apps**
-there is now an **Otherwise open** row: Home, or any launchable app. Set it to whatever the tap
-used to be and the feature becomes purely additive — the app comes back when there is one, and
-every other press does exactly what it always did.
+Shake the phone twice — there and back, twice — and a sheet comes up. Pick what happened from
+five chips, and add a note if you have something to add. The note is optional but it is the part
+that carries anything: "Something looks wrong" is a shrug, and what you type becomes the title of
+the issue. Under it the report carries the screen you were on, the app and firmware versions,
+free space, heap, and the stack trace if the app died the last time you had it open.
 
-That fallback is what most presses hit, which is the point. Nothing slept in, nothing ticked,
-already looking at the app in question, offer already spent: all of them land there.
+Three things raise the sheet. A shake, because you noticed something. A crash last run, asked
+once on the next launch, because that is the only moment the stack trace is still worth anything.
+And a failure the app noticed by itself — those are the reports that otherwise never get filed,
+because a screen that quietly came back empty looks ordinary.
 
-An app chosen here that is later uninstalled falls through to home rather than doing nothing,
-the same as any other launch binding.
+Reports queue on disk before anything is sent, always. A phone that reports a freeze is by
+definition a phone that was just misbehaving, and a report that exists only in flight is the one
+report guaranteed to be lost. If there is no network, or this build has no reporting key, it
+waits on the phone until a build that does installs over it.
+
+The gesture is tuned to be hard to trigger by accident: it counts reversals rather than force,
+because setting the phone down hard clears any threshold a shake clears, but only a shake
+*reverses*. Walking never fires it. That arithmetic now has unit tests in every app that has the
+feature.
+
+The accelerometer only runs while you are looking at the app.

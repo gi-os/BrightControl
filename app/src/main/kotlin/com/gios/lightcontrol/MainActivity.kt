@@ -24,6 +24,8 @@ import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import com.gios.lightcontrol.report.CrashLog
+import com.gios.lightcontrol.report.ReportOverlay
 
 /** Six screens, one level deep each — a nav library would be more code than this. */
 private sealed interface Screen {
@@ -54,6 +56,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // First thing, before anything else can throw: the handler chains onto whatever is
+        // already installed and only writes a file, so it is safe this early.
+        CrashLog.install(this)
         setContent {
             LightControlTheme {
                 CompositionLocalProvider(LocalNotches provides notches.asSharedFlow()) {
@@ -110,6 +115,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                // Shake to report, the crash offer on next launch, and the app's own noticed
+                // failures. A sibling, not a wrapper — the sheet is its own window, so it covers
+                // the app whether or not it contains it.
+                ReportOverlay()
             }
         }
     }
