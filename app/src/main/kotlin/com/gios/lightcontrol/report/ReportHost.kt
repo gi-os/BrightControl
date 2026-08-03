@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
  * Everything it owns — the sensor, the crash file, the queue — is tied to the composition and
  * to the lifecycle, so an app that stops calling it stops paying for it.
  *
- * Three things can raise the sheet, and they are deliberately different questions:
+ * Nothing here opens the sheet on its own. Three things can raise the *offer* — a chip in the
+ * corner — and only a tap on that chip opens the sheet. They are deliberately different questions:
  *
  *  - **A shake.** You noticed something. The gesture is in [ShakeGesture] and is tuned to be
  *    hard to trigger in a pocket.
@@ -56,7 +57,11 @@ fun ReportOverlay() {
             .firstOrNull()
     }
 
-    var reason by remember { mutableStateOf<ReportReason?>(null) }
+    // Two states, not one. `pending` is the offer in the corner; `sheetOpen` is the answer to it.
+    // Collapsing them is what made the first version interrupt: a shake the phone misread put a
+    // sheet over whatever you were reading, and the only way out was to dismiss it.
+    var pending by remember { mutableStateOf<ReportReason?>(null) }
+    var sheetOpen by remember { mutableStateOf(false) }
     val failure by Trouble.latest.collectAsState()
 
     // Read once. The file is deleted as soon as it has been offered, so that a crash is asked
@@ -65,7 +70,7 @@ fun ReportOverlay() {
 
     val detector = remember {
         ShakeDetector(context) {
-            if (reason == null) reason = ReportReason.Shaken
+            if (pending == null && !sheetOpen) pending = ReportReason.Shaken
         }
     }
 
@@ -73,13 +78,13 @@ fun ReportOverlay() {
     // that had no token at all — goes out now.
     LaunchedEffect(Unit) {
         runCatching { Reports.flush(context) }
-        if (!crash.isNullOrBlank()) reason = ReportReason.Crashed
+        if (!crash.isNullOrBlank()) pending = ReportReason.Crashed
     }
 
-    // A failure the app noticed itself only raises the sheet if nothing else already has:
+    // A failure the app noticed itself only raises the offer if nothing else already has:
     // being asked about a stale feed on top of a crash report is how people turn this off.
     LaunchedEffect(failure) {
-        if (failure != null && reason == null) reason = ReportReason.Failed
+        if (failure != null && pending == null && !sheetOpen) pending = ReportReason.Failed
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -104,15 +109,32 @@ fun ReportOverlay() {
         }
     }
 
-    reason?.let { why ->
-        // The shake that opened the sheet must not open a second one behind it.
+    // The offer. Hidden while the sheet is up — it has already been answered.
+    pending?.takeIf { !sheetOpen }?.let { why ->
+        // The shake that raised this must not raise a second one behind it.
         LaunchedEffect(why) { detector.forget() }
+        ReportChip(
+            reason = why,
+            onOpen = { sheetOpen = true },
+            onExpire = {
+                // Silence is "not now", not "no". The crash log stays on disk so the next
+                // launch can offer it again; only the in-memory failure is dropped, and
+                // Trouble will not re-raise the same one for an hour.
+                pending = null
+                if (why == ReportReason.Failed) Trouble.clear()
+                detector.forget()
+            },
+        )
+    }
+
+    pending?.takeIf { sheetOpen }?.let { why ->
         ReportSheet(
             reason = why,
             failure = if (why == ReportReason.Failed) failure?.what else null,
             appName = ReportApp.NAME,
             onDismiss = {
-                reason = null
+                sheetOpen = false
+                pending = null
                 Trouble.clear()
                 if (why == ReportReason.Crashed) CrashLog.clear(context)
             },
@@ -127,7 +149,8 @@ fun ReportOverlay() {
                 )
                 // Closed before the send, not after: submit() queues to disk first, so there is
                 // nothing here that can fail in a way the sheet would need to report.
-                reason = null
+                sheetOpen = false
+                pending = null
                 Trouble.clear()
                 CrashLog.clear(context)
                 scope.launch { runCatching { Reports.submit(context, report) } }
