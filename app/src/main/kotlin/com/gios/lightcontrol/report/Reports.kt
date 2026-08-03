@@ -114,10 +114,19 @@ object Reports {
                 appendLine("```")
             }
         }
+        val labels = buildList {
+            add(ReportApp.LABEL)
+            // A stack trace outranks whatever chip was tapped: if the app died, that is what
+            // this report is about, whatever the person picked from a list afterwards.
+            add(if (!crash.isNullOrBlank()) "crash" else symptom.slug)
+            // Worth separating: the app noticed this one on its own, so it is reproducible
+            // from the detail rather than from somebody remembering what they were doing.
+            if (failure != null) add("self-reported")
+        }
         return Report(
-            title = "${ReportApp.LABEL}: $headline",
+            title = "${ReportApp.NAME} $version — $headline",
             body = body,
-            labels = listOf(ReportApp.LABEL, symptom.slug),
+            labels = labels,
         )
     }
 
@@ -199,9 +208,11 @@ object Reports {
         return if (line.length <= 72) line else line.take(69).trimEnd() + "…"
     }
 
+    /** Prefixed here rather than at every call site, and never blank — "v?" is still a fact. */
     private fun versionName(context: Context): String = runCatching {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
-    }.getOrDefault("")
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull()?.let { "v$it" } ?: "v?"
 
     private fun stamp(): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
