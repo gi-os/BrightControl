@@ -73,7 +73,7 @@ android {
 dependencies {
     // Shake-to-report, and the shared hardware/type helpers. Was a vendored copy of the
     // same code under com.gios.lightcontrol.report until this version.
-    implementation("com.gios:light-common:1.0.1")
+    implementation("com.gios:light-common:1.1.0")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
