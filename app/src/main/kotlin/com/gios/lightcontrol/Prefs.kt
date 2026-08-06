@@ -281,6 +281,18 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("volume_hud", true)
         set(v) = sp.edit().putBoolean("volume_hud", v).apply()
 
+    /**
+     * Whether tapping the volume strip pins a stream for the keys to move.
+     *
+     * On, because without it the ringer and alarm levels cannot be reached from this phone at all:
+     * Android gives the keys one stream at a time and LightOS has no screen for the others. Off puts
+     * the HUD back to reporting and nothing else — no volume key is ever consumed with this off,
+     * which is the setting to reach for if a press ever feels like it went missing.
+     */
+    var volumePin: Boolean
+        get() = sp.getBoolean("volume_pin", true)
+        set(v) = sp.edit().putBoolean("volume_pin", v).apply()
+
     /** How far one notch drags the screen, in dp, when a turn is scrolling by swipe. */
     var swipeDp: Int
         get() = sp.getInt("swipe_dp", 64)

@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.core.content.ContextCompat
 
 /**
@@ -34,8 +35,12 @@ import androidx.core.content.ContextCompat
 class VolumeWatcher(
     private val context: Context,
     private val hud: VolumeHud,
+    /** The package in front, so LightOS's own screens can be left to their own volume UI. */
+    private val front: () -> String?,
     /** Whether the HUD is wanted at all right now — the master switch and its own setting. */
     private val wanted: () -> Boolean,
+    /** Whether a tap on the strip may pin a stream. See [onHudTap]. */
+    private val pinningAllowed: () -> Boolean,
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -44,6 +49,10 @@ class VolumeWatcher(
     private var lastAt = 0L
     private var lastStream = -1
     private var lastLevel = -1
+
+    /** The stream a tap chose, and when that choice runs out. See [onHudTap]. */
+    private var pinnedStream: Int? = null
+    private var pinnedUntil = 0L
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -84,6 +93,7 @@ class VolumeWatcher(
     }
 
     fun stop() {
+        clearPin()
         handler.removeCallbacksAndMessages(null)
         runCatching { context.unregisterReceiver(receiver) }
         hud.dismiss()
@@ -111,9 +121,23 @@ class VolumeWatcher(
         }
     }
 
-    /** Show one stream, reading whatever the broadcast didn't say. */
-    private fun present(stream: Int, note: String?, valueFromBroadcast: Int) {
+    /**
+     * Show one stream, reading whatever the broadcast didn't say.
+     *
+     * Nothing is shown while LightOS is in front. Its dashboard and lock screen have a volume
+     * control of their own, and putting a second one over the top of it would be this app's oldest
+     * mistake in a new place: on Light's own screens, anything added is something duplicated.
+     */
+    private fun present(stream: Int, note: String?, valueFromBroadcast: Int, force: Boolean = false) {
         if (!wanted()) return
+        val app = front()
+        if (app != null && app.startsWith(LIGHTOS)) {
+            // And a pin cannot outlive the screen it was made on, or the keys would still be being
+            // taken over on a screen showing LightOS's own slider.
+            clearPin()
+            hud.dismiss()
+            return
+        }
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
         if (max <= 0) return
@@ -126,7 +150,7 @@ class VolumeWatcher(
         val now = SystemClock.uptimeMillis()
         // The same stream at the same level, twice inside a moment, is one change seen twice —
         // the broadcast and the fallback read both firing for one press.
-        if (stream == lastStream && level == lastLevel && now - lastAt < DEDUPE_MS) return
+        if (!force && stream == lastStream && level == lastLevel && now - lastAt < DEDUPE_MS) return
         lastStream = stream
         lastLevel = level
         lastAt = now
@@ -140,8 +164,75 @@ class VolumeWatcher(
             ringish && mode == AudioManager.RINGER_MODE_SILENT -> "SILENT"
             else -> null
         }
-        hud.show(name(stream), level, max, label)
+        hud.show(name(stream), level, max, label, pinned = pinnedStream == stream)
     }
+
+    /**
+     * The strip was tapped: move to the next stream and let the keys move *that* one.
+     *
+     * This is the only thing in this app that adjusts a volume, and it is worth being explicit
+     * about why the rule bends here. Android gives the keys one stream at a time — whatever is
+     * playing, and media when nothing is — so the ringer and alarm levels are unreachable from the
+     * hardware on a phone with no volume UI to drag. LightOS has no screen for them either. Tapping
+     * the strip is the way to reach them, and reaching them means the service has to take the press
+     * and apply it itself.
+     *
+     * So the taking is fenced in: it needs an explicit tap first, it applies to *one* named stream,
+     * and it expires with the strip. When [pinnedStream] is null — which is always, until you tap —
+     * volume keys are untouched, exactly as they have always been. And a pin cannot survive a ring:
+     * [takeKey] is only ever called from a path the service does not reach while anything is
+     * ringing or a call is up, so the keys that dismiss an alarm are never in question.
+     */
+    fun onHudTap() {
+        if (!wanted() || !pinningAllowed()) return
+        runCatching {
+            val audio = context.getSystemService(AudioManager::class.java) ?: return
+            val from = pinnedStream ?: lastStream
+            val next = cycle.filter { it != AudioManager.STREAM_VOICE_CALL || inCall(audio) }
+            val stream = next[(next.indexOf(from) + 1).mod(next.size)]
+            pinnedStream = stream
+            pinnedUntil = SystemClock.uptimeMillis() + PIN_MS
+            present(stream, null, -1, force = true)
+        }
+    }
+
+    /**
+     * A volume key while a stream is pinned: move that stream and swallow the press.
+     *
+     * Returns false for everything else, which is the normal case and the safe one — the key goes
+     * where it always went. A press is consumed for its whole life once it is taken, DOWN, repeats
+     * and UP, so no app is handed half of one.
+     */
+    fun takeKey(up: Boolean, event: KeyEvent): Boolean = runCatching {
+        val stream = pinnedStream ?: return false
+        if (SystemClock.uptimeMillis() > pinnedUntil) {
+            clearPin()
+            return false
+        }
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val audio = context.getSystemService(AudioManager::class.java) ?: return false
+            val direction = if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            // Flag 0: no system UI (there is none) and no beep. Crossing the ringer into silence
+            // needs DND access, which a sideloaded app does not have, so that throws — and the
+            // honest thing is to say so on the strip rather than look broken.
+            val moved = runCatching { audio.adjustStreamVolume(stream, direction, 0) }.isSuccess
+            pinnedUntil = SystemClock.uptimeMillis() + PIN_MS
+            if (moved) {
+                present(stream, null, -1, force = true)
+            } else {
+                present(stream, "NEEDS DND ACCESS", -1, force = true)
+            }
+        }
+        true
+    }.getOrDefault(false)
+
+    private fun clearPin() {
+        pinnedStream = null
+        pinnedUntil = 0L
+    }
+
+    private fun inCall(audio: AudioManager): Boolean =
+        audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_IN_COMMUNICATION
 
     /**
      * Which stream a volume key is moving right now.
@@ -193,5 +284,22 @@ class VolumeWatcher(
 
         /** One change seen twice, by both paths, inside this window. */
         const val DEDUPE_MS = 600L
+
+        /** How long a tapped stream keeps the keys. Refreshed by every press that uses it. */
+        const val PIN_MS = 4_000L
+
+        /** LightOS's own screens, which have their own volume control. */
+        const val LIGHTOS = "com.lightos"
+
+        /**
+         * The streams a tap walks through. Media, then the two you cannot otherwise reach from the
+         * hardware at all, then the call stream when there is a call to have one.
+         */
+        val cycle = listOf(
+            AudioManager.STREAM_MUSIC,
+            AudioManager.STREAM_RING,
+            AudioManager.STREAM_ALARM,
+            AudioManager.STREAM_VOICE_CALL,
+        )
     }
 }

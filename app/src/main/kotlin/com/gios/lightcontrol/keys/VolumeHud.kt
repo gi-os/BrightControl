@@ -40,6 +40,15 @@ import kotlin.math.roundToInt
  */
 class VolumeHud(private val context: Context) {
 
+    /**
+     * Tapped. Set after construction, because the thing that answers a tap is [VolumeWatcher] and
+     * the watcher needs the hud handed to it first.
+     *
+     * This is the one part of the HUD that is not passive, and it is why the window is touchable at
+     * all. See the flags in [attach] for what that costs.
+     */
+    var onTap: (() -> Unit)? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private val hide = Runnable { detach() }
 
@@ -57,7 +66,7 @@ class VolumeHud(private val context: Context) {
      * this phone, 7 for the ringer. A scale with more notches than a thumb can count is collapsed
      * to [MAX_SEGMENTS] rather than drawn as hairlines.
      */
-    fun show(stream: String, level: Int, max: Int, note: String? = null) {
+    fun show(stream: String, level: Int, max: Int, note: String? = null, pinned: Boolean = false) {
         if (!allowed()) return
         // A HUD on a screen nobody is looking at is a window added and removed for nothing — and
         // volume can change while the phone is in a pocket, which is much of when it does.
@@ -65,7 +74,8 @@ class VolumeHud(private val context: Context) {
         attach()
         val safeMax = max.coerceAtLeast(1)
         val pct = (level * 100f / safeMax).roundToInt()
-        title?.text = "$stream · " + (note ?: if (level == 0) "SILENT" else "$pct%")
+        title?.text = "$stream · " + (note ?: if (level == 0) "SILENT" else "$pct%") +
+            if (pinned) " · PIN" else ""
         val segments = if (safeMax <= MAX_SEGMENTS) safeMax else MAX_SEGMENTS
         val filled = if (safeMax <= MAX_SEGMENTS) {
             level
@@ -74,7 +84,8 @@ class VolumeHud(private val context: Context) {
         }
         bar?.set(segments, filled.coerceIn(0, segments))
         handler.removeCallbacks(hide)
-        handler.postDelayed(hide, DWELL_MS)
+        // A pin is something you are in the middle of using, so it gets longer to be used in.
+        handler.postDelayed(hide, if (pinned) PIN_DWELL_MS else DWELL_MS)
     }
 
     fun allowed(): Boolean =
@@ -102,6 +113,10 @@ class VolumeHud(private val context: Context) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp)
             letterSpacing = 0.15f
             gravity = Gravity.START
+            // One line, always: the strip's whole point is being short, and a stream name wrapping
+            // would double its height at the moment it is covering someone's app.
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val segments = SegmentBar(context).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -120,17 +135,26 @@ class VolumeHud(private val context: Context) {
             setPadding(padH, padV, padH, padV)
             addView(text)
             addView(segments)
+            // Touchable, so the strip can be tapped to choose which stream the keys move. The
+            // window is only as tall as the strip and `FLAG_NOT_TOUCH_MODAL` lets everything
+            // outside it through, so what this costs is precisely: a tap landing on a thin bar at
+            // the very top of the screen, during the second it is visible, goes here instead of to
+            // the app. That is the whole of it — and it can never cost a *key*, because the window
+            // stays unfocusable.
+            isClickable = true
+            setOnClickListener { onTap?.invoke() }
         }
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // Not focusable and not touchable: this must never take a tap from the app under it,
-            // and must never become the window holding key focus. A HUD that swallowed the next
-            // volume press would be worse than no HUD.
+            // Not focusable, deliberately and permanently: an overlay that took key focus would
+            // swallow the very presses it exists to report, which is worse than no HUD at all.
+            // `FLAG_NOT_TOUCHABLE` is the one that had to go, because a tap has to be able to
+            // reach the strip; `FLAG_NOT_TOUCH_MODAL` keeps every touch outside it going to the
+            // app underneath, and the window is `WRAP_CONTENT` tall.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT,
         ).apply {
@@ -212,6 +236,9 @@ class VolumeHud(private val context: Context) {
     private companion object {
         /** Long enough to read after the last press, short enough not to sit on the screen. */
         const val DWELL_MS = 1_400L
+
+        /** Longer, once a stream is pinned: the presses that use the pin come after the tap. */
+        const val PIN_DWELL_MS = 4_000L
 
         /** Above this many steps the notches stop being countable and become a bar. */
         const val MAX_SEGMENTS = 20

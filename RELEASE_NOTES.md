@@ -1,3 +1,35 @@
+## LightControl v2.0 — Tap the volume strip to pick what the keys move
+
+**Two changes to the volume HUD, and the second one is the first time this app moves a volume
+itself.**
+
+It no longer appears over LightOS. Light's dashboard and lock screen already have a volume control
+of their own, and a second one drawn over the top of it is this app's oldest mistake in a new place:
+on Light's own screens, anything added is something duplicated. Everywhere else is unchanged.
+
+And the strip is now tappable. Android hands the volume keys one stream at a time — whatever is
+playing, and media when nothing is — so the ringer and the alarm levels cannot be reached from the
+hardware at all, and LightOS has no screen for them either. Tap the strip and it cycles: media, ring,
+alarm, and the call stream when there is a call. The chosen one says **PIN**, and for the next few
+seconds the keys move that stream instead of the default one.
+
+Reaching those streams means taking the press, so this is the one place the app adjusts a volume
+rather than reporting one — which is a rule worth bending only inside a fence:
+
+- It needs a tap first. Until you tap, no volume key is consumed, exactly as before.
+- It applies to one named stream, and it expires with the strip. Every press that uses it extends it.
+- It cannot survive a ring. The takeover lives in a path the service never reaches while anything is
+  ringing or a call is up, so the keys that dismiss an alarm are never in question.
+- Walking the ringer down into silence needs Do Not Disturb access, which a sideloaded app doesn't
+  have. The strip says NEEDS DND ACCESS instead of quietly doing nothing.
+- **Settings → VOLUME → Tap to pick a stream** turns it off, and with it off nothing here consumes a
+  key at all.
+
+The strip had to become touchable for this, which is a real cost stated plainly: a tap landing on a
+thin bar at the very top of the screen, during the second or so it is visible, goes to the strip
+instead of the app. Everything outside it passes through untouched, and the window stays unfocusable
+— so it can take a stray tap, but never a key.
+
 ## LightControl v1.9 — The wheel says what it did, and the volume strip gets out of the way
 
 **Two small things, one of them a diagnosis tool.**

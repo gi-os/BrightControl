@@ -63,6 +63,7 @@ fun SettingsScreen(
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
     var volumeHud by remember { mutableStateOf(prefs.showVolume) }
+    var volumePin by remember { mutableStateOf(prefs.volumePin) }
     var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
     var enabled by remember { mutableStateOf(prefs.enabled) }
@@ -375,8 +376,17 @@ fun SettingsScreen(
                 },
             )
             MenuRow(
-                label = "What it watches",
-                sub = "any change, not only the keys. The keys are never taken.",
+                label = "Tap to pick a stream",
+                detail = if (volumePin) "ON" else "OFF",
+                sub = "tap the strip to cycle media, ring, alarm — then the keys move that one",
+                onClick = {
+                    volumePin = !volumePin
+                    prefs.volumePin = volumePin
+                },
+            )
+            MenuRow(
+                label = "Not over LightOS",
+                sub = "its own screens have their own volume control",
                 dim = true,
             )
             Rule()

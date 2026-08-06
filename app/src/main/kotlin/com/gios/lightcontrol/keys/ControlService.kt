@@ -132,7 +132,14 @@ class ControlService : AccessibilityService() {
         volumeHud = VolumeHud(this)
         // Gated on the master switch as well as its own setting: "this app does nothing" has to
         // mean nothing, including drawing over other apps.
-        volume = VolumeWatcher(this, volumeHud) { prefs.enabled && prefs.showVolume }
+        volume = VolumeWatcher(
+            context = this,
+            hud = volumeHud,
+            front = { if (OwnWindow.resumed) packageName else foreground },
+            wanted = { prefs.enabled && prefs.showVolume },
+            pinningAllowed = { prefs.volumePin },
+        )
+        volumeHud.onTap = { volume.onHudTap() }
         volume.start()
         swipe = WheelSwipe(this)
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
@@ -323,6 +330,10 @@ class ControlService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
     }
 
+    /** A first press, not a repeat and not a release. Named apart from the local `fresh` vals. */
+    private fun isFreshDown(event: KeyEvent): Boolean =
+        event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+
     private fun handleKey(event: KeyEvent): Boolean {
         val key = LightKeys.of(event) ?: return false
         // Our own settings screen reports itself, because window-state events from this
@@ -335,6 +346,18 @@ class ControlService : AccessibilityService() {
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
             val notches = if (key == LightKey.WheelUp) 1 else -1
             return onTurn(front, behaviour, notches, event.action == KeyEvent.ACTION_DOWN)
+        }
+
+        // A stream pinned by tapping the volume strip. The only place this app moves a volume
+        // itself, and the only place it consumes a volume key — both of which need an explicit tap
+        // first and expire with the strip. Note where this sits: after the alarm and clock refusals
+        // above, and inside a method the service does not reach at all while anything is ringing, so
+        // a pin can never be holding the keys that dismiss an alarm.
+        if (key == LightKey.VolumeUp || key == LightKey.VolumeDown) {
+            if (volume.takeKey(key == LightKey.VolumeUp, event)) {
+                if (isFreshDown(event)) log("${key.name} pinned stream")
+                return true
+            }
         }
 
         val button = LightKeys.buttonOf(key) ?: return false
