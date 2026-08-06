@@ -268,6 +268,19 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("readout", true)
         set(v) = sp.edit().putBoolean("readout", v).apply()
 
+    /**
+     * Whether a volume change flashes the level at the top of the screen.
+     *
+     * On, because on this phone the alternative is nothing at all: LightOS ships no volume UI, so
+     * without this a press changes the level and says nothing, and the ringer's level cannot be
+     * checked without waiting for something to ring. Needs the overlay appop, like the brightness
+     * readout, and simply doesn't appear without it. Nothing about the keys themselves changes with
+     * this off — they were never consumed. See `keys.VolumeHud`.
+     */
+    var showVolume: Boolean
+        get() = sp.getBoolean("volume_hud", true)
+        set(v) = sp.edit().putBoolean("volume_hud", v).apply()
+
     /** How far one notch drags the screen, in dp, when a turn is scrolling by swipe. */
     var swipeDp: Int
         get() = sp.getInt("swipe_dp", 64)

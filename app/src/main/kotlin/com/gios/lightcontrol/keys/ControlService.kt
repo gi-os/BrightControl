@@ -48,6 +48,8 @@ class ControlService : AccessibilityService() {
     private lateinit var prefs: Prefs
     private lateinit var brightness: Brightness
     private lateinit var readout: Readout
+    private lateinit var volumeHud: VolumeHud
+    private lateinit var volume: VolumeWatcher
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -123,6 +125,11 @@ class ControlService : AccessibilityService() {
         prefs = Prefs(this)
         brightness = Brightness(this)
         readout = Readout(this)
+        volumeHud = VolumeHud(this)
+        // Gated on the master switch as well as its own setting: "this app does nothing" has to
+        // mean nothing, including drawing over other apps.
+        volume = VolumeWatcher(this, volumeHud) { prefs.enabled && prefs.showVolume }
+        volume.start()
         swipe = WheelSwipe(this)
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
         // required — passed anyway, because "not exported" is the true answer and the default
@@ -205,10 +212,36 @@ class ControlService : AccessibilityService() {
      * not. Repeated faults put the service to sleep entirely — see [dormant].
      */
     override fun onKeyEvent(event: KeyEvent): Boolean = try {
+        // Before every guard below, and outside all of them, because the volume HUD is not a
+        // binding: nothing is consumed, nothing is adjusted, and the moments this service keeps
+        // its hands off keys — an alarm ringing, a call, a clock in front — are moments the volume
+        // still moves and still wants showing. It cannot affect what this method returns.
+        noteVolumeKey(event)
         if (!prefs.enabled || dormant() || ringing()) false else handleKey(event)
     } catch (t: Throwable) {
         recordFault(t)
         false
+    }
+
+    /**
+     * A volume key arrived: read the level back and flash it at the top of the screen.
+     *
+     * LightOS has no volume UI, so a press is silent in both senses — the level changes and nothing
+     * says so. [VolumeWatcher] also listens for the system's own volume broadcast, which catches
+     * changes made by apps and headsets; this is the fallback for a press whose broadcast never
+     * comes, and the reason it is the *fallback* is that the value has to be read after the system
+     * applies the press, not when the key arrives.
+     *
+     * Its own catch, not the one in [onKeyEvent]: a cosmetic overlay is not worth a fault count
+     * against a key filter, and certainly not worth standing the service down.
+     */
+    private fun noteVolumeKey(event: KeyEvent) {
+        runCatching {
+            if (event.action != KeyEvent.ACTION_DOWN) return
+            val key = LightKeys.of(event) ?: return
+            if (key != LightKey.VolumeUp && key != LightKey.VolumeDown) return
+            volume.onVolumeKey()
+        }
     }
 
     /**
@@ -522,6 +555,7 @@ class ControlService : AccessibilityService() {
         slept = null
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
+        volume.stop()
         swipe.cancel()
         pendingTap = null
         presses.clear()

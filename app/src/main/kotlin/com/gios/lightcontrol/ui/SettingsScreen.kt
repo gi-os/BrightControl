@@ -62,6 +62,7 @@ fun SettingsScreen(
     var steps by remember { mutableIntStateOf(prefs.brightnessSteps) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var readout by remember { mutableStateOf(prefs.showReadout) }
+    var volumeHud by remember { mutableStateOf(prefs.showVolume) }
     var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
     var enabled by remember { mutableStateOf(prefs.enabled) }
@@ -358,6 +359,28 @@ fun SettingsScreen(
             // Last, because it is for the mornings something is wrong. A key filter cannot explain
             // itself any other way: there is no adb attached when the button misbehaves, and the
             // whole event is over before you can look.
+            SectionLabel("VOLUME")
+            MenuRow(
+                label = "Show the level",
+                detail = if (volumeHud) "ON" else "OFF",
+                sub = if (canOverlay) {
+                    "LightOS has no volume UI, so a press changes the level and says nothing"
+                } else {
+                    "needs the overlay grant above"
+                },
+                dim = !canOverlay,
+                onClick = {
+                    volumeHud = !volumeHud
+                    prefs.showVolume = volumeHud
+                },
+            )
+            MenuRow(
+                label = "What it watches",
+                sub = "any change, not only the keys. The keys are never taken.",
+                dim = true,
+            )
+            Rule()
+
             SectionLabel("KEY LOG")
             MenuRow(
                 label = "Keep a log",

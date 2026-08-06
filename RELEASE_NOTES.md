@@ -1,3 +1,34 @@
+## LightControl v1.8 — A volume level you can see
+
+**LightOS has no volume UI. The keys work; nothing tells you what they did.**
+
+Press volume up on this phone and the level changes in silence — no bar, no number, nothing. With
+music playing you can hear roughly where you are, so you find the level by overshooting and coming
+back down. On the ringer there is no feedback at all: a silent phone and a phone at one notch look
+identical until something arrives and either rings or doesn't.
+
+So the bar LightOS left out now comes from here. Change the volume and a black strip appears at the
+top of the screen with the stream, the percentage, and a row of notches — one notch per press, so it
+says how many more presses are left rather than only roughly how loud. It sits at the top rather than
+the bottom, where the brightness readout lives, because volume is what you glance up at with a thumb
+already on the key. Vibrate and silent are named instead of numbered, since on the ringer those are
+what the level *means*.
+
+It watches the whole system, not just the keys. Android broadcasts every volume change, so a media
+app's own slider, a headset's buttons and a Bluetooth speaker turning itself down all show up the
+same way. A volume key is also read back directly a moment later, in case that broadcast ever stops
+coming.
+
+What it does not do is touch the keys. The volume pair is the one this app has always passed straight
+through — taking them would mean re-implementing volume to add a picture of it — so the HUD only ever
+reports. Nothing is consumed, nothing is adjusted, and it runs even in the moments the service
+otherwise keeps its hands off every key: an alarm ringing, a call, a clock in front. The overlay is
+untouchable and unfocusable, so it can never take a tap or swallow the next press. It needs the same
+overlay grant the brightness readout does, and with the grant missing it simply doesn't appear.
+
+**Settings → VOLUME → Show the level** turns it off. The master switch turns it off too, because "this
+app does nothing" has to mean nothing.
+
 ## LightControl v1.7 — The home button goes where you pointed it
 
 **Two presses of home, two destinations, and neither of them is home unless you said so.**
