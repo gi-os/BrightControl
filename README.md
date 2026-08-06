@@ -1,4 +1,4 @@
-# LightControl
+# BrightControl
 
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
@@ -34,7 +34,7 @@ key 27    CAMERA         # camera stage 2 (gpio-keys, was RIGHT_BRACKET)
 ```
 
 Nothing intercepts these in `PhoneWindowManager`. In any sideloaded app the keys arrive
-and nothing listens. LightControl is that missing layer for everything else — an
+and nothing listens. BrightControl is that missing layer for everything else — an
 `AccessibilityService` with `flagRequestFilterKeyEvents`, the only way to see a key you
 don't have window focus for (`INJECT_EVENTS` is signature-only; this is the same
 mechanism [LightVoice](https://github.com/gi-os/LightVoice) uses for its push-to-talk).
@@ -117,7 +117,7 @@ becomes unreachable. Both are rebindable to any installed app.
 This is the one button where the mechanism is worth understanding, because it is the one
 where the app can make the phone worse. Timing a hold means swallowing the DOWN and
 starting a clock, and a consumed key cannot be handed back once you know it was a tap —
-so from the moment the hold is bound, **LightControl is what makes the home button work**.
+so from the moment the hold is bound, **BrightControl is what makes the home button work**.
 That promise is one it refuses to make in five situations, each of which falls through to
 the same place:
 
@@ -208,11 +208,11 @@ instead. **On the lock screen** (off by default) takes the **buttons only** — 
 still go to LightOS untouched, since it already puts brightness there on both screens.
 The first version took turns too and made LightOS unstable. An app binding still waits
 for an unlock: a background activity start behind a lock is dropped unless the target
-declares `showWhenLocked`, which isn't LightControl's to declare.
+declares `showWhenLocked`, which isn't BrightControl's to declare.
 
 **LightOS brightness** (on by default) is the one lever over those turns, and it only has
 an off position. On, LightOS gets the notch and dims the screen. Off, the notch is
-swallowed and *nothing* acts on it — not LightControl's brightness either. That is the
+swallowed and *nothing* acts on it — not BrightControl's brightness either. That is the
 whole reason it can ship: what made LightOS unstable the first time was two owners writing
 the same system brightness value a notch apart, and dropping a key has no second writer in
 it. The switch is for keeping a brightness where you put it — a wheel that lives under a
@@ -343,7 +343,7 @@ screen comes on: a backgrounded app is cached, a cached app is frozen, and conte
 broadcasts to a frozen app are queued until it is unfrozen — so `ACTION_SCREEN_ON` is delivered
 only after something else has already brought the app forward. An `AccessibilityService` is
 bound by the system and so is never cached, never frozen, already watching the foreground
-package, and already holding the home key. LightRemote v1.14 shipped the version that can't
+package, and already holding the home key. BrightRemote v1.14 shipped the version that can't
 work; v1.15 removed it.
 
 LightOS's lock screen appears *as* the screen goes off, which would otherwise be recorded as
@@ -353,7 +353,7 @@ the lock screen arriving, and the app underneath it is remembered instead.
 ## Gotchas, in the order they'll bite
 
 - **The accessibility setting is a list, not a flag.** `settings put secure
-  enabled_accessibility_services` overwrites whatever was there — enabling LightControl
+  enabled_accessibility_services` overwrites whatever was there — enabling BrightControl
   naively turns off LightVoice's push-to-talk unless both components are colon-joined.
 - **Consuming a key is the dangerous half.** The service consumes only what it actually
   acted on, so a bug here can't trap you — turns and clicks are inert keys in almost
@@ -366,7 +366,7 @@ the lock screen arriving, and the app underneath it is remembered instead.
   `FOCUS` sometimes first, `CAMERA` other times. Only `CAMERA` triggers a binding;
   `FOCUS` is swallowed alongside it so the app never sees half a press.
 - **The readout overlay raises its own window-state events.** Trusting those would
-  rewrite "the app in front" to LightControl mid-turn. Events from this package are
+  rewrite "the app in front" to BrightControl mid-turn. Events from this package are
   ignored; the settings activity reports itself through a volatile flag instead, since
   service and activity share a process.
 - **Brightness has no fixed scale.** 255 is common; 1023, 2047 and 4095 all ship. It's
