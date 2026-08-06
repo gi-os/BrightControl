@@ -92,9 +92,10 @@ class VolumeHud(private val context: Context) {
 
         // LightOS's grid: 27 units across the screen, and every inset and height is units of it.
         val unit = config.screenWidthDp / 27f * density
-        // And its type scale: design pixels over a 600dp-tall reference screen. 30 design px is
-        // `button`, which is what LightOS sets bar labels in, tracked at 15%.
-        val labelSp = 30f * config.screenHeightDp / 600f
+        // And its type scale: design pixels over a 600dp-tall reference screen. 24.5 design px is
+        // `paragraph` — a step down from the `button` size bar labels use, because this is a glance
+        // and not a control, and the strip is half the height it was.
+        val labelSp = 24.5f * config.screenHeightDp / 600f
 
         val text = TextView(context).apply {
             setTextColor(Color.WHITE)
@@ -105,14 +106,17 @@ class VolumeHud(private val context: Context) {
         val segments = SegmentBar(context).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                (unit * 0.55f).toInt().coerceAtLeast((4 * density).toInt()),
-            ).apply { topMargin = (unit * 0.5f).toInt() }
+                (unit * 0.28f).toInt().coerceAtLeast((2 * density).toInt()),
+            ).apply { topMargin = (unit * 0.25f).toInt() }
         }
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = ColorDrawable(Color.BLACK)
             val padH = unit.toInt()
-            val padV = (unit * 0.75f).toInt()
+            // Half what it was. The first pass was a LightOS bar's worth of padding, which is right
+            // for something you tap and too much for something that appears for a second: the strip
+            // covered the top of every app it flashed over.
+            val padV = (unit * 0.38f).toInt()
             setPadding(padH, padV, padH, padV)
             addView(text)
             addView(segments)
@@ -186,7 +190,9 @@ class VolumeHud(private val context: Context) {
 
         override fun onDraw(canvas: Canvas) {
             if (count <= 0) return
-            val gap = 2 * resources.displayMetrics.density
+            // Narrower gap to go with the shorter bar — at half the height the old 2dp gutters
+            // read as more space than segment.
+            val gap = 1.5f * resources.displayMetrics.density
             val slot = (width + gap) / count
             val w = slot - gap
             if (w <= 0f) return

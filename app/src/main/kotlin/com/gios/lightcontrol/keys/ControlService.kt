@@ -97,6 +97,10 @@ class ControlService : AccessibilityService() {
     private var sameActionRun = 0
     private var runStartedAt = 0L
 
+    /** The last turn written to the key log, and when. See [logTurn]. */
+    private var lastTurnKey = ""
+    private var lastTurnLogAt = 0L
+
     /** When something last rang. See [ringing]. */
     private var lastRingAt = 0L
 
@@ -330,7 +334,7 @@ class ControlService : AccessibilityService() {
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
             val notches = if (key == LightKey.WheelUp) 1 else -1
-            return onTurn(behaviour, notches, event.action == KeyEvent.ACTION_DOWN)
+            return onTurn(front, behaviour, notches, event.action == KeyEvent.ACTION_DOWN)
         }
 
         val button = LightKeys.buttonOf(key) ?: return false
@@ -712,27 +716,71 @@ class ControlService : AccessibilityService() {
         readout.show(if (next == TurnAction.Brightness) "BRIGHTNESS" else "SCROLL")
     }
 
-    private fun onTurn(behaviour: Behaviour, notches: Int, down: Boolean): Boolean {
+    private fun onTurn(
+        front: String?,
+        behaviour: Behaviour,
+        notches: Int,
+        down: Boolean,
+    ): Boolean {
         return when (behaviour.bareTurn) {
             TurnAction.Brightness -> {
-                if (down) adjustBrightness(notches)
+                if (down) adjustBrightness(front, notches)
                 true
             }
             TurnAction.Swipe -> {
-                if (down) swipe.turn(notches, prefs.swipeDp)
+                if (down) {
+                    swipe.turn(notches, prefs.swipeDp)
+                    logTurn(front, notches, "SWIPE", "${prefs.swipeDp} dp")
+                }
                 true
             }
             // Taken and dropped. Nothing is done with the notch, which is the point: LightOS
             // never sees it, so its own brightness ramp cannot run on it.
-            TurnAction.Consume -> true
+            TurnAction.Consume -> {
+                if (down) logTurn(front, notches, "BLOCKED", "LightOS never sees it")
+                true
+            }
             // Passed through, so the app in front can scroll with it.
-            TurnAction.PassThrough -> false
+            TurnAction.PassThrough -> {
+                if (down) logTurn(front, notches, "PASS THROUGH", "the app scrolls itself")
+                false
+            }
         }
     }
 
-    private fun adjustBrightness(notches: Int) {
-        val percent = brightness.step(notches, prefs.brightnessSteps) ?: return
+    private fun adjustBrightness(front: String?, notches: Int) {
+        val percent = brightness.step(notches, prefs.brightnessSteps)
+        if (percent == null) {
+            // The one silent failure the wheel has: no `WRITE_SETTINGS` appop, and there is nothing
+            // to fall back on, because a service has no window of its own to dim.
+            logTurn(front, notches, "BRIGHTNESS", "blocked - no WRITE_SETTINGS")
+            return
+        }
         if (prefs.showReadout) readout.show("BRIGHTNESS $percent%")
+        logTurn(front, notches, "BRIGHTNESS", "$percent%")
+    }
+
+    /**
+     * One line in the key log for a wheel turn.
+     *
+     * Turns were the half of this app the log could not see, and they are the half that fails
+     * *quietly*: a wheel that does nothing in one app looks identical whether the key never
+     * arrived, the app resolved to pass through, or the brightness write was refused. Those are
+     * three different fixes and there was no way to tell them apart from the phone. Now the
+     * absence of a line is itself the answer — nothing logged means the service was never handed
+     * the key, and the problem is upstream of every setting in this app.
+     *
+     * Deduped on the app and the decision rather than on the value, because a gesture is twenty
+     * notches and the log is twelve lines: one turn should cost one line.
+     */
+    private fun logTurn(front: String?, notches: Int, tag: String, detail: String) {
+        val app = front?.substringAfterLast('.') ?: "?"
+        val key = "$app/$tag"
+        val now = SystemClock.uptimeMillis()
+        if (key == lastTurnKey && now - lastTurnLogAt < TURN_LOG_MS) return
+        lastTurnKey = key
+        lastTurnLogAt = now
+        log("TURN ${if (notches > 0) "+" else "-"} · $app · $tag $detail")
     }
 
     // -------------------------------------------------------------------- the actions
@@ -958,6 +1006,9 @@ class ControlService : AccessibilityService() {
         const val RING_GRACE_MS = 30_000L
 
         /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
+        /** One line per turn gesture, not per notch. See [logTurn]. */
+        const val TURN_LOG_MS = 1_500L
+
         const val START_INTERVAL_MS = 1_000L
 
         /** Minimum gap between starts aimed at different destinations. See [start]. */

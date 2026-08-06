@@ -1,3 +1,24 @@
+## LightControl v1.9 — The wheel says what it did, and the volume strip gets out of the way
+
+**Two small things, one of them a diagnosis tool.**
+
+The volume HUD is half the height it was. The first version used a LightOS bar's worth of padding,
+which is the right amount for something you tap and far too much for something that flashes over the
+top of whatever you are looking at. The label drops one step down the type scale, the notches are
+shorter and their gutters narrower, and the strip now reads as a line of type rather than a panel.
+
+The key log has learned about **turns**. Until now it only recorded buttons, which meant the half of
+this app that fails *quietly* left no evidence at all: a wheel that does nothing in one app looks
+exactly the same whether the key never reached the service, the app resolved to pass the turn
+through, or the brightness write was refused for a missing grant. Those are three different fixes.
+Now each turn writes one line — the app in front, what was decided, and the level it landed on —
+deduped so a twenty-notch gesture costs one line instead of filling the log.
+
+The useful part is what the log says when it says nothing. **No line for a turn means the service was
+never handed the key**, and no setting in this app can be the cause. A line saying PASS THROUGH means
+the app is set to scroll itself; one saying "blocked — no WRITE_SETTINGS" means the appop is gone.
+Settings → KEY LOG.
+
 ## LightControl v1.8 — A volume level you can see
 
 **LightOS has no volume UI. The keys work; nothing tells you what they did.**
