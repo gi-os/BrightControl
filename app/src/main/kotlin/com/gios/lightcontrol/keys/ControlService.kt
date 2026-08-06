@@ -97,12 +97,18 @@ class ControlService : AccessibilityService() {
     private var sameActionRun = 0
     private var runStartedAt = 0L
 
+    /** When a refusal was last logged. See [noteRefusal]. */
+    private var lastRefusalAt = 0L
+
     /** The last turn written to the key log, and when. See [logTurn]. */
     private var lastTurnKey = ""
     private var lastTurnLogAt = 0L
 
     /** When something last rang. See [ringing]. */
     private var lastRingAt = 0L
+
+    /** When the current uninterrupted ring-ish state began. See [BUSY_MAX_MS]. */
+    private var busySince = 0L
 
     /** When an activity was last started from here, and where it was going. See [start]. */
     private var lastStartAt = 0L
@@ -228,7 +234,18 @@ class ControlService : AccessibilityService() {
         // its hands off keys — an alarm ringing, a call, a clock in front — are moments the volume
         // still moves and still wants showing. It cannot affect what this method returns.
         noteVolumeKey(event)
-        if (!prefs.enabled || dormant() || ringing()) false else handleKey(event)
+        when {
+            !prefs.enabled -> false
+            dormant() -> false
+            // Logged, because this is the one refusal with no symptom of its own: every binding
+            // simply stops, and the phone looks like it does with the app uninstalled. The latch
+            // described in [ringing] went unnoticed for exactly that reason.
+            ringing() -> {
+                noteRefusal("something is ringing")
+                false
+            }
+            else -> handleKey(event)
+        }
     } catch (t: Throwable) {
         recordFault(t)
         false
@@ -256,14 +273,33 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * Whether something is ringing, alarming, or in a call — now or in the last [RING_GRACE_MS].
+     * Whether something is *ringing* — now or in the last [RING_GRACE_MS].
      *
      * Nothing is worth intercepting in that moment. The dismiss gesture belongs to whatever is
-     * making the noise, and being clever about which key it needs is exactly the kind of guess
-     * that fails at 6am — which it duly did: LightOS went down during an alarm, and LightOS runs as
-     * uid 1000, so that is the whole interface. Widened afterwards from "alarm or ringtone playing"
-     * to every ring-ish usage, the ringer and call audio modes, and a grace window, because the
-     * previous version could only see the seconds when audio was actually coming out.
+     * making the noise, and being clever about which key it needs is exactly the kind of guess that
+     * fails at 6am — which it duly did: LightOS went down during an alarm, and LightOS runs as uid
+     * 1000, so that is the whole interface.
+     *
+     * ### Why "in a call" is no longer part of this, and the latch that taught it
+     *
+     * This used to answer yes for `MODE_IN_CALL` and `MODE_IN_COMMUNICATION` too, and that turned a
+     * timeout into a **latch**. The grace window is refreshed on every key event that finds the
+     * phone busy, and Android routinely leaves the audio mode stuck in `MODE_IN_COMMUNICATION`
+     * after a call ends — nobody sets it back. So every press re-armed the window that press was
+     * being refused by, and the service went hands-off *permanently*: one phone call and the home
+     * button fell through to LightOS for the rest of the boot, which reads a home press as "back to
+     * the idle face" and so never reached the launcher it was pointed at.
+     *
+     * The fix is not a longer or shorter window. It is that a call in progress was never what this
+     * guard was for. A ring is something demanding to be dismissed with a key; an answered call is
+     * not — its keys are the volume pair, which this service passes through anyway. So only a
+     * genuine ring suppresses now: `MODE_RINGTONE`, or something playing on an alarm or ringtone
+     * usage. As a second floor under that, [BUSY_MAX_MS] caps how long any single busy state may go
+     * on claiming to be a ring, because a state that has not changed in five minutes is a stale
+     * state and not an alarm.
+     *
+     * Plain notification usages went with it. A chime is not something you dismiss with a button,
+     * and treating one as a ring meant every notification bought thirty seconds of dead buttons.
      */
     private fun ringing(): Boolean = runCatching {
         val now = SystemClock.uptimeMillis()
@@ -276,16 +312,32 @@ class ControlService : AccessibilityService() {
         val playing = audio.activePlaybackConfigurations.any {
             it.audioAttributes.usage in ringUsages
         }
-        // Ringer and call modes are the other half of the same question, and they answer it even
-        // when nothing is coming out of the speaker yet.
-        val mode = audio.mode
-        val busy = playing ||
-            mode == AudioManager.MODE_RINGTONE ||
-            mode == AudioManager.MODE_IN_CALL ||
-            mode == AudioManager.MODE_IN_COMMUNICATION
-        if (busy) lastRingAt = now
-        busy
+        // The ringer mode is the other half of the same question, and it answers it before any
+        // sound comes out of the speaker. The two *call* modes are deliberately absent — see above.
+        val busy = playing || audio.mode == AudioManager.MODE_RINGTONE
+        if (!busy) {
+            busySince = 0L
+            return false
+        }
+        if (busySince == 0L) busySince = now
+        // A ring that has been ringing for five minutes is not a ring. Something is stuck, and a key
+        // filter that stays out of the way forever on the strength of a stale reading is the failure
+        // this whole method exists to avoid, only quieter.
+        if (now - busySince > BUSY_MAX_MS) {
+            log("ring state stuck — ignoring it")
+            return false
+        }
+        lastRingAt = now
+        true
     }.getOrDefault(false)
+
+    /** A key passed on untouched for a reason worth knowing about, at most once every 2 s. */
+    private fun noteRefusal(reason: String) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastRefusalAt < REFUSAL_LOG_MS) return
+        lastRefusalAt = now
+        log("hands off — $reason")
+    }
 
     /**
      * One line in the on-screen key log.
@@ -1028,6 +1080,18 @@ class ControlService : AccessibilityService() {
         /** Hands off for this long after anything last rang. See [ringing]. */
         const val RING_GRACE_MS = 30_000L
 
+        /**
+         * The longest a single unbroken ring-ish state may keep the service out of the way.
+         *
+         * Longer than any real ring — a ringtone gives up inside a minute, an alarm inside ten —
+         * and short enough that a stuck audio state costs one spell of dead buttons rather than the
+         * rest of the boot.
+         */
+        const val BUSY_MAX_MS = 5 * 60_000L
+
+        /** Gap between logged refusals, so a held key doesn't fill the log. */
+        const val REFUSAL_LOG_MS = 2_000L
+
         /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
         /** One line per turn gesture, not per notch. See [logTurn]. */
         const val TURN_LOG_MS = 1_500L
@@ -1041,14 +1105,16 @@ class ControlService : AccessibilityService() {
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
 
-        /** Playback usages that mean something is asking for the user, not entertaining them. */
+        /**
+         * Playback usages that mean something is asking for the user, not entertaining them.
+         *
+         * Just the two that ring. Plain notification usages were here and cost thirty seconds of
+         * hands-off per chime; the voice-communication usages were here and were half of the latch
+         * in [ringing], because a call's audio configuration can outlive the call.
+         */
         val ringUsages = setOf(
             AudioAttributes.USAGE_ALARM,
             AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
-            AudioAttributes.USAGE_NOTIFICATION,
-            AudioAttributes.USAGE_NOTIFICATION_EVENT,
-            AudioAttributes.USAGE_VOICE_COMMUNICATION,
-            AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING,
         )
 
         /** Stroke duration. Slow enough not to register as a fling, quick enough to keep up. */

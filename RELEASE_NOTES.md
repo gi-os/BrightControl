@@ -1,3 +1,35 @@
+## LightControl v2.1 — One phone call no longer costs you the home button
+
+**After a call, every binding in this app quietly stopped working until the phone was rebooted.**
+Home fell through to LightOS's idle face and never reached the launcher it was pointed at. Here is
+what was actually happening, because the shape of it is worth knowing.
+
+The service refuses to touch a key while something is ringing — an alarm, a ringtone — and it keeps
+refusing for thirty seconds afterwards, because the moment an alarm is *silenced* looks exactly like
+silence while the screen with the STOP button on it is still up and being pressed at. That window is
+refreshed by every key event that finds the phone busy.
+
+"Busy" included being in a call. And Android routinely leaves the audio mode stuck in
+`MODE_IN_COMMUNICATION` after a call ends — nothing sets it back. So every press re-armed the very
+window it was being refused by, and a timeout became a **latch**: one phone call, and the app was
+indistinguishable from uninstalled for the rest of the boot.
+
+The fix is not a different window length. A call in progress was never what that guard was for. A
+ring is something demanding to be dismissed with a key; an answered call is not — its keys are the
+volume pair, which this service passes straight through anyway. So only a real ring stands the
+service down now: the ringer mode, or something playing on an alarm or ringtone usage. Plain
+notification sounds came out of that list at the same time, since a chime is not something you
+dismiss with a button and each one was buying thirty seconds of dead buttons.
+
+Underneath that there is now a floor: no single unbroken "something is ringing" reading may hold the
+service off for more than five minutes. Longer than any real ring, and short enough that a stuck
+audio state costs one spell of dead buttons instead of the rest of the boot.
+
+And the refusal now writes a line to the key log. This was the one thing the app could do that had no
+symptom of its own — every binding simply stops and the phone behaves as though the app were gone —
+which is precisely why it went unnoticed. Settings → KEY LOG will say **hands off — something is
+ringing** while it is happening.
+
 ## LightControl v2.0 — Tap the volume strip to pick what the keys move
 
 **Two changes to the volume HUD, and the second one is the first time this app moves a volume
