@@ -377,14 +377,21 @@ class ControlService : AccessibilityService() {
         if (fresh) log("${button.name} down · ${front?.substringAfterLast('.') ?: "?"}")
         if (!fresh && presses.containsKey(button)) return onButton(button, behaviour, event)
 
+        // The home button is the one key the phone cannot do without, so its door comes *before*
+        // the hands-off gate. [onHome] holds the complete refusal list, and a hands-off app in
+        // front is one of its reasons to decline — but declining has to mean shadow mode, where
+        // the tap still fires on top, and a tap that names its own destination still takes the
+        // key. The gate below used to eat the key first, which made LightOS's screens exactly the
+        // place the tap stopped working: wake the phone, land on the dashboard, and the press that
+        // should have opened your launcher belonged to LightOS alone — the idle face again, with
+        // nothing left anywhere to leave it by. See [onHome].
+        if (button == Button.Home) return onHome(front, behaviour, event)
         if (!behaviour.buttonsActive) {
             if (fresh) log("${button.name} hands off")
             return false
         }
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
-        // The home button is the one key the phone cannot do without. See [onHome].
-        if (button == Button.Home) return onHome(front, behaviour, event)
         return onButton(button, behaviour, event)
     }
 
@@ -429,6 +436,10 @@ class ControlService : AccessibilityService() {
         // invisible the moment Resume, or an app, could be bound to it. See [Action.picksDestination].
         val reason = when {
             !hold.acts && !tap.picksDestination -> "hold unbound"
+            // Hands-off apps reach here now instead of being gated upstream, so the refusal is
+            // owned here, where refusing still means the shadow tap. Same exception as LightOS
+            // below: a tap that picks a destination is reason to take the key anywhere.
+            !behaviour.buttonsActive && !tap.picksDestination -> "hands off"
             !homeConsumable(tap, hold) -> "not consumable"
             front != null && front.startsWith(LIGHTOS) && !tap.picksDestination ->
                 "LightOS in front"
@@ -482,13 +493,26 @@ class ControlService : AccessibilityService() {
             KeyEvent.ACTION_UP -> {
                 val started = shadowDownAt
                 shadowDownAt = 0L
-                if (started != 0L && SystemClock.uptimeMillis() - started < HOLD_MS) {
+                // Only while interactive and unlocked. A shadow press on the lock screen or a
+                // wake press would otherwise fire the tap into a keyguard that drops the start
+                // silently — worse than nothing, because the attempt still stamps the launch
+                // throttle, and the real press just after the unlock then reads as a repeat and
+                // gets declined. The press that wakes the phone is the system's; ours is the
+                // next one.
+                if (started != 0L && SystemClock.uptimeMillis() - started < HOLD_MS && awake()) {
                     perform(tap)
                 }
             }
         }
         return false
     }
+
+    /** Interactive and unlocked — the only state a shadow tap may launch anything in. */
+    private fun awake(): Boolean = runCatching {
+        val power = getSystemService(PowerManager::class.java)
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        power?.isInteractive != false && keyguard?.isKeyguardLocked != true
+    }.getOrDefault(false)
 
     /**
      * What to make of a home binding that reported failure.

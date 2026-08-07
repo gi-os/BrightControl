@@ -449,7 +449,16 @@ object Policy {
                 TurnAction.PassThrough
             }
             AppRule.BrightnessOnTurn -> TurnAction.Brightness
-            AppRule.SwipeOnTurn -> TurnAction.Swipe
+            // Same deal as ScrollThrough, and it used to not be: SWIPE overrode the mode switch
+            // outright, so the double tap flipped the readout to BRIGHTNESS and the very next
+            // notch swiped anyway. The per-app rule says how a *scroll* is delivered to this app
+            // — a synthetic finger instead of a passed-through key — not that scrolling is the
+            // only thing a turn may ever mean here. Brightness has to mean brightness everywhere.
+            AppRule.SwipeOnTurn -> if (prefs.unknownAppTurn == TurnAction.Brightness) {
+                TurnAction.Brightness
+            } else {
+                TurnAction.Swipe
+            }
             else -> prefs.unknownAppTurn
         }
         return Behaviour(bareTurn = bare, buttonsActive = true)
