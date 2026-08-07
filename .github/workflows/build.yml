@@ -96,3 +96,18 @@ jobs:
           files: out/LightControl-v${{ steps.ver.outputs.version }}.apk
           generate_release_notes: true
           make_latest: true
+
+      # Tell the index a release exists instead of waiting for its cron. GitHub
+      # schedules are best-effort -- observed 70 minutes apart against a 15
+      # minute schedule -- so without this a new release can sit uncatalogued
+      # for over an hour and simply not appear as an update.
+      - name: Ping the index
+        if: success()
+        continue-on-error: true
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.INDEX_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/gi-os/brightmarket-index/dispatches \
+            -d "{\"event_type\":\"app-released\"}" \
+          || echo "index ping failed; the hourly cron will pick this up"
