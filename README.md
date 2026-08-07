@@ -3,6 +3,17 @@
 The Light Phone III's brightness wheel, camera button, and home button, working inside
 apps Light didn't write.
 
+## Install via BrightMarket
+
+<p align="center">
+  <img src="https://gi-os.github.io/brightmarket-index/assets/brightmarket-qr.png" alt="Scan to open BrightMarket" width="180" />
+</p>
+
+Scan the code above, or visit
+**[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**, to install
+and keep this app updated through **BrightMarket** — no Play Store, no PC
+required.
+
 **Current version: v1.5.0.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
@@ -267,7 +278,6 @@ adb shell settings put secure accessibility_enabled 0
 — a computer, in other words, which is not what you have at 7am with an alarm going off. (Re-enabling
 takes both services colon-joined, since that setting overwrites the whole list:
 `com.gios.lightcontrol/com.gios.lightcontrol.keys.ControlService:com.gios.lightvoice/com.gios.lightvoice.ptt.PttService`.)
-
 
 A key filter is the one kind of app that can make a phone worse by breaking. Swallow a press and
 then throw, and the key is simply gone — which on the wrong morning is an alarm that won't turn
