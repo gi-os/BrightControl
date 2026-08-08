@@ -101,6 +101,10 @@ class ControlService : AccessibilityService() {
     private var lastTurnKey = ""
     private var lastTurnLogAt = 0L
 
+    /** The last whole-filter refusal logged, and when. See [logRefusal]. */
+    private var lastRefusalReason = ""
+    private var lastRefusalLogAt = 0L
+
     /** When something last rang. See [ringing]. */
     private var lastRingAt = 0L
 
@@ -228,7 +232,22 @@ class ControlService : AccessibilityService() {
         // its hands off keys — an alarm ringing, a call, a clock in front — are moments the volume
         // still moves and still wants showing. It cannot affect what this method returns.
         noteVolumeKey(event)
-        if (!prefs.enabled || dormant() || ringing()) false else handleKey(event)
+        // Named and logged, because this used to be the one refusal with no witness: three
+        // conditions folded into one silent `false`, upstream of every log line — so a filter
+        // standing down here was indistinguishable, from the phone, from a filter that never got
+        // the key. Days were lost to exactly that.
+        val refusal = when {
+            !prefs.enabled -> "switched off"
+            dormant() -> "dormant"
+            ringing() -> "ringing"
+            else -> null
+        }
+        if (refusal != null) {
+            logRefusal(refusal, event)
+            false
+        } else {
+            handleKey(event)
+        }
     } catch (t: Throwable) {
         recordFault(t)
         false
@@ -286,6 +305,26 @@ class ControlService : AccessibilityService() {
         if (busy) lastRingAt = now
         busy
     }.getOrDefault(false)
+
+    /**
+     * One line for a key the whole filter declined to look at, deduped hard.
+     *
+     * These refusals hold for stretches of time rather than single presses — a ring's grace
+     * window is half a minute, dormancy lasts until the app is opened — and a twelve-line log
+     * must not be twelve copies of the same fact. One line per reason per window, fresh downs
+     * only, and its own catch: a refusal is not worth a fault.
+     */
+    private fun logRefusal(reason: String, event: KeyEvent) {
+        runCatching {
+            if (!isFreshDown(event)) return
+            val key = LightKeys.of(event) ?: return
+            val now = SystemClock.uptimeMillis()
+            if (reason == lastRefusalReason && now - lastRefusalLogAt < REFUSAL_LOG_MS) return
+            lastRefusalReason = reason
+            lastRefusalLogAt = now
+            log("${key.name} · filter down — $reason")
+        }
+    }
 
     /**
      * One line in the on-screen key log.
@@ -1095,6 +1134,9 @@ class ControlService : AccessibilityService() {
         /** Hands off for this long after anything last rang. See [ringing]. */
         const val RING_GRACE_MS = 30_000L
 
+        /** One refusal line per reason per this window. See [logRefusal]. */
+        const val REFUSAL_LOG_MS = 5_000L
+
         /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
         /** One line per turn gesture, not per notch. See [logTurn]. */
         const val TURN_LOG_MS = 1_500L
@@ -1108,12 +1150,21 @@ class ControlService : AccessibilityService() {
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
 
-        /** Playback usages that mean something is asking for the user, not entertaining them. */
+        /**
+         * Playback usages that mean something is *demanding* the user — a screen with a dismiss
+         * gesture on it that must own every key.
+         *
+         * `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` were in this set and must never
+         * come back. A notification ping is one second of sound that asks for nothing — but with
+         * the 30-second grace window it turned every text message into half a minute of dead
+         * keys: home passing through to LightOS, wheel dead, all of it refused upstream of every
+         * log line. Intermittent, self-healing, and invisible — it cost days. The guard is for
+         * alarms, ringing calls, and calls in progress, which are the things with a dismiss
+         * gesture to protect.
+         */
         val ringUsages = setOf(
             AudioAttributes.USAGE_ALARM,
             AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
-            AudioAttributes.USAGE_NOTIFICATION,
-            AudioAttributes.USAGE_NOTIFICATION_EVENT,
             AudioAttributes.USAGE_VOICE_COMMUNICATION,
             AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING,
         )

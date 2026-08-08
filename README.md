@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.2.** See [Version history](#version-history).
+**Current version: v2.3.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -408,7 +408,7 @@ release, not a cosmetic action** — verify before pushing, not after.
 The keystore is committed under `keystore/`, so every build carries the same signing
 certificate and upgrades install over the top; CI pins the certificate's SHA-256 in
 `signing-fingerprint.txt` and fails on drift. `versionCode` is the workflow run number;
-`versionName` in the committed `build.gradle.kts` (currently `2.2.0`) is only the
+`versionName` in the committed `build.gradle.kts` (currently `2.3.0`) is only the
 `major.minor` base — CI stamps `major.minor.RUN` at build time and tags it `vX.Y.Z`.
 
 ## Version history
@@ -417,6 +417,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.3 | **A text message no longer turns the filter off for half a minute.** `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` counted as "ringing", and ringing carries a 30-second grace window — so every notification ping was thirty seconds of dead keys: home passing through to LightOS, wheel dead, all refused upstream of every log line. The ring guard now covers what it was built for — alarms, ringing calls, calls in progress. And the whole-filter refusal logs itself (`filter down — ringing` / `dormant` / `switched off`), so it can never go silent again |
 | v2.2 | **Launching a launcher works.** `getLaunchIntentForPackage` answers null for a launcher that publishes no `CATEGORY_LAUNCHER` entry, and that null read as "cannot be opened" — whose fallback is home. Home bound to Luma landed on LightOS, deterministically. A HOME intent scoped to the package now resolves a launcher's own front door first. Also: every home refusal now logs under its own name (`takeover off` / `screen off` / `keyguard locked` / `no overlay appop`) instead of one opaque `not consumable`; the clock refusal logs instead of being silent; and LightOS is never read as a clock, whatever intents it declares |
 | v2.1 | **Home works on LightOS's screens again.** The hands-off gate ran before the home button's own door, so on the dashboard or after a wake the tap binding never fired — not even in shadow mode — and a tap pointed at a launcher left you stranded on the idle face. Home is now routed to its door first; hands-off is one of that door's refusals, and a tap that names its own destination takes the key anywhere. A shadow tap also no longer fires behind the keyguard, where the launch was dropped silently but still stamped the throttle and made the next real press read as a repeat. And **`SWIPE` now respects the mode switch**: double-tapping the wheel to BRIGHTNESS changes what a turn does in swipe-scrolled apps too, instead of flipping the readout while every notch kept swiping |
 | v1.5.0 | `Otherwise open`: Resume's second press is configurable, so it stops costing you Luma |
