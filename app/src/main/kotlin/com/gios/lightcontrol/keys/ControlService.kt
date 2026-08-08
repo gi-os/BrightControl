@@ -339,8 +339,15 @@ class ControlService : AccessibilityService() {
         // Our own settings screen reports itself, because window-state events from this
         // package are ignored — the readout overlay raises them too.
         val front = if (OwnWindow.resumed) packageName else foreground
-        // A clock owns every key it can see. See [ownsAlarmKeys].
-        if (ownsAlarmKeys(front)) return false
+        // A clock owns every key it can see. See [ownsAlarmKeys]. Logged, because this refusal
+        // sits above every other and used to be silent — a key eaten here is indistinguishable
+        // in the log from a key that never arrived, which is two different bugs.
+        if (ownsAlarmKeys(front)) {
+            if (isFreshDown(event) && key != LightKey.WheelUp && key != LightKey.WheelDown) {
+                log("${key.name} · clock owns the keys")
+            }
+            return false
+        }
         val behaviour = Policy.behaviourFor(prefs, front)
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
@@ -440,10 +447,12 @@ class ControlService : AccessibilityService() {
             // owned here, where refusing still means the shadow tap. Same exception as LightOS
             // below: a tap that picks a destination is reason to take the key anywhere.
             !behaviour.buttonsActive && !tap.picksDestination -> "hands off"
-            !homeConsumable(tap, hold) -> "not consumable"
             front != null && front.startsWith(LIGHTOS) && !tap.picksDestination ->
                 "LightOS in front"
-            else -> null
+            // The expensive checks last, and each refusal under its own name: "not consumable"
+            // covered four different states, and which one it was is the whole diagnosis when
+            // the only witness is the key log.
+            else -> homeRefusal(tap, hold)
         }
         if (reason != null) {
             if (fresh) log("HOME shadow · $reason")
@@ -452,22 +461,28 @@ class ControlService : AccessibilityService() {
         return onButton(Button.Home, behaviour, event)
     }
 
-    /** Whether this is a moment the home key may be swallowed in. See [onHome]. */
-    private fun homeConsumable(tap: Action, hold: Action): Boolean = runCatching {
-        if (!prefs.homeTakeover) return false
+    /**
+     * Why the home key may not be swallowed right now — or null when it may. See [onHome].
+     *
+     * A named reason rather than a boolean, because the name goes straight into the key log and
+     * the log is the only witness this service has when the button misbehaves in a pocket three
+     * states away from adb.
+     */
+    private fun homeRefusal(tap: Action, hold: Action): String? = runCatching {
+        if (!prefs.homeTakeover) return "takeover off"
         val power = getSystemService(PowerManager::class.java)
-        if (power != null && !power.isInteractive) return false
+        if (power != null && !power.isInteractive) return "screen off"
         val keyguard = getSystemService(KeyguardManager::class.java)
-        if (keyguard != null && keyguard.isKeyguardLocked) return false
+        if (keyguard != null && keyguard.isKeyguardLocked) return "keyguard locked"
         // Both gestures, not just the hold. The hold was checked here from the start because it
         // is the one that costs the key; the tap was not, and a tap bound to something that
         // launches — an app, or Resume — then had its press swallowed and its launch dropped in
         // the same silence. A press that does nothing is the failure this whole door exists to
         // avoid, and which gesture caused it makes no difference to the thumb.
         val launching = listOf(tap, hold).filter { it.acts && it.needsActivityStart }
-        if (launching.isNotEmpty() && !Grants.canDrawOverlays(this)) return false
-        true
-    }.getOrDefault(false) // An unreadable state is not one to start swallowing keys in.
+        if (launching.isNotEmpty() && !Grants.canDrawOverlays(this)) return "no overlay appop"
+        null
+    }.getOrDefault("state unreadable") // Not a state to start swallowing keys in.
 
     /**
      * The home button with nothing consumed: LightOS gets the entire press, long presses
@@ -558,6 +573,10 @@ class ControlService : AccessibilityService() {
     private fun ownsAlarmKeys(pkg: String?): Boolean {
         if (pkg == null) return false
         if (pkg == packageName) return false
+        // LightOS's screens are never "a clock", whatever intents the package declares — its
+        // alarms live in com.android.deskclock. Reading the dashboard as a clock would put this
+        // refusal above the home button's door and eat the one key that gets you off it.
+        if (pkg.startsWith(LIGHTOS)) return false
         alarmPackages[pkg]?.let { return it }
         val declared = runCatching {
             listOf(AlarmClock.ACTION_SHOW_ALARMS, AlarmClock.ACTION_SET_ALARM).any { action ->
@@ -879,12 +898,36 @@ class ControlService : AccessibilityService() {
      */
     private fun launch(pkg: String): Boolean {
         val intent = runCatching { packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
-            ?: return goHome()
+            ?: launcherEntry(pkg)
+        if (intent == null) {
+            log("launch $pkg · no entry at all")
+            return goHome()
+        }
         return when (start(intent, target = pkg)) {
             Start.Done, Start.Throttled -> true
             Start.Failed -> goHome()
         }
     }
+
+    /**
+     * A launcher app's own front door, for a package [launch] found no launcher entry for.
+     *
+     * A launcher is opened by the HOME intent, and it may publish no `CATEGORY_LAUNCHER`
+     * activity at all — `getLaunchIntentForPackage` answers null for it, and that null used to
+     * read as "cannot be opened", whose deliberate fallback is home. On the one binding whose
+     * entire point is *reaching a launcher that is not the default*, that fallback is the exact
+     * inversion of the request: home, bound to Luma, lands on LightOS — deterministically, every
+     * press, and the log said only FAILED. Scoping the HOME intent to the package resolves the
+     * activity the system itself would start if the app ever became default, and naming the
+     * component keeps the start unambiguous.
+     */
+    private fun launcherEntry(pkg: String): Intent? = runCatching {
+        val probe = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_HOME)
+            .setPackage(pkg)
+        packageManager.resolveActivity(probe, 0)?.activityInfo
+            ?.let { probe.setClassName(it.packageName, it.name) }
+    }.getOrNull()
 
     /**
      * Back to the app the screen went off on — or home, which is the answer most of the time.
