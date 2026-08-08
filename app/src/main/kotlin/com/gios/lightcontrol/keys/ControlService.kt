@@ -74,6 +74,25 @@ class ControlService : AccessibilityService() {
     /** When an unconsumed press started, for the shadowed home button. */
     private var shadowDownAt = 0L
 
+    /**
+     * Whether you are on LightOS because the hold *sent* you there — a visit, not a landing.
+     *
+     * The distinction the home button lives on. A tap that names a destination takes the key
+     * anywhere (v2.1), which un-stranded the screens a wake dumps you on — and stranded the
+     * dashboard you deliberately opened instead: LightOS enters its menu on a home press, and
+     * the tap was stealing exactly that press. So arriving by hold marks a visit, and while it
+     * lasts, home belongs to LightOS. Cleared by leaving, by the screen going off — a wake is a
+     * landing, and a single press must escape it — and by the double press that ends it.
+     */
+    @Volatile
+    private var visitingLightOs = false
+
+    /** When the previous visiting tap's release landed, for the double press. */
+    private var visitTapAt = 0L
+
+    /** When a visiting press went down, so a hold's release doesn't count as a tap. */
+    private var visitDownAt = 0L
+
     /** A wheel tap waiting to see whether a second one follows. */
     private var pendingTap: Runnable? = null
 
@@ -181,6 +200,9 @@ class ControlService : AccessibilityService() {
         // deliberately opened, on the strength of what you happened to be doing last night.
         val pending = slept
         if (pending != null && pkg != pending && !pkg.startsWith(LIGHTOS)) slept = null
+        // Reaching anywhere that isn't LightOS ends a visit — most naturally by opening an app
+        // from LightOS's own menu, which is one of the two ways out.
+        if (visitingLightOs && !pkg.startsWith(LIGHTOS)) visitingLightOs = false
     }
 
     /**
@@ -206,6 +228,8 @@ class ControlService : AccessibilityService() {
             justChanged -> previous?.takeUnless { it.startsWith(LIGHTOS) }
             else -> null
         }
+        // A wake is a landing, not a visit: after the screen has been off, one press escapes.
+        visitingLightOs = false
         log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
     }
 
@@ -474,6 +498,11 @@ class ControlService : AccessibilityService() {
         val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         val hold = prefs.action(Button.Home, Gesture.Hold)
         val tap = prefs.action(Button.Home, Gesture.Tap)
+        // A visit outranks everything, including a tap that picks a destination — the visit is
+        // what you pressed the hold *for*. See [visitHome].
+        if (front != null && front.startsWith(LIGHTOS) && visitingLightOs) {
+            return visitHome(event, tap)
+        }
         // A tap that names its own destination is reason enough to take the key, and it is reason
         // wherever you are standing. Shadow mode hands the identical press to LightOS, which reads
         // home as "back to the idle face" — so the app you pointed the tap at opened *and* the idle
@@ -555,6 +584,44 @@ class ControlService : AccessibilityService() {
                 // next one.
                 if (started != 0L && SystemClock.uptimeMillis() - started < HOLD_MS && awake()) {
                     perform(tap)
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * The home button while visiting LightOS: LightOS's, until pressed twice.
+     *
+     * Nothing is consumed — LightOS needs the real press to enter its menu, and a key filter
+     * cannot hand back a press it swallowed, so pass-through is the only shape interaction can
+     * take. That also rules a hold out as the way home (timing one means consuming the DOWN),
+     * which leaves the double press: two quick taps end the visit and fire the tap binding.
+     * LightOS sees both presses — its menu flickers once on the way out, which is the price of
+     * a key that two owners can read.
+     *
+     * A hold's release is deliberately not a tap here: holding home mid-visit stays LightOS's,
+     * whatever it makes of it.
+     */
+    private fun visitHome(event: KeyEvent, tap: Action): Boolean {
+        presses.remove(Button.Home)
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                visitDownAt = SystemClock.uptimeMillis()
+            }
+            KeyEvent.ACTION_UP -> {
+                val started = visitDownAt
+                visitDownAt = 0L
+                val now = SystemClock.uptimeMillis()
+                if (started == 0L || now - started >= HOLD_MS) return false
+                if (visitTapAt != 0L && now - visitTapAt < HOME_DOUBLE_MS) {
+                    visitTapAt = 0L
+                    visitingLightOs = false
+                    log("HOME double · visit over")
+                    if (tap.acts) perform(tap) else goHome()
+                } else {
+                    visitTapAt = now
+                    log("HOME · LightOS's while visiting")
                 }
             }
         }
@@ -662,6 +729,9 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
         slept = null
+        visitingLightOs = false
+        visitTapAt = 0L
+        visitDownAt = 0L
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
         volume.stop()
@@ -797,7 +867,9 @@ class ControlService : AccessibilityService() {
         Action.OpenCamera -> openCamera()
         is Action.Launch -> launch(action.pkg)
         Action.DefaultHome -> goHome()
-        Action.LightOsHome -> goLightOsHome()
+        // Arriving by this action is what makes LightOS a visit rather than a landing, which is
+        // what hands it the home button while you're there. See [visitHome].
+        Action.LightOsHome -> goLightOsHome().also { if (it) visitingLightOs = true }
         Action.Resume -> resume()
         Action.None, Action.PassThrough -> true
     }
@@ -1123,6 +1195,12 @@ class ControlService : AccessibilityService() {
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L
+
+        /**
+         * Release-to-release gap for the home double press that ends a LightOS visit. Wider than
+         * the wheel's window — a whole press sits inside it, not just a second click.
+         */
+        const val HOME_DOUBLE_MS = 600L
 
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L
