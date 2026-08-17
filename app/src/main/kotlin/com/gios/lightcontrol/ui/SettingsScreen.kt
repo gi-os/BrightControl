@@ -1,5 +1,8 @@
 package com.gios.lightcontrol.ui
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -28,6 +31,7 @@ import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.keys.LightKeys
+import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -66,6 +70,30 @@ fun SettingsScreen(
     var volumePin by remember { mutableStateOf(prefs.volumePin) }
     var homeTakeover by remember { mutableStateOf(prefs.homeTakeover) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
+    var lockScreen by remember { mutableStateOf(prefs.lockScreen) }
+    var lockFault by remember { mutableStateOf(prefs.lockFault()) }
+    var lockImage by remember { mutableStateOf(prefs.lockImage) }
+    var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
+    val notesGranted = LockNotes.granted(context)
+
+    // Taking a *persistable* grant is the whole reason this is OpenDocument rather than
+    // GetContent: the plain one hands over a URI that dies with the process, and the face is
+    // composed days later from a service-started activity. A permission that expires would look
+    // exactly like a wallpaper that randomly stops appearing.
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            prefs.lockImage = uri.toString()
+            lockImage = uri.toString()
+        }
+    }
     var enabled by remember { mutableStateOf(prefs.enabled) }
     var logKeys by remember { mutableStateOf(prefs.logKeys) }
     var keyLog by remember { mutableStateOf(prefs.keyLog()) }
@@ -245,6 +273,87 @@ fun SettingsScreen(
                     homeFault = prefs.homeFault()
                 },
             )
+            SectionLabel("LOCK SCREEN")
+
+            // What this is and is not, said once, on the row that turns it on. Anything less
+            // invites the reasonable assumption that this app is now what unlocks the phone —
+            // and someone who believes that will eventually turn off their PIN.
+            MenuRow(
+                label = "Light lock face",
+                detail = if (lockScreen) "ON" else "OFF",
+                sub = if (lockScreen) {
+                    "drawn over the real lock screen, which is still underneath and is still " +
+                        "what your thumb opens. Unlocking lands wherever Resume would."
+                } else {
+                    "a Light-style face over the stock lock screen — clock, notifications, your " +
+                        "own picture. Needs a screen lock set and the overlay appop."
+                },
+                onClick = {
+                    lockScreen = !lockScreen
+                    if (lockScreen) prefs.armLock() else prefs.lockScreen = false
+                    lockFault = prefs.lockFault()
+                },
+            )
+            lockFault?.let { reason ->
+                MenuRow(
+                    label = "Lock face switched itself off",
+                    detail = "RE-ARM",
+                    sub = "$reason. Tap to turn it back on.",
+                    dim = true,
+                    onClick = {
+                        prefs.armLock()
+                        lockScreen = true
+                        lockFault = null
+                    },
+                )
+            }
+            if (lockScreen) {
+                MenuRow(
+                    label = "Picture",
+                    detail = if (lockImage == null) "NONE" else "SET",
+                    sub = if (lockImage == null) {
+                        "plain black. Tap to choose one — it is desaturated and dimmed so the " +
+                            "clock stays readable over anything."
+                    } else {
+                        "tap to change, or press and hold this row's detail to clear it below"
+                    },
+                    onClick = { pickImage.launch(arrayOf("image/*")) },
+                )
+                if (lockImage != null) {
+                    MenuRow(
+                        label = "Clear picture",
+                        detail = "CLEAR",
+                        dim = true,
+                        sub = "back to plain black",
+                        onClick = {
+                            prefs.lockImage = null
+                            lockImage = null
+                        },
+                    )
+                }
+                MenuRow(
+                    label = "Notifications",
+                    detail = when {
+                        !lockNotes -> "OFF"
+                        notesGranted -> "ON"
+                        else -> "NO GRANT"
+                    },
+                    dim = lockNotes && !notesGranted,
+                    sub = if (lockNotes && !notesGranted) {
+                        "adb shell cmd notification allow_listener " +
+                            "com.gios.lightcontrol/.lock.LockNotifications"
+                    } else {
+                        "the shade, on the lock face. Nothing is stored and nothing leaves the " +
+                            "phone."
+                    },
+                    onClick = {
+                        lockNotes = !lockNotes
+                        prefs.lockNotes = lockNotes
+                    },
+                )
+            }
+            Rule()
+
             MenuRow(
                 label = "LightOS screens",
                 detail = if (lightOs) "BUTTONS" else "OFF",

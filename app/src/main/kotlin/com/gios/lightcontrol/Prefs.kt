@@ -337,6 +337,57 @@ class Prefs(context: Context) {
         sp.edit().putStringSet(RESUME_APPS, next).apply()
     }
 
+    // ------------------------------------------------------------------ lock face
+
+    /**
+     * Whether to paint our own face over the keyguard while the phone is locked.
+     *
+     * Off by default, and it will stay off by default. Everything else in this app changes what a
+     * key does; this one changes what you see when you pick the phone up, and the thing it draws
+     * over is the only screen on the device that has to work when nothing else does. Opting in is
+     * the right shape for that.
+     *
+     * Turning it on does not make the phone less secure — the keyguard is still underneath and
+     * still the only thing that opens the device — but it does put a window between the user and a
+     * screen they rely on, so it disarms itself at the first sign of trouble. See [disarmLock].
+     */
+    var lockScreen: Boolean
+        get() = sp.getBoolean("lock_screen", false)
+        set(v) = sp.edit().putBoolean("lock_screen", v).apply()
+
+    /**
+     * Why the lock face switched itself off, if it did.
+     *
+     * Sticky and loud, exactly like [homeFault]. A face that failed to start once and quietly kept
+     * trying is a face that flickers over the lock screen every time the phone is put down, and
+     * that is a fault the user would report as "the phone is broken" rather than as this feature.
+     */
+    fun lockFault(): String? = sp.getString("lock_fault", null)
+
+    fun disarmLock(reason: String) {
+        sp.edit().putBoolean("lock_screen", false).putString("lock_fault", reason).apply()
+    }
+
+    fun armLock() {
+        sp.edit().putBoolean("lock_screen", true).remove("lock_fault").apply()
+    }
+
+    /**
+     * The picture behind the clock, as a persisted document URI, or null for plain black.
+     *
+     * A URI rather than a copy of the file. Copying would survive the user deleting the original,
+     * which sounds like a feature until it means this app is holding a photograph the user thinks
+     * they deleted.
+     */
+    var lockImage: String?
+        get() = sp.getString("lock_image", null)
+        set(v) = sp.edit().putString("lock_image", v).apply()
+
+    /** Whether the face lists what is in the shade. Needs the notification listener grant. */
+    var lockNotes: Boolean
+        get() = sp.getBoolean("lock_notes", true)
+        set(v) = sp.edit().putBoolean("lock_notes", v).apply()
+
     // ---------------------------------------------------------------- per-app rules
 
     fun ruleFor(pkg: String): AppRule =

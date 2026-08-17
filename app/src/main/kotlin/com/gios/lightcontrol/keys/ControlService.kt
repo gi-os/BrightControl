@@ -26,6 +26,8 @@ import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
+import com.gios.lightcontrol.lock.Lock
+import com.gios.lightcontrol.lock.LockActivity
 
 /**
  * The wheel and the buttons, everywhere on the phone.
@@ -108,6 +110,9 @@ class ControlService : AccessibilityService() {
     /** Home presses in a row where nothing the service tried reported success. */
     private var homeMisses = 0
 
+    /** Lock faces in a row that failed to start. See [showLockFace]. */
+    private var lockMisses = 0
+
     /** The last binding performed and when, so the same one twice over can be dropped. */
     private var lastAction: Action? = null
     private var lastActionAt = 0L
@@ -165,6 +170,10 @@ class ControlService : AccessibilityService() {
         volumeHud.onTap = { volume.onHudTap() }
         volume.start()
         swipe = WheelSwipe(this)
+        // The lock face hands back here. Set on create and cleared on unbind, so a face that
+        // outlives the service — the process kept alive by the activity alone — finds null and
+        // simply finishes without resuming anything, which is the same phone you had before.
+        Lock.onUnlock = { runCatching { resumeFromLock() } }
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
         // required — passed anyway, because "not exported" is the true answer and the default
         // has changed once already.
@@ -231,6 +240,10 @@ class ControlService : AccessibilityService() {
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
         log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
+        // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
+        // face that raised its own window first would be reading the value it had just changed.
+        Lock.pending = slept
+        showLockFace()
     }
 
     private val screenOff = object : BroadcastReceiver() {
@@ -728,6 +741,8 @@ class ControlService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
+        Lock.onUnlock = null
+        Lock.pending = null
         slept = null
         visitingLightOs = false
         visitTapAt = 0L
@@ -1050,6 +1065,78 @@ class ControlService : AccessibilityService() {
      * brings the app over and empties the offer, and pressing again finds nothing to resume and
      * falls through to exactly what the home button did before.
      */
+    // -------------------------------------------------------------------- the lock face
+
+    /**
+     * Put our own face over the keyguard, as the screen goes off.
+     *
+     * At screen-off and not at screen-on, which is the whole trick. An activity started on wake
+     * races the keyguard and loses often enough that you see a frame of the stock screen on most
+     * unlocks; started as the phone is put down it is simply already on top when the panel next
+     * lights, with nothing to race. It is also the only moment available — see [onScreenOff] for
+     * why a broadcast this app's own activities could never receive is handled here.
+     *
+     * Every line below is a guard, because the screen this draws over is the one screen on the
+     * phone that has to work. In order: the master switch, the opt-in, a keyguard that is actually
+     * securing something, and the appop without which the start is dropped in silence. That last
+     * one is checked rather than attempted deliberately — a background activity start refused on
+     * Android 14 throws nothing and returns nothing, so "it did not appear" and "it was never
+     * allowed" are indistinguishable afterwards.
+     */
+    private fun showLockFace() {
+        if (!prefs.enabled || !prefs.lockScreen) return
+        if (Lock.showing) return
+
+        val km = runCatching { getSystemService(KeyguardManager::class.java) }.getOrNull()
+        // Nothing behind it means nothing to occlude: on a phone with no PIN this would be a black
+        // screen the user swipes past, and the fingerprint line on it would be a lie. Disarm rather
+        // than skip, so the settings screen can say why instead of the feature just never working.
+        if (km?.isDeviceSecure != true) {
+            prefs.disarmLock("no screen lock is set, so there is nothing to wait for")
+            return
+        }
+        if (!Grants.canDrawOverlays(this)) {
+            prefs.disarmLock("no SYSTEM_ALERT_WINDOW appop — the face could not be started")
+            return
+        }
+
+        val intent = Intent(this, LockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            .addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+        when (start(intent, target = LOCK_TARGET)) {
+            Start.Done -> {
+                lockMisses = 0
+                log("lock face up")
+            }
+            // Two screens off inside a second. Ordinary, and not evidence of anything.
+            Start.Throttled -> Unit
+            Start.Failed -> {
+                lockMisses++
+                log("lock face failed · $lockMisses")
+                if (lockMisses >= MAX_LOCK_MISSES) {
+                    prefs.disarmLock("the face failed to start $lockMisses times running")
+                    lockMisses = 0
+                }
+            }
+        }
+    }
+
+    /**
+     * The unlock landed. Go wherever the home button's Resume would have gone.
+     *
+     * Reusing [resume] rather than writing a second rule is the point, not a shortcut. The list of
+     * apps, the fallback, the spend-on-use that makes a second press mean home — all of it already
+     * exists and is already the behaviour the user configured for the home button, so an unlock
+     * that went somewhere else would be a second thing to learn and a second thing to get wrong.
+     * Unlocking is just the earliest possible press of it.
+     */
+    private fun resumeFromLock() {
+        Lock.pending = null
+        if (!prefs.enabled || !prefs.lockScreen) return
+        resume()
+    }
+
     private fun resume(): Boolean {
         val pkg = slept
         if (pkg == null || pkg !in prefs.resumeApps()) return resumeFallback()
@@ -1227,6 +1314,10 @@ class ControlService : AccessibilityService() {
         /** Throttle keys for the destinations that aren't named by package. See [start]. */
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
+        const val LOCK_TARGET = "\u0000lock"
+
+        /** Failed lock-face starts in a row before the face disarms itself. */
+        const val MAX_LOCK_MISSES = 3
 
         /**
          * Playback usages that mean something is *demanding* the user — a screen with a dismiss

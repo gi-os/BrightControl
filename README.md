@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.4.** See [Version history](#version-history).
+**Current version: v2.5.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -25,6 +25,7 @@ every Bright app, at
 | Tap the camera button | The Light camera |
 | Hold the camera button | nothing — bind it to any app |
 | Tap the home button | Home — whichever launcher is default |
+| Wake the phone | The stock lock screen — or a Light face over it, once you turn it on |
 | Hold the home button | LightOS's dashboard, by name — rebind it to anything |
 | Volume keys, tap or hold | passed through, but bindable |
 
@@ -417,6 +418,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.5 | **A Light lock face.** An opt-in screen drawn over the stock lock screen — top bar, clock, your own picture, and the notifications waiting — and unlocking it lands wherever the home button's Resume would have: the app you fell asleep in, or Luma. It does not replace the keyguard and cannot: the real one is still underneath, still what your thumb opens, and it is what takes your code. Off by default, disarms itself if it ever fails to start |
 | v2.4 | **Visiting LightOS.** Holding home to open LightOS now marks a *visit*: while it lasts, home belongs to LightOS — its menu opens on a press again, which v2.1's "the tap takes the key anywhere" had broken. **Double-press home to end the visit** and fire the tap binding (LightOS sees both presses, so its menu flickers once on the way out). A visit ends by leaving LightOS, by the double press, or by the screen going off — a wake is a landing, not a visit, so a single press still escapes the idle face |
 | v2.3 | **A text message no longer turns the filter off for half a minute.** `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` counted as "ringing", and ringing carries a 30-second grace window — so every notification ping was thirty seconds of dead keys: home passing through to LightOS, wheel dead, all refused upstream of every log line. The ring guard now covers what it was built for — alarms, ringing calls, calls in progress. And the whole-filter refusal logs itself (`filter down — ringing` / `dormant` / `switched off`), so it can never go silent again |
 | v2.2 | **Launching a launcher works.** `getLaunchIntentForPackage` answers null for a launcher that publishes no `CATEGORY_LAUNCHER` entry, and that null read as "cannot be opened" — whose fallback is home. Home bound to Luma landed on LightOS, deterministically. A HOME intent scoped to the package now resolves a launcher's own front door first. Also: every home refusal now logs under its own name (`takeover off` / `screen off` / `keyguard locked` / `no overlay appop`) instead of one opaque `not consumable`; the clock refusal logs instead of being silent; and LightOS is never read as a clock, whatever intents it declares |

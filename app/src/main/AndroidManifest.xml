@@ -32,6 +32,15 @@
     -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!--
+      The lock face's top bar. A normal permission, granted at install: it answers only
+      "is anything connected, and over what", which is what a status bar is for. Signal
+      *bars* are deliberately not shown - those need READ_PHONE_STATE, a runtime
+      permission LightOS has no screen to grant, and a bar count that silently reads
+      empty on a phone with full signal is worse than no bars at all.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -53,6 +62,49 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          The face drawn over the keyguard. Not a lock screen: `showWhenLocked` lets it
+          *occlude* the real one, which is still there and is still the only thing that
+          opens the device.
+
+          `singleTask` with an empty `taskAffinity` keeps it in a task of its own, so
+          finishing it on unlock returns to whatever was underneath rather than to this
+          app, and `excludeFromRecents` keeps it out of the task switcher. Deliberately
+          NOT `noHistory`: this is started while the screen is already off, so it stops
+          the instant it starts, and noHistory finishes anything that stops - the face
+          would have destroyed itself before it was ever seen. Not exported; it is
+          started by our own service and by nothing else.
+        -->
+        <activity
+            android:name=".lock.LockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:showWhenLocked="true"
+            android:resizeableActivity="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.LightControl.Lock" />
+
+        <!--
+          Reads the shade so the lock face can list it. Granted once over adb, like
+          everything else this app needs:
+
+            adb shell cmd notification allow_listener com.gios.lightcontrol/.lock.LockNotifications
+
+          Nothing is stored and nothing leaves the phone; the list is rebuilt from
+          activeNotifications on every change and lives in memory in this process.
+        -->
+        <service
+            android:name=".lock.LockNotifications"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".keys.ControlService"
