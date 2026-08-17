@@ -52,6 +52,15 @@
     -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!--
+      The lock background's photo grid. An ordinary runtime prompt, granted from the
+      app itself. Needed because the grid walks DCIM and Pictures by path instead of
+      asking MediaStore - nothing on LightOS keeps MediaStore current, so the system
+      picker does not offer a photo taken minutes ago. A directory listing cannot go
+      stale. Same reason BrightChat reads the camera roll this way.
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
     <application
         android:name=".App"
         android:allowBackup="false"

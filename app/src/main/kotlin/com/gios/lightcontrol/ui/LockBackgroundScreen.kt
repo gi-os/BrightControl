@@ -1,6 +1,7 @@
 package com.gios.lightcontrol.ui
 
-import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -16,7 +17,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.lock.LockBackground
+import com.gios.lightcontrol.lock.LockGallery
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
 import java.io.File
@@ -88,21 +95,9 @@ fun LockBackgroundScreen(onClose: () -> Unit) {
     var adding by remember { mutableStateOf(false) }
     var stamp by remember { mutableStateOf(0) }
 
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            // Copied straight away rather than held as a URI. A persistable grant is one revoked
-            // permission away from a lock screen that quietly goes black, and the pipeline has to
-            // re-read the original every time the recipe changes.
-            runCatching {
-                val dest = File(context.cacheDir, "lockbg-pick")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    dest.outputStream().use { input.copyTo(it) }
-                }
-                source = dest
-                stamp++
-            }
-        }
-    }
+    // Whether the photo grid is up. A flag rather than nulling [source], so backing out of a
+    // re-pick returns to the editor with the stack intact instead of abandoning the whole edit.
+    var picking by remember { mutableStateOf(source == null) }
 
     // The face draws the background edge to edge, so the preview crops to the panel's own shape —
     // corner blur in particular has to land where the real corners will be.
@@ -125,8 +120,18 @@ fun LockBackgroundScreen(onClose: () -> Unit) {
         }
     }
 
-    // Straight into the picker with nothing chosen: an empty editor has nothing to edit.
-    LaunchedEffect(Unit) { if (source == null) pick.launch(arrayOf("image/*")) }
+    if (picking) {
+        // Straight into the grid with nothing chosen: an empty editor has nothing to edit.
+        PhotoGrid(
+            onPick = {
+                source = it
+                stamp++
+                picking = false
+            },
+            onClose = { if (source != null) picking = false else onClose() },
+        )
+        return
+    }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -204,7 +209,7 @@ fun LockBackgroundScreen(onClose: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(interactionSource = null, indication = null) {
-                        pick.launch(arrayOf("image/*"))
+                        picking = true
                     }
                     .padding(vertical = 8.dp),
             )
@@ -351,4 +356,98 @@ private fun Verb(glyph: String, enabled: Boolean, onClick: () -> Unit) {
             .clickable(interactionSource = null, indication = null, onClick = onClick)
             .padding(vertical = 6.dp),
     )
+}
+
+/**
+ * The single-tap photo grid, walked off the filesystem rather than asked of MediaStore.
+ *
+ * BrightChat's, and for BrightChat's reason: nothing on LightOS keeps MediaStore current, so the
+ * system picker — which v2.11 used — does not offer a photo taken minutes ago. A directory listing
+ * cannot go stale.
+ *
+ * One tap chooses. There is no confirm step because there is nothing to protect: the tap only moves
+ * to the editor, and nothing is written until its Save.
+ */
+@Composable
+private fun PhotoGrid(onPick: (File) -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
+
+    var granted by remember {
+        mutableStateOf(
+            context.checkSelfPermission(LockGallery.permission) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    var asked by remember { mutableStateOf(false) }
+    val ask = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted = it }
+    LaunchedEffect(Unit) {
+        if (!granted && !asked) {
+            asked = true
+            ask.launch(LockGallery.permission)
+        }
+    }
+
+    val photos by produceState<List<LockGallery.Photo>?>(null, granted) {
+        value = null
+        value = if (granted) LockGallery.scan() else emptyList()
+    }
+
+    val grid = rememberLazyGridState()
+    WheelScroll(grid)
+    BackHandler { onClose() }
+
+    Scaffold(
+        containerColor = Color.Black,
+        topBar = {
+            TopAppBar(
+                colors = barColors(),
+                title = { Text("Choose a photo", style = MaterialTheme.typography.titleMedium) },
+            )
+        },
+    ) { pad ->
+        val loaded = photos
+        when {
+            !granted -> EmptyState(
+                "Controls needs access to photos to read\nthe camera roll.",
+                Modifier.padding(pad).fillMaxSize(),
+            )
+            loaded == null -> Box(Modifier.padding(pad).fillMaxSize())
+            loaded.isEmpty() -> EmptyState(
+                "No photos in DCIM or Pictures.",
+                Modifier.padding(pad).fillMaxSize(),
+            )
+            else -> LazyVerticalGrid(
+                state = grid,
+                columns = GridCells.Fixed(3),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(2.dp),
+                modifier = Modifier.padding(pad).fillMaxSize(),
+            ) {
+                items(loaded, key = { it.key }) { photo ->
+                    val thumb by produceState<ImageBitmap?>(null, photo.key) {
+                        value = LockGallery.thumbnail(photo)
+                    }
+                    Box(
+                        Modifier
+                            .aspectRatio(1f)
+                            .background(Faint.copy(alpha = 0.25f))
+                            .clickable(interactionSource = null, indication = null) {
+                                onPick(photo.file)
+                            },
+                    ) {
+                        thumb?.let {
+                            Image(
+                                bitmap = it,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
