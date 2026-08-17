@@ -74,6 +74,7 @@ fun SettingsScreen(
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var lockImage by remember { mutableStateOf(prefs.lockImage) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
+    var lockBouncer by remember { mutableStateOf(prefs.lockBouncerOnWake) }
     val notesGranted = LockNotes.granted(context)
 
     // Taking a *persistable* grant is the whole reason this is OpenDocument rather than
@@ -283,7 +284,7 @@ fun SettingsScreen(
                 detail = if (lockScreen) "ON" else "OFF",
                 sub = if (lockScreen) {
                     "drawn over the real lock screen, which is still underneath and is still " +
-                        "what your thumb opens. Unlocking lands wherever Resume would."
+                        "what actually opens the phone. Unlocking lands wherever Resume would."
                 } else {
                     "a Light-style face over the stock lock screen — clock, notifications, your " +
                         "own picture. Needs a screen lock set and the overlay appop."
@@ -331,6 +332,27 @@ fun SettingsScreen(
                         },
                     )
                 }
+                // The row that says the quiet part. Someone who turns this feature on expecting
+                // their thumb to work as it always has needs to be told here, not by a sensor
+                // that silently stops responding.
+                MenuRow(
+                    label = "Unlock",
+                    detail = if (lockBouncer) "ON WAKE" else "ON SWIPE",
+                    sub = if (lockBouncer) {
+                        "the code screen comes up as soon as the phone wakes, so your thumb works " +
+                            "straight away — but that stock screen is what you see, with this one " +
+                            "behind it"
+                    } else {
+                        "swipe up or tap this face to bring up the code screen; your thumb works " +
+                            "there. The sensor is in the power button, and Android stops listening " +
+                            "to it while anything is drawn over the lock screen — this is hardware, " +
+                            "not a setting"
+                    },
+                    onClick = {
+                        lockBouncer = !lockBouncer
+                        prefs.lockBouncerOnWake = lockBouncer
+                    },
+                )
                 MenuRow(
                     label = "Notifications",
                     detail = when {

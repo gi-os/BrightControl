@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.5.** See [Version history](#version-history).
+**Current version: v2.6.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -418,6 +418,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.6 | **The lock face, actually working.** Three v2.5 bugs, two of them one bug. A correct PIN left the face up over an unlocked phone — the bouncer *stops* the occluding activity, so the activity had unregistered its `ACTION_USER_PRESENT` receiver by the time the broadcast arrived; noticing the unlock moved to the service, which is bound and never stopped. The stock screen flashed before ours on every wake because LightOS's lock screen is an activity that comes over *as* the screen goes off, so ours was starting underneath it — the face is now raised 900 ms later, on top of a lock screen that has finished coming up, and re-asserted on screen-on. And **the thumb never worked and could not have**: the LPIII's sensor is in the power button, and AOSP only keeps the keyguard listening to it while occluded for under-display sensors. Swipe up or tap to raise the bouncer, where it works — or set **Unlock → ON WAKE** to have that happen automatically |
 | v2.5 | **A Light lock face.** An opt-in screen drawn over the stock lock screen — top bar, clock, your own picture, and the notifications waiting — and unlocking it lands wherever the home button's Resume would have: the app you fell asleep in, or Luma. It does not replace the keyguard and cannot: the real one is still underneath, still what your thumb opens, and it is what takes your code. Off by default, disarms itself if it ever fails to start |
 | v2.4 | **Visiting LightOS.** Holding home to open LightOS now marks a *visit*: while it lasts, home belongs to LightOS — its menu opens on a press again, which v2.1's "the tap takes the key anywhere" had broken. **Double-press home to end the visit** and fire the tap binding (LightOS sees both presses, so its menu flickers once on the way out). A visit ends by leaving LightOS, by the double press, or by the screen going off — a wake is a landing, not a visit, so a single press still escapes the idle face |
 | v2.3 | **A text message no longer turns the filter off for half a minute.** `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` counted as "ringing", and ringing carries a 30-second grace window — so every notification ping was thirty seconds of dead keys: home passing through to LightOS, wheel dead, all refused upstream of every log line. The ring guard now covers what it was built for — alarms, ringing calls, calls in progress. And the whole-filter refusal logs itself (`filter down — ringing` / `dormant` / `switched off`), so it can never go silent again |

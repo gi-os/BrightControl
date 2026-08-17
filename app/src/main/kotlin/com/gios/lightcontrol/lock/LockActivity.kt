@@ -35,6 +35,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -61,12 +63,16 @@ import java.util.Locale
  *
  * Two consequences follow, and they are the whole design:
  *
- *  - **The fingerprint is not ours to read.** The keyguard keeps listening to the sensor while it
- *    is occluded — the same mechanism that lets you unlock out of the camera-from-lock shortcut —
- *    so a thumb dismisses the keyguard *underneath* this activity and the system broadcasts
- *    `ACTION_USER_PRESENT`. There is no biometric code here and there must not be: a
- *    `BiometricPrompt` of our own would authenticate the user to *us* and leave the device locked,
- *    which is a screen that says yes and then does nothing.
+ *  - **The thumb does not work while this is merely sitting there, and cannot be made to.** v2.5
+ *    shipped assuming it would, on the strength of the camera-from-lock shortcut. That shortcut
+ *    only works on phones with an under-display sensor: AOSP keeps the keyguard's fingerprint
+ *    listener armed while occluded for `isUdfps`, for a dreaming device, or while the bouncer is
+ *    up — and for nothing else. **The LPIII's sensor is in the power button**, so an occluded
+ *    keyguard stops listening and the press does nothing at all. Raising the bouncer is what turns
+ *    it back on, which is why every route out of this screen goes through the bouncer. There is
+ *    still no biometric code here and there must not be: a `BiometricPrompt` of our own would
+ *    authenticate the user to *us* and leave the device locked, which is a screen that says yes
+ *    and then does nothing.
  *  - **The code entry is not ours to draw either.** A passcode typed into our own keypad could not
  *    unlock anything. A tap asks for the real bouncer via
  *    [KeyguardManager.requestDismissKeyguard], which is AOSP's and cannot be restyled. So this
@@ -81,21 +87,20 @@ class LockActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private var keyguard: KeyguardManager? = null
 
-    /** Set once the handoff has run, so a second broadcast cannot fire it twice. */
+    /** Set once the face has been taken down, so a second signal cannot do it twice. */
     private var handedOff = false
 
     /**
-     * The unlock itself.
+     * The unlock, as seen from here.
      *
-     * `ACTION_USER_PRESENT` is the one signal that means the *device* is open rather than that some
-     * prompt returned success, so both paths — thumb and code — are read through it. It cannot be
-     * declared in a manifest; it reaches receivers registered in code only, which is no obstacle
-     * here because this activity is on screen and therefore neither cached nor frozen when it
-     * arrives.
+     * A backstop, not the mechanism. The service owns the real one — see `ControlService.screenOff`
+     * — because the bouncer stops this activity and a stopped activity's receivers are gone. This
+     * one is registered in `onCreate` rather than `onStart` so that it at least survives being
+     * stopped, and exists for the case where the service is not running at all.
      */
     private val userPresent = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            runCatching { handOff() }
+            runCatching { takeDown() }
         }
     }
 
@@ -114,15 +119,40 @@ class LockActivity : ComponentActivity() {
         keyguard = getSystemService(KeyguardManager::class.java)
 
         // Occlude the keyguard rather than dismiss it. Notably absent: `setTurnScreenOn`. This
-        // activity is started *as the screen goes off* so that it is already on top when the phone
-        // is next woken — starting it on wake instead races the keyguard and shows a frame of the
-        // stock screen every time. Asking to turn the screen on would then wake the phone the
-        // moment it was put down, which is the opposite of the feature.
+        // activity is raised while the screen is off so that it is already on top when the phone
+        // is next woken; asking to turn the screen on would wake the phone the moment it was put
+        // down, which is the opposite of the feature.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+        }
+
+        Lock.dismiss = { runCatching { takeDown() } }
+
+        // Registered here, not in onStart, and unregistered in onDestroy. The bouncer stops this
+        // activity, so a receiver tied to the visible lifecycle is unregistered at exactly the
+        // moment the broadcast it exists for is sent. That was the v2.5 bug where a correct PIN
+        // left this face on screen over an unlocked phone.
+        runCatching {
+            val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(userPresent, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(userPresent, filter)
+            }
+        }
+
+        // The first-class version of the same question, on the versions that have it. A listener
+        // rather than a broadcast, so it cannot be missed for being unregistered at the wrong
+        // moment, and it fires for every route the keyguard can be dismissed by.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                keyguard?.addKeyguardLockedStateListener(mainExecutor) { locked ->
+                    if (!locked) takeDown()
+                }
+            }
         }
 
         setContent {
@@ -135,53 +165,57 @@ class LockActivity : ComponentActivity() {
                     wallpaperUri = prefs.lockImage,
                     showNotes = prefs.lockNotes,
                     destination = destinationLabel(),
-                    onTap = ::askForCode,
+                    onUnlock = ::askForCode,
                 )
             }
         }
+
+        // The mode for people who want the thumb and will trade the face for it: raise the real
+        // bouncer straight away, where the sensor is listened for again. What you get is the stock
+        // screen on every wake, with ours behind it — which is worth saying out loud in settings
+        // rather than discovering.
+        if (prefs.lockBouncerOnWake) askForCode()
     }
 
     override fun onStart() {
         super.onStart()
-        // Tracked here rather than in onCreate, because the activity outlives a screen that goes
-        // off and on: start and stop are what actually answer "is this on screen", and the service
-        // asks that question every time the phone is put down.
+        // Tracked here rather than in onCreate: the activity outlives a screen that goes off and
+        // on, and start and stop are what actually answer "is this on screen".
         Lock.showing = true
-        runCatching {
-            val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(userPresent, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                registerReceiver(userPresent, filter)
-            }
-            registerReceiver(timeTick, IntentFilter(Intent.ACTION_TIME_TICK))
-        }
+        runCatching { registerReceiver(timeTick, IntentFilter(Intent.ACTION_TIME_TICK)) }
         now = System.currentTimeMillis()
-        // The belt to the broadcast's braces. A device already unlocked when this started — the
-        // screen going off inside the grace period after an unlock, say — will never send another
-        // `ACTION_USER_PRESENT`, and the face would sit there over an open phone.
-        if (keyguard?.isDeviceLocked == false) handOff()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Every return to the front re-asks the only question that matters. Cheap, and it closes
+        // the gap where a dismissal happened by a route nothing here was listening to.
+        if (keyguard?.isDeviceLocked == false) takeDown()
     }
 
     override fun onStop() {
         super.onStop()
         Lock.showing = false
-        runCatching { unregisterReceiver(userPresent) }
         runCatching { unregisterReceiver(timeTick) }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Lock.showing = false
+        Lock.dismiss = null
+        runCatching { unregisterReceiver(userPresent) }
     }
 
     /**
-     * Ask the real keyguard for the code.
+     * Raise the real bouncer.
      *
-     * The success callback is deliberately not where the handoff happens — `ACTION_USER_PRESENT`
-     * is, and it arrives for this path too. One route through means the thumb and the code cannot
-     * end up doing subtly different things, which is the kind of split that only shows itself on
-     * the one morning the sensor is wet.
+     * This is the only way in, and on this hardware it is also the only way the *fingerprint*
+     * works: the keyguard arms its sensor listener again once the bouncer is showing. So a tap
+     * here is not "I would rather type my code" — it is "wake the sensor up", and the thumb is
+     * still the fast way through what appears.
+     *
+     * The success callback deliberately does no work. Dismissal is noticed in one place, by the
+     * service, so the thumb and the code cannot end up doing subtly different things.
      */
     private fun askForCode() {
         val km = keyguard ?: return
@@ -191,24 +225,20 @@ class LockActivity : ComponentActivity() {
     }
 
     /**
-     * Get out of the way, then tell the service the phone is open.
+     * Get out of the way. The service does the rest.
      *
-     * Order matters. Finishing first means the resume launch lands on a stack this activity is
-     * already off, so the app it opens is what Back leaves — rather than this face, over a phone
-     * that is no longer locked.
+     * Only the finish, on purpose. Where an unlock lands is the service's decision — it owns the
+     * snapshot, the list and the fallback — and it makes it a beat after calling this, by which
+     * time this task is gone and the launch has a clean stack to land on.
      */
-    private fun handOff() {
+    private fun takeDown() {
         if (handedOff) return
         handedOff = true
         Lock.showing = false
-        val resume = Lock.onUnlock
+        Lock.dismiss = null
         finish()
         @Suppress("DEPRECATION")
         overridePendingTransition(0, 0)
-        // Posted, so the finish is through before the launch: starting an activity from a task
-        // that is mid-teardown is the one shape of this that reliably lands behind the wrong
-        // window.
-        window.decorView.post { runCatching { resume?.invoke() } }
     }
 
     /**
@@ -242,7 +272,7 @@ private fun LockFace(
     wallpaperUri: String?,
     showNotes: Boolean,
     destination: String?,
-    onTap: () -> Unit,
+    onUnlock: () -> Unit,
 ) {
     val context = LocalContext.current
     val config = LocalConfiguration.current
@@ -269,7 +299,12 @@ private fun LockFace(
             .background(Color.Black)
             // No ripple and no indication, per the SDK: LightOS has none anywhere, and a
             // Material splash across a photograph would be the one un-Light thing on the phone.
-            .clickable(interactionSource = null, indication = null, onClick = onTap),
+            .clickable(interactionSource = null, indication = null, onClick = onUnlock)
+            // A swipe up as well as a tap, because that is the gesture this screen already looks
+            // like it wants and the one every other phone has trained into people.
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, drag -> if (drag < -SWIPE_TRIGGER_PX) onUnlock() }
+            },
     ) {
         wallpaper?.let { bitmap ->
             Image(
@@ -414,5 +449,8 @@ private fun NoteRow(note: LockNote) {
     }
 }
 
-/** How many notifications fit above the fingerprint line without pushing it off a 600dp panel. */
+/** How many notifications fit above the unlock line without pushing it off a 600dp panel. */
 private const val MAX_NOTES = 4
+
+/** Drag per frame that counts as a deliberate swipe up rather than a finger settling. */
+private const val SWIPE_TRIGGER_PX = 12f

@@ -170,15 +170,15 @@ class ControlService : AccessibilityService() {
         volumeHud.onTap = { volume.onHudTap() }
         volume.start()
         swipe = WheelSwipe(this)
-        // The lock face hands back here. Set on create and cleared on unbind, so a face that
-        // outlives the service — the process kept alive by the activity alone — finds null and
-        // simply finishes without resuming anything, which is the same phone you had before.
-        Lock.onUnlock = { runCatching { resumeFromLock() } }
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
         // required — passed anyway, because "not exported" is the true answer and the default
         // has changed once already.
         runCatching {
-            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
@@ -243,12 +243,66 @@ class ControlService : AccessibilityService() {
         // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
         // face that raised its own window first would be reading the value it had just changed.
         Lock.pending = slept
+        // Deliberately late, and this is the fix for v2.5's flash of the stock screen on every
+        // wake. LightOS's lock screen is an activity and it comes over *as* the screen goes off —
+        // the same fact `onScreenOff` above already leans on to decide what to resume. Starting
+        // ours in the same instant means starting it underneath, and what you then see on waking
+        // is LightOS first and ours a moment later, arriving over the top. Waiting lands ours on
+        // top of a lock screen that has already finished coming up, with nothing left to race.
+        handler.removeCallbacks(raiseLockFace)
+        handler.postDelayed(raiseLockFace, LOCK_START_DELAY_MS)
+    }
+
+    /**
+     * Re-assert the face as the panel lights.
+     *
+     * Belt to the delayed start's braces. If anything came over ours while the phone was down — a
+     * notification's full-screen intent, LightOS redrawing its own lock screen on a timer — this is
+     * the last moment before the user sees the result. `singleTask` means a second start is a
+     * `onNewIntent` on the activity already there, which costs nothing.
+     */
+    private fun onScreenOn() {
+        if (!prefs.lockScreen) return
         showLockFace()
     }
 
+    /**
+     * The phone is open. Take the face down, then go where Resume would have gone.
+     *
+     * Handled here rather than in the activity because the activity may well have been stopped by
+     * the bouncer that was just dismissed — see [screenOff]. Dismiss first and launch on the next
+     * loop: an activity start aimed at a task that is still tearing down is the one shape of this
+     * that reliably lands behind the wrong window.
+     */
+    private fun onUserPresent() {
+        handler.removeCallbacks(raiseLockFace)
+        val wasShowing = Lock.showing
+        runCatching { Lock.dismiss?.invoke() }
+        if (!wasShowing) return
+        handler.postDelayed({ runCatching { resumeFromLock() } }, LOCK_HANDOFF_MS)
+    }
+
+    private val raiseLockFace = Runnable { runCatching { showLockFace() } }
+
+    /**
+     * Screen off, screen on, and the unlock.
+     *
+     * All three in one receiver because all three are the lock face's, and because *this* is where
+     * they have to be handled. `ACTION_USER_PRESENT` used to be registered by the lock activity
+     * itself, which was the v2.5 bug that left the face up over an unlocked phone: showing the
+     * bouncer over an occluding activity stops that activity, `onStop` unregistered the receiver,
+     * and the broadcast arrived while nothing was listening. A bound accessibility service is
+     * never stopped and never frozen, so it cannot miss it.
+     */
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            runCatching { onScreenOff() }
+            runCatching {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> onScreenOff()
+                    Intent.ACTION_SCREEN_ON -> onScreenOn()
+                    Intent.ACTION_USER_PRESENT -> onUserPresent()
+                }
+            }
         }
     }
 
@@ -741,7 +795,7 @@ class ControlService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
-        Lock.onUnlock = null
+        handler.removeCallbacks(raiseLockFace)
         Lock.pending = null
         slept = null
         visitingLightOs = false
@@ -1315,6 +1369,18 @@ class ControlService : AccessibilityService() {
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
         const val LOCK_TARGET = "\u0000lock"
+
+        /**
+         * How long after the screen goes off to raise our face.
+         *
+         * Long enough to be behind LightOS's lock screen coming up and then in front of it; short
+         * enough that a phone picked straight back up still finds it there. The screen is off for
+         * all of it, so the only cost of being generous is the width of that second window.
+         */
+        const val LOCK_START_DELAY_MS = 900L
+
+        /** Gap between taking the face down and launching, so the finish is through first. */
+        const val LOCK_HANDOFF_MS = 120L
 
         /** Failed lock-face starts in a row before the face disarms itself. */
         const val MAX_LOCK_MISSES = 3

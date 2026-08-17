@@ -17,14 +17,17 @@ package com.gios.lightcontrol.lock
 object Lock {
 
     /**
-     * Set by the service while it is bound. Invoked once per unlock, from the main thread.
+     * Takes the face down. Set by the activity while it exists, called by the service.
      *
-     * Nullable rather than a no-op default because "the service is gone" is a state the activity
-     * has to be able to see: with nothing to hand off to, finishing is still correct, but there is
-     * no point holding the screen for a handoff that will not come.
+     * The direction reversed in v2.6, and the reversal is the whole fix. It used to be the
+     * activity that noticed the unlock and told the service; but showing the bouncer over an
+     * occluding activity *stops* it, so the activity had unregistered its receiver by the time
+     * `ACTION_USER_PRESENT` arrived and the face simply stayed up over an open phone. The service
+     * is bound by the system, never stopped and never frozen, so it is the half that can be
+     * relied on to notice. It notices, then reaches in here.
      */
     @Volatile
-    var onUnlock: (() -> Unit)? = null
+    var dismiss: (() -> Unit)? = null
 
     /**
      * Whether a lock face is currently on screen.
