@@ -1,62 +1,32 @@
-## BrightControl v2.7 — The thumb works
+## BrightControl v2.8 — The lock face in LightOS's own type
 
-**The lock face stopped being an activity, and that is the entire release.**
+Same screen, correct typography. Everything on the lock face was hand-picked sp and dp; it is now
+the real design system, ported from `lightphone/light-sdk`'s `sdk/ui` module.
 
-### What was wrong
+**Akkurat, resolved by weight** off the system font list rather than by family name — asking for a
+family that isn't there gets you a synthesised default that looks deliberate and isn't. The clock
+takes Light, body takes Regular, the small tracked labels take Medium, matching what the app's
+Compose screens already do.
 
-`showWhenLocked` does not mean "draw over the lock screen". It means **occlude the keyguard** —
-and an occluded keyguard stops listening to the fingerprint sensor unless the sensor is under the
-display. The LPIII's is in the power button. So v2.5 and v2.6 switched the sensor off by existing,
-and no flag, permission or API was going to change that.
+**Named sizes, scaled by screen height.** The SDK measures type in design pixels against a 600px
+reference and converts with `px * screenHeightDp / 600`, so a hardcoded size is right on exactly
+one device. The face now uses:
 
-v2.6's answer was to make you raise the bouncer first. That was working around the wrong thing.
+| Element | SDK name | Design px |
+| --- | --- | --- |
+| Clock | `title` | 115 |
+| Notification headline | `copy` | 30 |
+| PRESS THE POWER BUTTON | `button`, 15% tracking | 30 |
+| Notification body, sub-line | `detail` | 20 |
+| Top bar, date | `fine` | 25 |
+| App name above a notification | `superfine` | 16 |
 
-### What it is now
+**Spacing in grid units.** LightOS's grid is 27 wide by 31 tall and every inset is
+`screenWidthDp / 27 * units` — one unit in from each side, three at the bottom, the same figures
+every Light tool on the phone uses. No dp left on the screen.
 
-A window, added by the accessibility service that has been in this app since v1.0.1. From AOSP's
-own `getWindowLayerFromTypeLw`:
+**`contentSecondary` is `#BBBBBB`**, which is the SDK's actual value rather than the `#9A9A9A` this
+was approximating.
 
-| window | layer |
-| --- | --- |
-| `TYPE_APPLICATION_OVERLAY` — the brightness readout, the volume HUD | 11 |
-| `TYPE_NOTIFICATION_SHADE` — **the keyguard** | 17 |
-| `TYPE_KEYGUARD_DIALOG` — the bouncer | 19 |
-| **`TYPE_ACCESSIBILITY_OVERLAY`** — this | **31** |
-
-Which also explains something that had never been explained: the brightness readout has never
-appeared over the lock screen, because at layer 11 it is underneath it.
-
-Because this is a window and not an activity, **the keyguard is never occluded**. As far as
-SystemUI is concerned the lock screen is showing and visible exactly as it always is, its
-fingerprint listener is armed exactly as it always is, and the press on the power button unlocks
-the phone exactly as it always did. We are painting over the top and nothing else.
-
-The face says **PRESS THE POWER BUTTON**, and this time that is true.
-
-### Three more problems that went away on their own
-
-- **The flash is gone, and so is the 900 ms delay** v2.6 needed to tune. A window at layer 31 is
-  above LightOS's lock screen whenever it arrives, so there is nothing to race.
-- **No overlay appop.** No activity means no background activity start, so `SYSTEM_ALERT_WINDOW`
-  is not part of this feature at all any more.
-- **Nothing to get stuck in.** The window holds no key focus, owns no task and has no back stack.
-  Every key — power, wheel, camera button — goes exactly where it went before. If the code throws,
-  the lock screen is right there underneath, untouched.
-
-### Reaching the keypad
-
-Tap the face. That is all a tap does: hides this window, revealing the real lock screen already
-behind it. It never asks the keyguard for anything. Once tapped it stays out of the way until the
-next time the phone sleeps.
-
-### What you need
-
-Just a screen lock set — it refuses to draw with no PIN, because "press the power button" over
-nothing would be a lie. Notifications still want the listener grant:
-
-```
-adb shell cmd notification allow_listener com.gios.lightcontrol/.lock.LockNotifications
-```
-
-The `SYSTEM_ALERT_WINDOW` line is no longer needed for the lock face. Keep it — the brightness
-readout and volume HUD still use it.
+Nothing about how it works changed: still a window at `TYPE_ACCESSIBILITY_OVERLAY`, still never
+occluding the keyguard, still your thumb on the power button.

@@ -9,7 +9,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
-import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -82,6 +81,9 @@ import kotlin.math.abs
 class LockOverlay(private val context: Context) {
 
     private val handler = Handler(Looper.getMainLooper())
+
+    /** LightOS's own type scale and grid. Never a hardcoded sp or dp on this screen. */
+    private val type = LightType(context)
 
     private var root: FrameLayout? = null
     private var clock: TextView? = null
@@ -159,10 +161,6 @@ class LockOverlay(private val context: Context) {
     // ------------------------------------------------------------------------ the view
 
     private fun build(prefs: Prefs): FrameLayout? = runCatching {
-        val d = context.resources.displayMetrics.density
-        fun dp(v: Int) = (v * d).toInt()
-        val face = typeface()
-
         val frame = FrameLayout(context).apply {
             background = ColorDrawable(Color.BLACK)
         }
@@ -171,7 +169,9 @@ class LockOverlay(private val context: Context) {
 
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(28))
+            // One grid unit in from each side, three units of top bar, four of bottom — the SDK's
+            // own figures, so this screen lines up with every Light tool on the phone.
+            setPadding(type.gridPx(1f), type.gridPx(1.5f), type.gridPx(1f), type.gridPx(3f))
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -180,11 +180,12 @@ class LockOverlay(private val context: Context) {
 
         // Top bar: network on the left, next alarm and battery on the right.
         val bar = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        val net = label(face, dp(0)).apply {
+        // Top-bar text is `fine` in the SDK.
+        val net = barLabel().apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val alarmView = label(face, dp(0))
-        val battery = label(face, dp(0)).apply { setPadding(dp(12), 0, 0, 0) }
+        val alarmView = barLabel()
+        val battery = barLabel().apply { setPadding(type.gridPx(0.7f), 0, 0, 0) }
         bar.addView(net)
         bar.addView(alarmView)
         bar.addView(battery)
@@ -198,34 +199,39 @@ class LockOverlay(private val context: Context) {
             )
         }
         val time = TextView(context).apply {
-            typeface = face
+            typeface = type.light
             setTextColor(Color.WHITE)
-            textSize = 68f
+            textSize = type.title
             gravity = Gravity.CENTER
+            includeFontPadding = false
         }
-        val day = label(face, dp(0)).apply { gravity = Gravity.CENTER }
+        val day = barLabel().apply { gravity = Gravity.CENTER }
         val noteList = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(26), 0, 0)
+            setPadding(0, type.gridPx(2f), 0, 0)
         }
         middle.addView(time)
         middle.addView(day)
         middle.addView(noteList)
         column.addView(middle)
 
+        // `button` with the SDK's 15% tracking — LightOS's own call-to-action type.
         val hint = TextView(context).apply {
-            typeface = face
+            typeface = type.medium
             setTextColor(Color.WHITE)
-            textSize = 15f
-            letterSpacing = 0.15f
+            textSize = type.button
+            letterSpacing = type.buttonTracking
             gravity = Gravity.CENTER
             // The true instruction on this phone, and the reason the whole thing was rebuilt as a
             // window: the sensor really is live behind this.
             text = "PRESS THE POWER BUTTON"
         }
-        val hintSub = label(face, 0).apply {
+        val hintSub = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(DIM)
+            textSize = type.detail
             gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, 0)
+            setPadding(0, type.gridPx(0.5f), 0, 0)
             text = "or tap to reach the keypad"
         }
         column.addView(hint)
@@ -241,7 +247,7 @@ class LockOverlay(private val context: Context) {
                 MotionEvent.ACTION_DOWN -> downY = event.rawY
                 MotionEvent.ACTION_UP -> {
                     val travelled = abs(event.rawY - downY)
-                    if (travelled < dp(24) || event.rawY < downY) {
+                    if (travelled < type.gridPx(2f) || event.rawY < downY) {
                         dismissedByTouch = true
                         hide()
                     }
@@ -259,23 +265,15 @@ class LockOverlay(private val context: Context) {
         frame
     }.getOrNull()
 
-    private fun label(face: Typeface?, pad: Int) = TextView(context).apply {
-        typeface = face
+    /** `fine`, which is what the SDK sets top-bar text in. */
+    private fun barLabel(pad: Int = 0) = TextView(context).apply {
+        typeface = type.medium
         setTextColor(DIM)
-        textSize = 11f
-        letterSpacing = 0.12f
+        textSize = type.fine
+        letterSpacing = type.subheadingTracking
         maxLines = 1
         setPadding(0, pad, 0, 0)
     }
-
-    /** LightOS ships Akkurat; matching it is what stops this looking like a different phone. */
-    private fun typeface(): Typeface? = runCatching {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@runCatching null
-        android.graphics.fonts.SystemFonts.getAvailableFonts()
-            .firstOrNull { it.file?.name?.startsWith("Akkurat", ignoreCase = true) == true }
-            ?.file
-            ?.let { Typeface.createFromFile(it) }
-    }.getOrNull()
 
     /**
      * The chosen picture, desaturated and dimmed.
@@ -353,22 +351,32 @@ class LockOverlay(private val context: Context) {
     private fun fillNotes() {
         val list = notes ?: return
         list.removeAllViews()
-        val face = typeface()
-        val d = context.resources.displayMetrics.density
         val current = LockNotes.notes.value
+        val pad = type.gridPx(0.55f)
+        // The SDK's list row is `copy` over `detail`; the app name above it is the small tracked
+        // label the rest of the phone uses for a section.
         current.take(MAX_NOTES).forEach { note ->
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, (7 * d).toInt(), 0, (7 * d).toInt())
+                setPadding(0, pad, 0, pad)
             }
-            row.addView(label(face, 0).apply { text = note.app.uppercase() })
+            row.addView(
+                TextView(context).apply {
+                    typeface = type.medium
+                    setTextColor(DIM)
+                    textSize = type.superfine
+                    letterSpacing = type.buttonTracking
+                    maxLines = 1
+                    text = note.app.uppercase()
+                },
+            )
             val headline = note.title.ifBlank { note.text }
             if (headline.isNotBlank()) {
                 row.addView(
                     TextView(context).apply {
-                        typeface = face
+                        typeface = type.regular
                         setTextColor(Color.WHITE)
-                        textSize = 16f
+                        textSize = type.copy
                         maxLines = 1
                         text = headline
                     },
@@ -379,9 +387,9 @@ class LockOverlay(private val context: Context) {
             if (note.title.isNotBlank() && note.text.isNotBlank()) {
                 row.addView(
                     TextView(context).apply {
-                        typeface = face
+                        typeface = type.regular
                         setTextColor(DIM)
-                        textSize = 13f
+                        textSize = type.detail
                         maxLines = 2
                         text = note.text
                     },
@@ -390,9 +398,7 @@ class LockOverlay(private val context: Context) {
             list.addView(row)
         }
         if (current.size > MAX_NOTES) {
-            list.addView(label(face, (8 * d).toInt()).apply {
-                text = "+${current.size - MAX_NOTES} MORE"
-            })
+            list.addView(barLabel(pad).apply { text = "+${current.size - MAX_NOTES} MORE" })
         }
         list.visibility = if (current.isEmpty()) View.GONE else View.VISIBLE
     }
@@ -433,7 +439,8 @@ class LockOverlay(private val context: Context) {
     }.getOrNull()
 
     private companion object {
-        val DIM = Color.rgb(0x9A, 0x9A, 0x9A)
+        /** The SDK's `contentSecondary`. Three colours in LightOS, and this is the third. */
+        val DIM = Color.rgb(0xBB, 0xBB, 0xBB)
         const val MAX_NOTES = 4
         const val BATTERY_TAG = "lock_battery"
     }
