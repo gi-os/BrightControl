@@ -142,6 +142,9 @@ class ControlService : AccessibilityService() {
     /** The Light face over the lock screen. A window this service owns, not an activity. */
     private lateinit var lockFace: LockOverlay
 
+    /** What the face is being held up over, while an unlock's launch lands. See [onUserPresent]. */
+    private var coverTarget: String? = null
+
     /** Held only so it can be unregistered. See [onUnbind]. */
     private var keyguardListener: KeyguardManager.KeyguardLockedStateListener? = null
 
@@ -228,6 +231,8 @@ class ControlService : AccessibilityService() {
             previous = foreground
             foreground = pkg
             foregroundAt = SystemClock.uptimeMillis()
+            // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
+            if (pkg == coverTarget) dropCover()
         }
         // The offer to go back only stands while you are still sitting on LightOS's lock screen
         // or dashboard, which is where a wake leaves you. Reach any other app under your own
@@ -266,6 +271,8 @@ class ControlService : AccessibilityService() {
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
         handler.removeCallbacks(lockWatch)
+        handler.removeCallbacks(coverTimeout)
+        coverTarget = null
         log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
         // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
         // face that raised its own window first would be reading the value it had just changed.
@@ -303,13 +310,46 @@ class ControlService : AccessibilityService() {
      * loop: an activity start aimed at a task that is still tearing down is the one shape of this
      * that reliably lands behind the wrong window.
      */
+    /**
+     * The phone is open. Launch first, and keep the face up until the app is actually in front.
+     *
+     * The order is the fix for the flash of LightOS on every unlock. Taking the face down first
+     * uncovers whatever the *system* put in front, which on this phone is LightOS — it holds the
+     * HOME role and comes forward the instant the keyguard goes — and our launch then arrives over
+     * the top of it a beat later. Two screens for one unlock.
+     *
+     * The face is a window at layer 31, so it is already above everything the handover involves.
+     * Leaving it there costs nothing and hides the whole transition: what the user sees is the lock
+     * face, then the app. It comes down when the target reports itself in front (see
+     * [onAccessibilityEvent]) or when [LOCK_COVER_MAX_MS] runs out, whichever is first — a cover
+     * with no deadline is the same bug as a face that will not go.
+     */
     private fun onUserPresent() {
         val wasUp = lockFace.showing || lockFace.dismissed()
         handler.removeCallbacks(lockWatch)
-        val gone = runCatching { lockFace.hide() }.getOrDefault(false)
-        log(if (gone) "unlocked · face down" else "unlocked · face WOULD NOT GO")
         if (!wasUp) return
-        handler.postDelayed({ runCatching { resumeFromLock() } }, LOCK_HANDOFF_MS)
+        val target = runCatching { resumeFromLock() }.getOrNull()
+        // Nothing was launched, or the face was already gone: no transition left to cover.
+        if (target == null || !lockFace.showing) {
+            dropCover()
+            return
+        }
+        coverTarget = target
+        handler.removeCallbacks(coverTimeout)
+        handler.postDelayed(coverTimeout, LOCK_COVER_MAX_MS)
+    }
+
+    /** Take the cover down and stop waiting for anything to appear under it. */
+    private fun dropCover() {
+        coverTarget = null
+        handler.removeCallbacks(coverTimeout)
+        val gone = runCatching { lockFace.hide() }.getOrDefault(false)
+        if (!gone) log("unlocked · face WOULD NOT GO")
+    }
+
+    private val coverTimeout = Runnable {
+        log("cover timed out")
+        dropCover()
     }
 
     /**
@@ -857,6 +897,8 @@ class ControlService : AccessibilityService() {
         runCatching { unregisterReceiver(screenOff) }
         Lock.pending = null
         handler.removeCallbacks(lockWatch)
+        handler.removeCallbacks(coverTimeout)
+        coverTarget = null
         runCatching { lockFace.hide() }
         keyguardListener?.let { listener ->
             keyguardListener = null
@@ -1229,30 +1271,37 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * The unlock landed. Go wherever the home button's Resume would have gone.
+     * The unlock landed. Go where the home button's Resume would have gone, and say which app.
      *
-     * Reusing [resume] rather than writing a second rule is the point, not a shortcut. The list of
-     * apps, the fallback, the spend-on-use that makes a second press mean home — all of it already
-     * exists and is already the behaviour the user configured for the home button, so an unlock
-     * that went somewhere else would be a second thing to learn and a second thing to get wrong.
-     * Unlocking is just the earliest possible press of it.
+     * Its own decision rather than a call into [resume], because the caller needs to know *which*
+     * package it aimed at: the face is held up until that one is in front, and "something was
+     * launched" is not enough to know when to put it down. The rule is the same one — the list
+     * first, the fallback second, the snapshot spent on use — so an unlock and a home press still
+     * land in the same place.
      */
-    private fun resumeFromLock() {
+    private fun resumeFromLock(): String? {
         val was = Lock.pending
         Lock.pending = null
-        if (!prefs.enabled || !prefs.lockScreen) return
-        // Logged either way. "Unlocking didn't open anything" is a report with four possible
-        // causes — no snapshot, the app not on the list, the fallback still pointing at home, or a
-        // launch that failed — and from the phone they are indistinguishable without this line.
-        val listed = was != null && was in prefs.resumeApps()
-        val ok = resume()
+        if (!prefs.enabled || !prefs.lockScreen) return null
+
+        val resumable = was?.takeIf { it in prefs.resumeApps() && it != foreground }
+        val fallback = prefs.resumeFallback as? Action.Launch
+        val target = resumable ?: fallback?.pkg
+
+        if (resumable != null) slept = null
+
+        // Logged either way. "Unlocking didn't open anything" has four possible causes — no
+        // snapshot, the app not on the list, the fallback still pointing at plain home, or a launch
+        // that failed — and from the phone they are indistinguishable without this line.
+        val ok = if (target != null) launch(target) else goHome()
         log(
             "unlock → " + when {
-                listed -> was?.substringAfterLast('.').orEmpty()
-                was != null -> "not on the list · fallback"
-                else -> "nothing slept · fallback"
+                resumable != null -> resumable.substringAfterLast('.')
+                target != null -> target.substringAfterLast('.') + " · fallback"
+                else -> "home · fallback"
             } + if (ok) "" else " · FAILED",
         )
+        return if (ok) target else null
     }
 
     private fun resume(): Boolean {
@@ -1432,11 +1481,24 @@ class ControlService : AccessibilityService() {
         /** Throttle keys for the destinations that aren't named by package. See [start]. */
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
-        /** Gap between taking the face down and launching, so the window is gone first. */
-        const val LOCK_HANDOFF_MS = 120L
+        /**
+         * How often to ask the keyguard whether the phone is open. See [lockWatch].
+         *
+         * Tight, because this interval is now the delay between the thumb landing and the app
+         * starting. It only ever runs while the screen is on and the phone is still locked, which
+         * is a couple of seconds a day.
+         */
+        const val LOCK_WATCH_MS = 120L
 
-        /** How often to ask the keyguard whether the phone is open. See [lockWatch]. */
-        const val LOCK_WATCH_MS = 300L
+        /**
+         * The longest the face is held up over an unlock's launch.
+         *
+         * A ceiling rather than a timing: the cover normally comes down the moment the target
+         * reports itself in front. This is what stops a launch that never arrives — an app that
+         * was uninstalled between sleeping and waking, say — from leaving the face on an open
+         * phone, which is the failure this whole feature keeps having to be defended against.
+         */
+        const val LOCK_COVER_MAX_MS = 2_000L
 
         /** Failed lock-face starts in a row before the face disarms itself. */
         const val MAX_LOCK_MISSES = 3

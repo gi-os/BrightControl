@@ -375,15 +375,39 @@ class Prefs(context: Context) {
     }
 
     /**
-     * The picture behind the clock, as a persisted document URI, or null for plain black.
+     * The background recipe as JSON — scale mode, crop offsets and the filter stack — or null for
+     * plain black. The photo itself is a file; see [com.gios.lightcontrol.lock.LockBackground].
      *
-     * A URI rather than a copy of the file. Copying would survive the user deleting the original,
-     * which sounds like a feature until it means this app is holding a photograph the user thinks
-     * they deleted.
+     * A recipe rather than a rendered image. The whole point of the editor is that the same photo
+     * dithered at 8× and dithered at 1× are different backgrounds, and keeping the instructions
+     * means the result can be re-rendered when the screen, the panel or the pipeline changes.
      */
-    var lockImage: String?
-        get() = sp.getString("lock_image", null)
-        set(v) = sp.edit().putString("lock_image", v).apply()
+    var lockBackground: String?
+        get() = sp.getString("lock_bg", null)
+        set(v) = sp.edit().putString("lock_bg", v).apply()
+
+    /**
+     * When the background last changed.
+     *
+     * The lock face keeps one rendered bitmap and re-renders only when this moves. Rendering is
+     * three passes over a million pixels; doing it on every sleep for a picture nobody has touched
+     * was measurable, and doing it never would mean an edit that does not show up until reboot.
+     */
+    var lockBackgroundStamp: Long
+        get() = sp.getLong("lock_bg_stamp", 0L)
+        set(v) = sp.edit().putLong("lock_bg_stamp", v).apply()
+
+    /**
+     * Whether the face explains itself at the bottom.
+     *
+     * Off, because the explanation is for the first week. "Press the power button" is worth saying
+     * once to someone who has just watched two versions of this fail to read their thumb; after
+     * that it is two lines of furniture on a screen whose whole argument is that there is nothing
+     * on it.
+     */
+    var lockPrompt: Boolean
+        get() = sp.getBoolean("lock_prompt", false)
+        set(v) = sp.edit().putBoolean("lock_prompt", v).apply()
 
     /** Whether the face lists what is in the shade. Needs the notification listener grant. */
     var lockNotes: Boolean

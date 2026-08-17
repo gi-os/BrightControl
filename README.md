@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.10.** See [Version history](#version-history).
+**Current version: v2.11.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -418,6 +418,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.11 | **BrightChat's background editor, on the lock screen.** Pick a photo, choose how it meets the panel, then stack filters on it — ordered Bayer dither to halftone at a chosen cell size, black & white, opacity, corner blur, corner fade — reorderable and repeatable, with a live preview at the panel's own aspect and drag-to-frame the crop. The same pipeline as the chat wallpapers, unchanged. Also: **the flash of LightOS before your app is gone** — the face is now held up *over* the handover and comes down when the target reports itself in front, because taking it down first uncovers whatever the system put there and LightOS holds the HOME role. Plus a **12-hour clock**, and the two prompt lines are now a toggle, off by default |
 | v2.10 | **Two defects in v2.9's unlock watch, one of which ran all night.** The 300 ms poll was tied to the *face being up* rather than to the screen being on, so it ticked three times a second for every hour the phone spent asleep, in a process the system is not allowed to freeze — the exact shape that has taken this phone down before. It now starts on screen-on and stops on screen-off, which is the few seconds it was ever meant to cover. And the keyguard locked-state listener was registered and never removed, so every service rebind left another one calling into an unbound instance. Also: the lock picture is decoded once and kept rather than re-decoded on every sleep |
 | v2.9 | **The face comes down on unlock, and unlocking opens something.** Both were the same bug: neither `ACTION_USER_PRESENT` nor the keyguard's locked-state listener was arriving, so nothing noticed the phone had opened and the resume never ran either. There is now a third signal that cannot be missed — a 300 ms poll of `isDeviceLocked` while the face is up, which is the state rather than a notification about it — and `hide()` no longer drops its handle on the window before the removal has succeeded. **Resume apps and Otherwise open moved into the LOCK SCREEN section**, where they were previously unreachable unless the *home button* happened to be bound to Resume: point Otherwise open at Luma and that is where an unlock lands. Plus: signal bars replace the carrier name, a smaller top bar and prompt, and the date written as "Sunday, August 16" |
 | v2.8 | The lock face now uses **LightOS's own type scale and grid**, ported from `light-sdk` — Akkurat resolved by weight off the system font list, named sizes (`title` for the clock, `button` with 15% tracking for the prompt, `copy` over `detail` for notifications) scaled by screen height the way the SDK does it, spacing in 27-wide grid units, and `contentSecondary` as its actual `#BBBBBB`. No hardcoded sp or dp anywhere on the screen |

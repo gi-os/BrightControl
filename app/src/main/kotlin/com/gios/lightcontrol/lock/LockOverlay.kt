@@ -5,14 +5,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
 import android.net.wifi.WifiManager
 import android.content.pm.PackageManager
 import android.os.BatteryManager
@@ -104,8 +100,8 @@ class LockOverlay(private val context: Context) {
      * few megabytes of allocation several dozen times a day for a picture that has not changed.
      * Keyed on the URI so choosing a new one still takes effect.
      */
-    private var cachedWallpaper: android.graphics.Bitmap? = null
-    private var cachedWallpaperUri: String? = null
+    private var cached: android.graphics.Bitmap? = null
+    private var cachedStamp: Long = -1L
 
     val showing: Boolean get() = root != null
 
@@ -274,8 +270,10 @@ class LockOverlay(private val context: Context) {
             setPadding(0, type.gridPx(0.35f), 0, 0)
             text = "or tap for the keypad"
         }
-        column.addView(hint)
-        column.addView(hintSub)
+        if (prefs.lockPrompt) {
+            column.addView(hint)
+            column.addView(hintSub)
+        }
 
         frame.addView(column)
 
@@ -316,50 +314,34 @@ class LockOverlay(private val context: Context) {
     }
 
     /**
-     * The chosen picture, desaturated and dimmed.
+     * The finished background, rendered through the editor's filter stack.
      *
-     * Downsampled in two passes: a phone photo is 12 megapixels against a panel under one, and
-     * decoding at full size to draw it scaled is tens of megabytes for pixels nobody sees. An
-     * OutOfMemory on the lock screen is the worst possible place for one.
+     * No colour matrix and no fixed alpha any more. v2.5 desaturated the photo and dropped it to
+     * 55% because that is the one setting that works for every picture and is right for none;
+     * what replaced it is [LockBackground], where the recipe is the user's — dither it to halftone,
+     * fade the corners into the black, or leave it alone.
+     *
+     * Rendered once and kept, keyed on [Prefs.lockBackgroundStamp]. Three passes over a million
+     * pixels on every sleep for an image nobody has touched is real work; doing it never would mean
+     * an edit that does not appear until reboot.
      */
     private fun wallpaper(prefs: Prefs): ImageView? {
-        val raw = prefs.lockImage?.takeIf { it.isNotBlank() } ?: return null
-        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        val stamp = prefs.lockBackgroundStamp
+        cached?.takeIf { cachedStamp == stamp && !it.isRecycled }?.let { return imageView(it) }
+
         val metrics = context.resources.displayMetrics
-
-        cachedWallpaper?.takeIf { cachedWallpaperUri == raw && !it.isRecycled }?.let {
-            return imageView(it)
-        }
-
-        return runCatching {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, bounds)
-            }
-            if (bounds.outWidth <= 0) return null
-            var sample = 1
-            while (bounds.outWidth / sample > metrics.widthPixels * 2) sample *= 2
-            val bitmap = context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
-                    inSampleSize = sample
-                })
-            } ?: return null
-            cachedWallpaper = bitmap
-            cachedWallpaperUri = raw
-
-            imageView(bitmap)
-        }.getOrNull()
+        val aspect = metrics.widthPixels.toFloat() / metrics.heightPixels
+        val bitmap = LockBackground.render(context, prefs, aspect, metrics.widthPixels)
+            ?: return null
+        cached = bitmap
+        cachedStamp = stamp
+        return imageView(bitmap)
     }
 
     private fun imageView(bitmap: android.graphics.Bitmap): ImageView =
         ImageView(context).apply {
             setImageBitmap(bitmap)
             scaleType = ImageView.ScaleType.CENTER_CROP
-                // The panel is greyscale and matte, so colour arrives as mid-greys whatever we do.
-                // Converting deliberately means choosing which greys; the alpha keeps a bright
-                // photograph from swallowing the clock.
-            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-            imageAlpha = 110
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -396,7 +378,7 @@ class LockOverlay(private val context: Context) {
     private fun refresh() {
         val frame = root ?: return
         val now = System.currentTimeMillis()
-        clock?.text = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date(now))
+        clock?.text = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
         date?.text = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now))
         bars?.level = signalLevel()
         alarm?.text = nextAlarm()?.let { "ALARM $it" }.orEmpty()
@@ -518,7 +500,7 @@ class LockOverlay(private val context: Context) {
 
     private fun nextAlarm(): String? = runCatching {
         context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
-            ?.let { SimpleDateFormat("H:mm", Locale.getDefault()).format(Date(it.triggerTime)) }
+            ?.let { SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(it.triggerTime)) }
     }.getOrNull()
 
     private companion object {

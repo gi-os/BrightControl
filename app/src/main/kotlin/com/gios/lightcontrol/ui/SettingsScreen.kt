@@ -1,8 +1,5 @@
 package com.gios.lightcontrol.ui
 
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -49,6 +46,7 @@ fun SettingsScreen(
     onHomeTap: () -> Unit,
     onResumeApps: () -> Unit,
     onResumeFallback: () -> Unit,
+    onBackground: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
@@ -73,34 +71,13 @@ fun SettingsScreen(
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
     var lockScreen by remember { mutableStateOf(prefs.lockScreen) }
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
-    var lockImage by remember { mutableStateOf(prefs.lockImage) }
+    var lockPrompt by remember { mutableStateOf(prefs.lockPrompt) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
     val notesGranted = LockNotes.granted(context)
+    val hasBackground = com.gios.lightcontrol.lock.LockBackground.has(context)
     val phoneState = context.checkSelfPermission(
         android.Manifest.permission.READ_PHONE_STATE,
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    // Taking a *persistable* grant is the whole reason this is OpenDocument rather than
-    // GetContent: the plain one hands over a URI that dies with the process, and the face is
-    // composed days later from a service-started activity. A permission that expires would look
-    // exactly like a wallpaper that randomly stops appearing.
-    val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            prefs.lockImage = uri.toString()
-            lockImage = uri.toString()
-        }
-    }
-    var enabled by remember { mutableStateOf(prefs.enabled) }
-    var logKeys by remember { mutableStateOf(prefs.logKeys) }
-    var keyLog by remember { mutableStateOf(prefs.keyLog()) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -315,28 +292,29 @@ fun SettingsScreen(
             }
             if (lockScreen) {
                 MenuRow(
-                    label = "Picture",
-                    detail = if (lockImage == null) "NONE" else "SET",
-                    sub = if (lockImage == null) {
-                        "plain black. Tap to choose one — it is desaturated and dimmed so the " +
-                            "clock stays readable over anything."
+                    label = "Background",
+                    detail = if (hasBackground) "SET" else "NONE",
+                    sub = if (hasBackground) {
+                        "tap to re-edit — the photo, how it meets the panel, and the filter stack"
                     } else {
-                        "tap to change, or press and hold this row's detail to clear it below"
+                        "a photo, dithered or faded to taste. The same editor as BrightChat's " +
+                            "chat wallpapers, and the same filters."
                     },
-                    onClick = { pickImage.launch(arrayOf("image/*")) },
+                    onClick = onBackground,
                 )
-                if (lockImage != null) {
-                    MenuRow(
-                        label = "Clear picture",
-                        detail = "CLEAR",
-                        dim = true,
-                        sub = "back to plain black",
-                        onClick = {
-                            prefs.lockImage = null
-                            lockImage = null
-                        },
-                    )
-                }
+                MenuRow(
+                    label = "Prompt",
+                    detail = if (lockPrompt) "ON" else "OFF",
+                    sub = if (lockPrompt) {
+                        "\"press the power button\" and \"or tap for the keypad\", under the clock"
+                    } else {
+                        "hidden. The clock, the notifications and nothing else."
+                    },
+                    onClick = {
+                        lockPrompt = !lockPrompt
+                        prefs.lockPrompt = lockPrompt
+                    },
+                )
                 // These two used to be reachable only when the *home button* was bound to Resume,
                 // which meant turning on the lock face and then finding no way to say what it
                 // should open. Same settings, same list, shown wherever they apply.

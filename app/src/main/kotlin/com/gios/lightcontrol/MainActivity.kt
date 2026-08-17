@@ -18,6 +18,7 @@ import com.gios.lightcontrol.ui.AppListScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
+import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SettingsScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
@@ -34,6 +35,7 @@ private sealed interface Screen {
     data object Apps : Screen
     data object ResumeApps : Screen
     data object ResumeFallback : Screen
+    data object Background : Screen
     /** [fromSettings] is only so Back returns where the picker was opened from. */
     data class Pick(
         val button: Button,
@@ -85,7 +87,10 @@ class MainActivity : ComponentActivity() {
                             },
                             onResumeApps = { screen = Screen.ResumeApps },
                             onResumeFallback = { screen = Screen.ResumeFallback },
+                            onBackground = { screen = Screen.Background },
                         )
+
+                        Screen.Background -> LockBackgroundScreen(onClose = home)
 
                         Screen.Buttons -> ButtonsScreen(
                             onPick = { button, gesture -> screen = Screen.Pick(button, gesture) },
