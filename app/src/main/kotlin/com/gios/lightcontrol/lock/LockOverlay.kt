@@ -118,6 +118,32 @@ class LockOverlay(private val context: Context) {
     private var tickerOn = false
 
     /**
+     * The panel just lit. Hold the black, then fade the face in.
+     *
+     * The half second of nothing is the entire point, and it is there for the fastest unlock rather
+     * than for the look of it: pressing the power button with the thumb already on the sensor opens
+     * the phone in a couple of hundred milliseconds, and for that whole gesture the correct thing
+     * to show is what a phone that is *about to be open* shows — nothing. Painting a lock screen
+     * and taking it away again a moment later is a flicker the user reads as a fault, even though
+     * everything worked.
+     *
+     * So the content is only worth drawing for someone who did *not* unlock immediately, and this
+     * wait is how it finds out which happened. A thumb that landed first takes the whole window
+     * down before the fade begins, and nothing was ever seen.
+     */
+    fun wake() {
+        val content = face ?: return
+        content.animate().cancel()
+        content.alpha = 0f
+        handler.removeCallbacks(fadeIn)
+        handler.postDelayed(fadeIn, HOLD_DARK_MS)
+    }
+
+    private val fadeIn = Runnable {
+        face?.animate()?.alpha(1f)?.setDuration(FADE_MS)?.start()
+    }
+
+    /**
      * Put the face up.
      *
      * Called as the screen goes off, so all of the work below — including decoding a photograph —
