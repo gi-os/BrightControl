@@ -72,9 +72,10 @@ import kotlin.math.abs
  *
  * ### The one thing it takes
  *
- * Touches, so a tap can get out of the way when you want the keypad. That is all a tap does: hide
- * this window, revealing the real lock screen already behind it. It never asks for the bouncer and
- * never dismisses anything.
+ * Touches, so a **swipe up** can get out of the way when you want the keypad. That is all it does:
+ * hide this window, revealing the real lock screen already behind it. It never asks for the bouncer
+ * and never dismisses anything. A tap is deliberately inert — this covers the whole panel, and a
+ * phone in a pocket presses the whole panel.
  */
 class LockOverlay(private val context: Context) {
 
@@ -82,6 +83,9 @@ class LockOverlay(private val context: Context) {
 
     /** LightOS's own type scale and grid. Never a hardcoded sp or dp on this screen. */
     private val type = LightType(context)
+
+    /** How far up counts as meaning it. Four grid units — a flick, not a graze. */
+    private val swipeThreshold: Int get() = type.gridPx(4f)
 
     private var root: FrameLayout? = null
     private var clock: TextView? = null
@@ -268,7 +272,7 @@ class LockOverlay(private val context: Context) {
             textSize = type.superfine
             gravity = Gravity.CENTER
             setPadding(0, type.gridPx(0.35f), 0, 0)
-            text = "or tap for the keypad"
+            text = "swipe up for the keypad"
         }
         if (prefs.lockPrompt) {
             column.addView(hint)
@@ -277,15 +281,28 @@ class LockOverlay(private val context: Context) {
 
         frame.addView(column)
 
-        // One tap, one job: get out of the way. Nothing here dismisses the keyguard or asks it for
-        // anything — the real lock screen is already behind this window, so hiding is enough.
+        // **A tap does nothing.** This window covers the whole panel, and a phone in a pocket
+        // presses its whole panel — a face that got out of the way on any touch is a face that
+        // spends the day out of the way, and then the picture is a thing you see only when you
+        // meant to see something else. So the gesture has to be one nothing does by accident:
+        // a deliberate upward drag, which is also the gesture the lock screen underneath already
+        // answers to.
         var downY = 0f
+        var downX = 0f
         frame.setOnTouchListener { _, event ->
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> downY = event.rawY
+                MotionEvent.ACTION_DOWN -> {
+                    downY = event.rawY
+                    downX = event.rawX
+                }
                 MotionEvent.ACTION_UP -> {
-                    val travelled = abs(event.rawY - downY)
-                    if (travelled < type.gridPx(2f) || event.rawY < downY) {
+                    val up = downY - event.rawY
+                    val sideways = abs(event.rawX - downX)
+                    // Up, far enough to be meant, and more up than across.
+                    if (up > swipeThreshold && up > sideways) {
+                        // Remembered, so screen-on does not raise it again. Swiping to reach the
+                        // keypad and having the face come straight back would make the keypad
+                        // unreachable, which is the one bug this feature must never have.
                         dismissedByTouch = true
                         hide()
                     }

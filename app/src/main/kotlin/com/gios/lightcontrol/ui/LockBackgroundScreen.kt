@@ -368,6 +368,7 @@ private fun Verb(glyph: String, enabled: Boolean, onClick: () -> Unit) {
  * One tap chooses. There is no confirm step because there is nothing to protect: the tap only moves
  * to the editor, and nothing is written until its Save.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PhotoGrid(onPick: (File) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
