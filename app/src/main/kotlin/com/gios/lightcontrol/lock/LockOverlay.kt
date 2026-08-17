@@ -97,6 +97,16 @@ class LockOverlay(private val context: Context) {
     /** Hidden by a tap, and left hidden until the next sleep. */
     private var dismissedByTouch = false
 
+    /**
+     * The decoded picture, kept between lock cycles.
+     *
+     * The face is rebuilt every time the phone sleeps, and decoding a photograph every time is a
+     * few megabytes of allocation several dozen times a day for a picture that has not changed.
+     * Keyed on the URI so choosing a new one still takes effect.
+     */
+    private var cachedWallpaper: android.graphics.Bitmap? = null
+    private var cachedWallpaperUri: String? = null
+
     val showing: Boolean get() = root != null
 
     private val ticker = object : BroadcastReceiver() {
@@ -139,7 +149,7 @@ class LockOverlay(private val context: Context) {
             .onSuccess {
                 root = view
                 startTicking()
-                refresh()
+                runCatching { refresh() }
             }
     }
 
@@ -316,6 +326,11 @@ class LockOverlay(private val context: Context) {
         val raw = prefs.lockImage?.takeIf { it.isNotBlank() } ?: return null
         val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
         val metrics = context.resources.displayMetrics
+
+        cachedWallpaper?.takeIf { cachedWallpaperUri == raw && !it.isRecycled }?.let {
+            return imageView(it)
+        }
+
         return runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use {
@@ -329,22 +344,27 @@ class LockOverlay(private val context: Context) {
                     inSampleSize = sample
                 })
             } ?: return null
+            cachedWallpaper = bitmap
+            cachedWallpaperUri = raw
 
-            ImageView(context).apply {
-                setImageBitmap(bitmap)
-                scaleType = ImageView.ScaleType.CENTER_CROP
+            imageView(bitmap)
+        }.getOrNull()
+    }
+
+    private fun imageView(bitmap: android.graphics.Bitmap): ImageView =
+        ImageView(context).apply {
+            setImageBitmap(bitmap)
+            scaleType = ImageView.ScaleType.CENTER_CROP
                 // The panel is greyscale and matte, so colour arrives as mid-greys whatever we do.
                 // Converting deliberately means choosing which greys; the alpha keeps a bright
                 // photograph from swallowing the clock.
-                colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-                imageAlpha = 110
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                )
-            }
-        }.getOrNull()
-    }
+            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+            imageAlpha = 110
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        }
 
     // ------------------------------------------------------------------------ contents
 
@@ -355,7 +375,14 @@ class LockOverlay(private val context: Context) {
                 addAction(Intent.ACTION_TIME_TICK)
                 addAction(Intent.ACTION_BATTERY_CHANGED)
             }
-            context.registerReceiver(ticker, filter)
+            // Both actions are protected system broadcasts, so the export flag is not strictly
+            // required — passed anyway, because "not exported" is the true answer and the default
+            // has changed once already.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(ticker, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                context.registerReceiver(ticker, filter)
+            }
             tickerOn = true
         }
     }
@@ -379,6 +406,8 @@ class LockOverlay(private val context: Context) {
 
     private fun fillNotes() {
         val list = notes ?: return
+        // Wrapped by every caller, but named here too: this runs on a broadcast, on the main
+        // thread, behind the lock screen. A throw here is the phone appearing to freeze.
         list.removeAllViews()
         val current = LockNotes.notes.value
         val pad = type.gridPx(0.55f)

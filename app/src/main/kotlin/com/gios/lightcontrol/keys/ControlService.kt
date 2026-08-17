@@ -142,6 +142,9 @@ class ControlService : AccessibilityService() {
     /** The Light face over the lock screen. A window this service owns, not an activity. */
     private lateinit var lockFace: LockOverlay
 
+    /** Held only so it can be unregistered. See [onUnbind]. */
+    private var keyguardListener: KeyguardManager.KeyguardLockedStateListener? = null
+
     /**
      * Which packages are cameras, memoised. Answering means a `PackageManager` query, and the
      * question is asked on the key event — so it is asked once per app and then remembered.
@@ -180,10 +183,17 @@ class ControlService : AccessibilityService() {
         // unlock is the worst failure this app can produce.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             runCatching {
+                val listener = KeyguardManager.KeyguardLockedStateListener { locked ->
+                    if (!locked) runCatching { onUserPresent() }
+                }
                 getSystemService(KeyguardManager::class.java)
-                    ?.addKeyguardLockedStateListener(mainExecutor) { locked ->
-                        if (!locked) runCatching { onUserPresent() }
-                    }
+                    ?.addKeyguardLockedStateListener(mainExecutor, listener)
+                // Held so it can be handed back on unbind. A listener registered and never removed
+                // survives the service that registered it: the system keeps calling into an
+                // instance that has been unbound, and every rebind adds another one. Three
+                // rebinds — a settings change, an update, toggling the service — and an unlock is
+                // calling `onUserPresent` on four dead objects.
+                keyguardListener = listener
             }
         }
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
@@ -255,6 +265,7 @@ class ControlService : AccessibilityService() {
         }
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
+        handler.removeCallbacks(lockWatch)
         log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
         // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
         // face that raised its own window first would be reading the value it had just changed.
@@ -278,8 +289,10 @@ class ControlService : AccessibilityService() {
         if (!prefs.lockScreen) return
         // Not if a tap put it away. Re-raising a face the user just dismissed to reach the keypad
         // would make the keypad unreachable, which is the one bug this feature must never have.
-        if (lockFace.dismissed()) return
-        showLockFace()
+        if (!lockFace.dismissed()) showLockFace()
+        // The watch belongs to the screen being on, not to the face being up. See [lockWatch].
+        handler.removeCallbacks(lockWatch)
+        if (lockFace.showing) handler.postDelayed(lockWatch, LOCK_WATCH_MS)
     }
 
     /**
@@ -303,15 +316,21 @@ class ControlService : AccessibilityService() {
      * Ask, three times a second, whether the phone has been opened.
      *
      * Inelegant and deliberate. Two signals should already have answered — `ACTION_USER_PRESENT`
-     * and the keyguard's own locked-state listener — and between v2.5 and v2.8 the face has now
-     * twice been left on screen over an unlocked phone because the one signal in play did not
-     * arrive. `KeyguardManager.isDeviceLocked` is not a notification that can be missed; it is the
-     * state itself. It costs one binder call per tick, only while the face is up, and it stops the
-     * moment anything takes the face down.
+     * and the keyguard's own locked-state listener — and the face has twice now been left on
+     * screen over an unlocked phone because the one signal in play did not arrive.
+     * `KeyguardManager.isDeviceLocked` is not a notification that can be missed; it is the state
+     * itself.
+     *
+     * **Only while the screen is on**, which is the whole reason this is safe. Started from
+     * `ACTION_SCREEN_ON` and stopped by `ACTION_SCREEN_OFF`, so it runs for the few seconds
+     * between picking the phone up and opening it — never for the eight hours it spends on a
+     * bedside table. Tying it to the face being up instead, as it first was, meant a handler loop
+     * ticking three times a second all night in a process the system is not allowed to freeze.
+     * That is the shape of bug that has taken this phone down before; see LightGlance.
      */
     private val lockWatch = object : Runnable {
         override fun run() {
-            if (!lockFace.showing) return
+            if (!lockFace.showing || !interactive()) return
             val km = runCatching { getSystemService(KeyguardManager::class.java) }.getOrNull()
             if (km != null && !km.isDeviceLocked) {
                 onUserPresent()
@@ -320,6 +339,10 @@ class ControlService : AccessibilityService() {
             handler.postDelayed(this, LOCK_WATCH_MS)
         }
     }
+
+    private fun interactive(): Boolean = runCatching {
+        getSystemService(PowerManager::class.java)?.isInteractive == true
+    }.getOrDefault(false)
 
     /**
      * Screen off, screen on, and the unlock.
@@ -835,6 +858,15 @@ class ControlService : AccessibilityService() {
         Lock.pending = null
         handler.removeCallbacks(lockWatch)
         runCatching { lockFace.hide() }
+        keyguardListener?.let { listener ->
+            keyguardListener = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                runCatching {
+                    getSystemService(KeyguardManager::class.java)
+                        ?.removeKeyguardLockedStateListener(listener)
+                }
+            }
+        }
         slept = null
         visitingLightOs = false
         visitTapAt = 0L
@@ -1186,8 +1218,6 @@ class ControlService : AccessibilityService() {
         if (!before && lockFace.showing) {
             lockMisses = 0
             log("lock face up")
-            handler.removeCallbacks(lockWatch)
-            handler.postDelayed(lockWatch, LOCK_WATCH_MS)
         } else if (!lockFace.showing) {
             lockMisses++
             log("lock face failed · $lockMisses")

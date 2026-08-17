@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.9.** See [Version history](#version-history).
+**Current version: v2.10.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -418,6 +418,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.10 | **Two defects in v2.9's unlock watch, one of which ran all night.** The 300 ms poll was tied to the *face being up* rather than to the screen being on, so it ticked three times a second for every hour the phone spent asleep, in a process the system is not allowed to freeze — the exact shape that has taken this phone down before. It now starts on screen-on and stops on screen-off, which is the few seconds it was ever meant to cover. And the keyguard locked-state listener was registered and never removed, so every service rebind left another one calling into an unbound instance. Also: the lock picture is decoded once and kept rather than re-decoded on every sleep |
 | v2.9 | **The face comes down on unlock, and unlocking opens something.** Both were the same bug: neither `ACTION_USER_PRESENT` nor the keyguard's locked-state listener was arriving, so nothing noticed the phone had opened and the resume never ran either. There is now a third signal that cannot be missed — a 300 ms poll of `isDeviceLocked` while the face is up, which is the state rather than a notification about it — and `hide()` no longer drops its handle on the window before the removal has succeeded. **Resume apps and Otherwise open moved into the LOCK SCREEN section**, where they were previously unreachable unless the *home button* happened to be bound to Resume: point Otherwise open at Luma and that is where an unlock lands. Plus: signal bars replace the carrier name, a smaller top bar and prompt, and the date written as "Sunday, August 16" |
 | v2.8 | The lock face now uses **LightOS's own type scale and grid**, ported from `light-sdk` — Akkurat resolved by weight off the system font list, named sizes (`title` for the clock, `button` with 15% tracking for the prompt, `copy` over `detail` for notifications) scaled by screen height the way the SDK does it, spacing in 27-wide grid units, and `contentSecondary` as its actual `#BBBBBB`. No hardcoded sp or dp anywhere on the screen |
 | v2.7 | **The thumb works.** The lock face stopped being an activity. `showWhenLocked` marks the keyguard *occluded*, and AOSP arms its fingerprint listener while occluded only for under-display sensors — the LPIII's is in the power button, so v2.5 and v2.6 switched the sensor off by existing. The face is now a window the accessibility service owns at `TYPE_ACCESSIBILITY_OVERLAY`, **layer 31, above the keyguard's 17**, so the keyguard is never occluded: it is showing, visible and listening exactly as it always is, and the power button unlocks the phone untouched. Tap the face to put it away and reach the keypad. Falls out for free: no flash and no 900 ms delay to tune, no overlay appop, and nothing that can hold focus or trap you |
