@@ -78,6 +78,9 @@ fun SettingsScreen(
     val phoneState = context.checkSelfPermission(
         android.Manifest.permission.READ_PHONE_STATE,
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    var enabled by remember { mutableStateOf(prefs.enabled) }
+    var logKeys by remember { mutableStateOf(prefs.logKeys) }
+    var keyLog by remember { mutableStateOf(prefs.keyLog()) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
