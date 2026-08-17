@@ -297,6 +297,8 @@ class ControlService : AccessibilityService() {
         // Not if a tap put it away. Re-raising a face the user just dismissed to reach the keypad
         // would make the keypad unreachable, which is the one bug this feature must never have.
         if (!lockFace.dismissed()) showLockFace()
+        // Start dark and fade up, so the fastest unlock never sees a lock screen at all.
+        if (lockFace.showing) runCatching { lockFace.wake() }
         // The watch belongs to the screen being on, not to the face being up. See [lockWatch].
         handler.removeCallbacks(lockWatch)
         if (lockFace.showing) handler.postDelayed(lockWatch, LOCK_WATCH_MS)

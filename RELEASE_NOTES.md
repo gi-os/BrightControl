@@ -1,23 +1,17 @@
-## BrightControl v2.12 — BrightChat's photo grid
+## BrightControl v2.13 — Black first, then the face
 
-v2.11 picked the background photo through the system document picker. That was wrong for this
-phone, and wrong for a reason worth stating plainly: **the picker reads MediaStore, and nothing on
-LightOS keeps MediaStore current.** There is no media provider doing the scanning a normal Android
-build does, so a photo taken minutes ago is simply not offered. Using SAF instead of the photo
-picker changed the door, not the room behind it.
+Pressing the power button with your thumb already on the sensor opens the phone in a couple of
+hundred milliseconds. For that whole gesture the right thing to show is what a phone that is *about
+to be open* shows: nothing. Painting a lock screen and taking it away again a moment later is a
+flicker the eye reads as a fault, even though everything worked.
 
-The editor now uses the grid BrightChat wrote for the same problem: a walk of DCIM and Pictures,
-newest first, three across, one tap to choose. A directory listing cannot go stale — a photo is
-there the moment it is written, which on a phone whose camera app we also wrote is the difference
-between choosing a background and waiting for one to appear.
+So the panel now lights **black and stays black for half a second**. If the phone is still locked
+when that wait is out, the face fades up over 320 ms.
 
-- Thumbnails are decoded EXIF-upright at 256px and cached by **bytes** rather than by count. A
-  count-based cache of quarter-megabyte bitmaps quietly retains tens of megabytes for the life of
-  the process.
-- Screenshots and HEIC are included; `.trashed-*` and `.pending-*`, which are MediaProvider's own
-  bookkeeping and pass an extension filter otherwise, are not.
-- One tap chooses, with no confirm step. There is nothing to protect — the tap only moves to the
-  editor, and nothing is written until its Save.
+The wait is how it finds out which unlock this was. A thumb that landed first takes the whole window
+down before the fade begins, and nothing was ever drawn. Someone who picked the phone up to *look*
+at it waits half a second and then gets the clock — long enough to cover the fast case, short enough
+that it never reads as the phone failing to wake.
 
-It needs `READ_MEDIA_IMAGES`, which is an ordinary runtime prompt and is what makes reading another
-app's image file by path legal. The grid asks for it itself; no adb line.
+The window itself stays opaque black throughout; what fades is the picture and the clock over it, so
+there is no point at which anything underneath shows through.

@@ -88,6 +88,7 @@ class LockOverlay(private val context: Context) {
     private val swipeThreshold: Int get() = type.gridPx(4f)
 
     private var root: FrameLayout? = null
+    private var face: FrameLayout? = null
     private var clock: TextView? = null
     private var date: TextView? = null
     private var bars: SignalBars? = null
@@ -125,6 +126,11 @@ class LockOverlay(private val context: Context) {
     fun show(prefs: Prefs) {
         dismissedByTouch = false
         if (root != null) {
+            // Back to black. The phone is asleep at this point, so nothing is lost, and it means a
+            // window that survived a lock cycle wakes the same way a fresh one does.
+            handler.removeCallbacks(fadeIn)
+            face?.animate()?.cancel()
+            face?.alpha = 0f
             refresh()
             return
         }
@@ -164,12 +170,15 @@ class LockOverlay(private val context: Context) {
      */
     fun hide(): Boolean {
         stopTicking()
+        handler.removeCallbacks(fadeIn)
+        face?.animate()?.cancel()
         val view = root ?: return true
         val wm = context.getSystemService(WindowManager::class.java) ?: return false
         val gone = runCatching { wm.removeView(view); true }
             .getOrElse { runCatching { wm.removeViewImmediate(view); true }.getOrDefault(false) }
         if (!gone) return false
         root = null
+        face = null
         clock = null
         date = null
         bars = null
@@ -188,7 +197,19 @@ class LockOverlay(private val context: Context) {
             background = ColorDrawable(Color.BLACK)
         }
 
-        wallpaper(prefs)?.let { frame.addView(it) }
+        // Everything except the black sits in one layer so it can be faded as a unit. The window
+        // itself stays opaque black throughout — what fades in is the picture and the clock, over
+        // a panel that was already dark.
+        val content = FrameLayout(context).apply {
+            alpha = 0f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        }
+        frame.addView(content)
+
+        wallpaper(prefs)?.let { content.addView(it) }
 
         val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -279,7 +300,7 @@ class LockOverlay(private val context: Context) {
             column.addView(hintSub)
         }
 
-        frame.addView(column)
+        content.addView(column)
 
         // **A tap does nothing.** This window covers the whole panel, and a phone in a pocket
         // presses its whole panel — a face that got out of the way on any touch is a face that
@@ -311,6 +332,7 @@ class LockOverlay(private val context: Context) {
             true
         }
 
+        face = content
         clock = time
         date = day
         bars = signal
@@ -523,6 +545,18 @@ class LockOverlay(private val context: Context) {
     private companion object {
         /** The SDK's `contentSecondary`. Three colours in LightOS, and this is the third. */
         val DIM = Color.rgb(0xBB, 0xBB, 0xBB)
+        /**
+         * How long the panel stays black before the face appears. See [wake].
+         *
+         * Long enough to cover a thumb already on the sensor when the button went down, short
+         * enough that someone who meant to *look* at the phone is not left wondering whether it
+         * woke. Half a second is both.
+         */
+        const val HOLD_DARK_MS = 500L
+
+        /** The fade itself. Slow enough to read as arriving, not as a repaint. */
+        const val FADE_MS = 320L
+
         const val MAX_NOTES = 4
         const val BATTERY_TAG = "lock_battery"
 
