@@ -497,5 +497,14 @@ class LockOverlay(private val context: Context) {
         val DIM = Color.rgb(0xBB, 0xBB, 0xBB)
         const val MAX_NOTES = 4
         const val BATTERY_TAG = "lock_battery"
+
+        /**
+         * Below this, a reported RSSI is not a reading.
+         *
+         * `NetworkCapabilities.signalStrength` answers `Integer.MIN_VALUE` when it has nothing,
+         * and a real Wi-Fi RSSI never goes below about -100 dBm. Anything under this is the
+         * absence of a number rather than a very weak signal.
+         */
+        const val MIN_SANE_RSSI = -127
     }
 }
