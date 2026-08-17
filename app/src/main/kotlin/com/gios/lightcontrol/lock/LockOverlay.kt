@@ -13,6 +13,8 @@ import android.graphics.drawable.ColorDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.net.wifi.WifiManager
+import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
@@ -88,7 +90,7 @@ class LockOverlay(private val context: Context) {
     private var root: FrameLayout? = null
     private var clock: TextView? = null
     private var date: TextView? = null
-    private var status: TextView? = null
+    private var bars: SignalBars? = null
     private var alarm: TextView? = null
     private var notes: LinearLayout? = null
 
@@ -141,18 +143,29 @@ class LockOverlay(private val context: Context) {
             }
     }
 
-    /** Take it down — on unlock, or when the service goes away. */
-    fun hide() {
+    /**
+     * Take it down — on unlock, or when the service goes away.
+     *
+     * The reference is dropped **after** the removal succeeds, not before. Nulling first and then
+     * failing to remove leaves a full-screen window on the phone with nothing left holding a
+     * handle to it, which is a lock screen you cannot get rid of without a reboot. `removeView`
+     * is asynchronous and can be refused; `removeViewImmediate` is the one that cannot be put off,
+     * so it is what the retry uses.
+     */
+    fun hide(): Boolean {
         stopTicking()
-        val view = root ?: return
+        val view = root ?: return true
+        val wm = context.getSystemService(WindowManager::class.java) ?: return false
+        val gone = runCatching { wm.removeView(view); true }
+            .getOrElse { runCatching { wm.removeViewImmediate(view); true }.getOrDefault(false) }
+        if (!gone) return false
         root = null
         clock = null
         date = null
-        status = null
+        bars = null
         alarm = null
         notes = null
-        val wm = context.getSystemService(WindowManager::class.java) ?: return
-        runCatching { wm.removeView(view) }
+        return true
     }
 
     /** True once a tap has put it away, so a re-show on screen-on does not fight the user. */
@@ -178,15 +191,23 @@ class LockOverlay(private val context: Context) {
             )
         }
 
-        // Top bar: network on the left, next alarm and battery on the right.
-        val bar = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-        // Top-bar text is `fine` in the SDK.
-        val net = barLabel().apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        // Top bar: signal bars on the left, next alarm and battery on the right. The carrier name
+        // used to sit where the bars are and was the wrong answer to the question a status bar is
+        // asked — "T-MOBILE" never changes and does not tell you whether anything will arrive.
+        val bar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val signal = SignalBars(context).apply {
+            layoutParams = LinearLayout.LayoutParams(type.gridPx(2.2f), type.gridPx(1.1f))
+        }
+        val spacer = View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
         }
         val alarmView = barLabel()
         val battery = barLabel().apply { setPadding(type.gridPx(0.7f), 0, 0, 0) }
-        bar.addView(net)
+        bar.addView(signal)
+        bar.addView(spacer)
         bar.addView(alarmView)
         bar.addView(battery)
         column.addView(bar)
@@ -205,7 +226,15 @@ class LockOverlay(private val context: Context) {
             gravity = Gravity.CENTER
             includeFontPadding = false
         }
-        val day = barLabel().apply { gravity = Gravity.CENTER }
+        // Sentence case and written the way a person says it — "Sunday, August 16" rather than
+        // SUNDAY 16 AUGUST. The tracked all-caps label is right for a status bar and wrong for a
+        // date, which is the one thing on this screen that is read as words.
+        val day = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(DIM)
+            textSize = type.paragraph
+            gravity = Gravity.CENTER
+        }
         val noteList = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, type.gridPx(2f), 0, 0)
@@ -215,11 +244,12 @@ class LockOverlay(private val context: Context) {
         middle.addView(noteList)
         column.addView(middle)
 
-        // `button` with the SDK's 15% tracking — LightOS's own call-to-action type.
+        // `detail`, not `button`. This is a caption telling you the sensor is live, not a control
+        // to press — sized like one it shouted over the clock.
         val hint = TextView(context).apply {
             typeface = type.medium
-            setTextColor(Color.WHITE)
-            textSize = type.button
+            setTextColor(DIM)
+            textSize = type.detail
             letterSpacing = type.buttonTracking
             gravity = Gravity.CENTER
             // The true instruction on this phone, and the reason the whole thing was rebuilt as a
@@ -229,10 +259,10 @@ class LockOverlay(private val context: Context) {
         val hintSub = TextView(context).apply {
             typeface = type.regular
             setTextColor(DIM)
-            textSize = type.detail
+            textSize = type.superfine
             gravity = Gravity.CENTER
-            setPadding(0, type.gridPx(0.5f), 0, 0)
-            text = "or tap to reach the keypad"
+            setPadding(0, type.gridPx(0.35f), 0, 0)
+            text = "or tap for the keypad"
         }
         column.addView(hint)
         column.addView(hintSub)
@@ -258,18 +288,18 @@ class LockOverlay(private val context: Context) {
 
         clock = time
         date = day
-        status = net
+        bars = signal
         alarm = alarmView
         notes = noteList
         battery.tag = BATTERY_TAG
         frame
     }.getOrNull()
 
-    /** `fine`, which is what the SDK sets top-bar text in. */
+    /** `superfine` — the top bar is glanced at, not read. */
     private fun barLabel(pad: Int = 0) = TextView(context).apply {
         typeface = type.medium
         setTextColor(DIM)
-        textSize = type.fine
+        textSize = type.superfine
         letterSpacing = type.subheadingTracking
         maxLines = 1
         setPadding(0, pad, 0, 0)
@@ -340,9 +370,8 @@ class LockOverlay(private val context: Context) {
         val frame = root ?: return
         val now = System.currentTimeMillis()
         clock?.text = SimpleDateFormat("H:mm", Locale.getDefault()).format(Date(now))
-        date?.text = SimpleDateFormat("EEEE d MMMM", Locale.getDefault())
-            .format(Date(now)).uppercase()
-        status?.text = network()
+        date?.text = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now))
+        bars?.level = signalLevel()
         alarm?.text = nextAlarm()?.let { "ALARM $it" }.orEmpty()
         frame.findViewWithTag<TextView>(BATTERY_TAG)?.text = battery()
         fillNotes()
@@ -404,23 +433,48 @@ class LockOverlay(private val context: Context) {
     }
 
     /**
-     * Deliberately not signal bars. Those need `READ_PHONE_STATE`, a runtime permission LightOS
-     * has no screen to grant, and a bar count that silently reads empty on a phone with full
-     * signal is worse than no bars at all. This asks the question that matters — is anything
-     * going to arrive — and needs nothing.
+     * How many bars, 0 to 4, or -1 for "no idea".
+     *
+     * Cellular strength needs `READ_PHONE_STATE`, which is a runtime permission LightOS has no
+     * screen to grant, so it is granted once over adb and its absence is *drawn* rather than
+     * guessed at: four empty outlines say "not known" and cannot be misread as "no signal", which
+     * is what silently returning zero would have done.
+     *
+     * Wi-Fi is read off the network's own RSSI, which needs nothing. When even that is unavailable
+     * the bars are filled, because a phone with a working Wi-Fi connection has, for every purpose
+     * this bar serves, signal.
      */
-    private fun network(): String = runCatching {
+    private fun signalLevel(): Int = runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)
-        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
-        when {
-            caps == null -> "NO SERVICE"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WI-FI"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
-                context.getSystemService(TelephonyManager::class.java)
-                    ?.networkOperatorName.orEmpty().trim().ifEmpty { "CELLULAR" }.uppercase()
-            else -> "NO SERVICE"
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork) ?: return 0
+
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            val rssi = caps.signalStrength
+            if (rssi > MIN_SANE_RSSI && rssi < 0) {
+                val wifi = context.getSystemService(WifiManager::class.java)
+                return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wifi != null) {
+                    val max = wifi.maxSignalLevel.coerceAtLeast(1)
+                    (wifi.calculateSignalLevel(rssi) * SignalBars.BARS / max)
+                        .coerceIn(1, SignalBars.BARS)
+                } else {
+                    SignalBars.BARS
+                }
+            }
+            return SignalBars.BARS
         }
-    }.getOrDefault("NO SERVICE")
+
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return 0
+
+        val granted = context.checkSelfPermission(
+            android.Manifest.permission.READ_PHONE_STATE,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return -1
+
+        val tm = context.getSystemService(TelephonyManager::class.java) ?: return -1
+        // `level` is already 0..4 on every Android since 29 — the same scale the system's own
+        // status bar draws, so the bars agree with the ones above the notification shade.
+        tm.signalStrength?.level ?: -1
+    }.getOrDefault(-1)
 
     private fun battery(): String = runCatching {
         val bm = context.getSystemService(BatteryManager::class.java)

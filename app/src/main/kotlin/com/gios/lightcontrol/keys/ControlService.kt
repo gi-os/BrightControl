@@ -174,6 +174,18 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
+        // The first-class version of "is the phone open", on the versions that have it. A listener
+        // rather than only a broadcast, because ACTION_USER_PRESENT is the one signal in this
+        // feature that has already been observed not to arrive, and a lock face that outlives the
+        // unlock is the worst failure this app can produce.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                getSystemService(KeyguardManager::class.java)
+                    ?.addKeyguardLockedStateListener(mainExecutor) { locked ->
+                        if (!locked) runCatching { onUserPresent() }
+                    }
+            }
+        }
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
         // required — passed anyway, because "not exported" is the true answer and the default
         // has changed once already.
@@ -280,9 +292,33 @@ class ControlService : AccessibilityService() {
      */
     private fun onUserPresent() {
         val wasUp = lockFace.showing || lockFace.dismissed()
-        runCatching { lockFace.hide() }
+        handler.removeCallbacks(lockWatch)
+        val gone = runCatching { lockFace.hide() }.getOrDefault(false)
+        log(if (gone) "unlocked · face down" else "unlocked · face WOULD NOT GO")
         if (!wasUp) return
         handler.postDelayed({ runCatching { resumeFromLock() } }, LOCK_HANDOFF_MS)
+    }
+
+    /**
+     * Ask, three times a second, whether the phone has been opened.
+     *
+     * Inelegant and deliberate. Two signals should already have answered — `ACTION_USER_PRESENT`
+     * and the keyguard's own locked-state listener — and between v2.5 and v2.8 the face has now
+     * twice been left on screen over an unlocked phone because the one signal in play did not
+     * arrive. `KeyguardManager.isDeviceLocked` is not a notification that can be missed; it is the
+     * state itself. It costs one binder call per tick, only while the face is up, and it stops the
+     * moment anything takes the face down.
+     */
+    private val lockWatch = object : Runnable {
+        override fun run() {
+            if (!lockFace.showing) return
+            val km = runCatching { getSystemService(KeyguardManager::class.java) }.getOrNull()
+            if (km != null && !km.isDeviceLocked) {
+                onUserPresent()
+                return
+            }
+            handler.postDelayed(this, LOCK_WATCH_MS)
+        }
     }
 
     /**
@@ -797,6 +833,7 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
         Lock.pending = null
+        handler.removeCallbacks(lockWatch)
         runCatching { lockFace.hide() }
         slept = null
         visitingLightOs = false
@@ -1149,6 +1186,8 @@ class ControlService : AccessibilityService() {
         if (!before && lockFace.showing) {
             lockMisses = 0
             log("lock face up")
+            handler.removeCallbacks(lockWatch)
+            handler.postDelayed(lockWatch, LOCK_WATCH_MS)
         } else if (!lockFace.showing) {
             lockMisses++
             log("lock face failed · $lockMisses")
@@ -1169,9 +1208,21 @@ class ControlService : AccessibilityService() {
      * Unlocking is just the earliest possible press of it.
      */
     private fun resumeFromLock() {
+        val was = Lock.pending
         Lock.pending = null
         if (!prefs.enabled || !prefs.lockScreen) return
-        resume()
+        // Logged either way. "Unlocking didn't open anything" is a report with four possible
+        // causes — no snapshot, the app not on the list, the fallback still pointing at home, or a
+        // launch that failed — and from the phone they are indistinguishable without this line.
+        val listed = was != null && was in prefs.resumeApps()
+        val ok = resume()
+        log(
+            "unlock → " + when {
+                listed -> was?.substringAfterLast('.').orEmpty()
+                was != null -> "not on the list · fallback"
+                else -> "nothing slept · fallback"
+            } + if (ok) "" else " · FAILED",
+        )
     }
 
     private fun resume(): Boolean {
@@ -1353,6 +1404,9 @@ class ControlService : AccessibilityService() {
         const val CAMERA_TARGET = "\u0000camera"
         /** Gap between taking the face down and launching, so the window is gone first. */
         const val LOCK_HANDOFF_MS = 120L
+
+        /** How often to ask the keyguard whether the phone is open. See [lockWatch]. */
+        const val LOCK_WATCH_MS = 300L
 
         /** Failed lock-face starts in a row before the face disarms itself. */
         const val MAX_LOCK_MISSES = 3

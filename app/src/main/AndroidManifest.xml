@@ -41,6 +41,17 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Signal bars on the lock face, and nothing else. A runtime permission LightOS has
+      no screen for, so it is granted once over adb:
+
+        adb shell pm grant com.gios.lightcontrol android.permission.READ_PHONE_STATE
+
+      Without it the cellular bars are drawn as empty outlines rather than as zero -
+      "not known" and "no signal" must not look the same. Wi-Fi strength needs nothing.
+    -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <application
         android:name=".App"
         android:allowBackup="false"

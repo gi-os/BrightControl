@@ -48,6 +48,7 @@ fun SettingsScreen(
     onPerApp: () -> Unit,
     onHomeTap: () -> Unit,
     onResumeApps: () -> Unit,
+    onResumeFallback: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
@@ -75,6 +76,9 @@ fun SettingsScreen(
     var lockImage by remember { mutableStateOf(prefs.lockImage) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
     val notesGranted = LockNotes.granted(context)
+    val phoneState = context.checkSelfPermission(
+        android.Manifest.permission.READ_PHONE_STATE,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     // Taking a *persistable* grant is the whole reason this is OpenDocument rather than
     // GetContent: the plain one hands over a URI that dies with the process, and the face is
@@ -333,6 +337,36 @@ fun SettingsScreen(
                         },
                     )
                 }
+                // These two used to be reachable only when the *home button* was bound to Resume,
+                // which meant turning on the lock face and then finding no way to say what it
+                // should open. Same settings, same list, shown wherever they apply.
+                val chosen = prefs.resumeApps().size
+                MenuRow(
+                    label = "Unlocks into",
+                    detail = if (chosen == 0) "NONE" else "$chosen",
+                    sub = if (chosen == 0) {
+                        "nothing chosen, so every unlock goes to the destination below"
+                    } else {
+                        "sleep in one of these and unlocking brings it back, once"
+                    },
+                    onClick = onResumeApps,
+                )
+                MenuRow(
+                    label = "Otherwise open",
+                    detail = shortLabel(prefs.resumeFallback),
+                    sub = longLabel(context.packageManager, prefs.resumeFallback) +
+                        " — where an unlock goes when there is nothing to bring back, which is " +
+                        "most of the time. Point it at Luma to land there instead of LightOS.",
+                    onClick = onResumeFallback,
+                )
+                GrantRow(
+                    label = "Signal bars",
+                    ok = phoneState,
+                    fix = "adb shell pm grant com.gios.lightcontrol " +
+                        "android.permission.READ_PHONE_STATE",
+                    sub = "cellular strength. Wi-Fi needs nothing; without this the bars are " +
+                        "drawn empty rather than at zero",
+                )
                 MenuRow(
                     label = "Notifications",
                     detail = when {

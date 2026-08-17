@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
                                 screen = Screen.Pick(Button.Home, Gesture.Tap, fromSettings = true)
                             },
                             onResumeApps = { screen = Screen.ResumeApps },
+                            onResumeFallback = { screen = Screen.ResumeFallback },
                         )
 
                         Screen.Buttons -> ButtonsScreen(

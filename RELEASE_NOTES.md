@@ -1,32 +1,48 @@
-## BrightControl v2.8 — The lock face in LightOS's own type
+## BrightControl v2.9 — It comes down, and it opens something
 
-Same screen, correct typography. Everything on the lock face was hand-picked sp and dp; it is now
-the real design system, ported from `lightphone/light-sdk`'s `sdk/ui` module.
+### The face staying up and nothing opening were one bug
 
-**Akkurat, resolved by weight** off the system font list rather than by family name — asking for a
-family that isn't there gets you a synthesised default that looks deliberate and isn't. The clock
-takes Light, body takes Regular, the small tracked labels take Medium, matching what the app's
-Compose screens already do.
+Both are downstream of the same failure: nothing noticed the phone had been unlocked. The face is
+taken down and the resume is fired from the same moment, so when that moment never arrives you get
+exactly the two symptoms — a lock screen over an open phone, and no app.
 
-**Named sizes, scaled by screen height.** The SDK measures type in design pixels against a 600px
-reference and converts with `px * screenHeightDp / 600`, so a hardcoded size is right on exactly
-one device. The face now uses:
+Two signals were already meant to catch it. `ACTION_USER_PRESENT`, and the keyguard's own
+`KeyguardLockedStateListener`. Between v2.5 and v2.8 the face has now twice been left on screen
+because the signal in play did not arrive, so there is a third one that cannot be missed: while
+the face is up, the service asks `KeyguardManager.isDeviceLocked` three times a second. That is
+not a notification that can go astray — it is the state itself. One binder call per tick, only
+while the face is showing, stopping the instant anything takes it down.
 
-| Element | SDK name | Design px |
-| --- | --- | --- |
-| Clock | `title` | 115 |
-| Notification headline | `copy` | 30 |
-| PRESS THE POWER BUTTON | `button`, 15% tracking | 30 |
-| Notification body, sub-line | `detail` | 20 |
-| Top bar, date | `fine` | 25 |
-| App name above a notification | `superfine` | 16 |
+And `hide()` had a second bug waiting: it dropped its reference to the window *before* asking the
+window manager to remove it. A removal that was refused would have left a full-screen window on
+the phone with nothing holding a handle to it — a lock screen you cannot get rid of without a
+reboot. It now drops the handle only once removal has succeeded, and retries with
+`removeViewImmediate`, which cannot be deferred.
 
-**Spacing in grid units.** LightOS's grid is 27 wide by 31 tall and every inset is
-`screenWidthDp / 27 * units` — one unit in from each side, three at the bottom, the same figures
-every Light tool on the phone uses. No dp left on the screen.
+### Unlocking into Luma
 
-**`contentSecondary` is `#BBBBBB`**, which is the SDK's actual value rather than the `#9A9A9A` this
-was approximating.
+**Resume apps** and **Otherwise open** now live in the LOCK SCREEN section. They were previously
+shown only when the *home button* was bound to Resume — so it was possible to turn the lock face
+on and have no way anywhere in the app to say what it should open, which is why unlocking landed
+on LightOS.
 
-Nothing about how it works changed: still a window at `TYPE_ACCESSIBILITY_OVERLAY`, still never
-occluding the keyguard, still your thumb on the power button.
+- **Unlocks into** — the apps an unlock is allowed to bring back. Sleep in one, unlock, it returns.
+- **Otherwise open** — where an unlock goes when there is nothing to bring back, which is most of
+  the time. **Point this at Luma.**
+
+Unlocking also writes what it decided into the key log — `unlock → roll`, `unlock → not on the
+list · fallback`, `unlock → nothing slept · fallback` — because "it didn't open anything" has four
+possible causes and from the phone they look identical.
+
+### The face itself
+
+- **Signal bars instead of the carrier name.** "T-MOBILE" is nine characters that never change and
+  do not tell you whether a message will arrive. Cellular strength needs a grant
+  (`adb shell pm grant com.gios.lightcontrol android.permission.READ_PHONE_STATE`); without it the
+  bars are drawn as empty outlines rather than at zero, because "not known" and "no signal" must
+  not look the same. Wi-Fi needs nothing.
+- **Smaller top bar** — `superfine` rather than `fine`.
+- **Smaller prompt.** PRESS THE POWER BUTTON is a caption saying the sensor is live, not a control
+  to press; at `button` size it shouted over the clock. It is `detail`, and dimmed.
+- **The date reads as words**: "Sunday, August 16" instead of SUNDAY 16 AUGUST. Tracked all-caps is
+  right for a status bar and wrong for the one thing on the screen that is read as a sentence.
