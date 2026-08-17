@@ -74,7 +74,6 @@ fun SettingsScreen(
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var lockImage by remember { mutableStateOf(prefs.lockImage) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
-    var lockBouncer by remember { mutableStateOf(prefs.lockBouncerOnWake) }
     val notesGranted = LockNotes.granted(context)
 
     // Taking a *persistable* grant is the whole reason this is OpenDocument rather than
@@ -283,11 +282,13 @@ fun SettingsScreen(
                 label = "Light lock face",
                 detail = if (lockScreen) "ON" else "OFF",
                 sub = if (lockScreen) {
-                    "drawn over the real lock screen, which is still underneath and is still " +
-                        "what actually opens the phone. Unlocking lands wherever Resume would."
+                    "painted over the real lock screen, which is still underneath and still what " +
+                        "unlocks the phone — your thumb on the power button works exactly as it " +
+                        "always did. Tap the face to reach the keypad. Unlocking lands wherever " +
+                        "Resume would."
                 } else {
                     "a Light-style face over the stock lock screen — clock, notifications, your " +
-                        "own picture. Needs a screen lock set and the overlay appop."
+                        "own picture. Needs a screen lock set. Your thumb keeps working."
                 },
                 onClick = {
                     lockScreen = !lockScreen
@@ -332,27 +333,6 @@ fun SettingsScreen(
                         },
                     )
                 }
-                // The row that says the quiet part. Someone who turns this feature on expecting
-                // their thumb to work as it always has needs to be told here, not by a sensor
-                // that silently stops responding.
-                MenuRow(
-                    label = "Unlock",
-                    detail = if (lockBouncer) "ON WAKE" else "ON SWIPE",
-                    sub = if (lockBouncer) {
-                        "the code screen comes up as soon as the phone wakes, so your thumb works " +
-                            "straight away — but that stock screen is what you see, with this one " +
-                            "behind it"
-                    } else {
-                        "swipe up or tap this face to bring up the code screen; your thumb works " +
-                            "there. The sensor is in the power button, and Android stops listening " +
-                            "to it while anything is drawn over the lock screen — this is hardware, " +
-                            "not a setting"
-                    },
-                    onClick = {
-                        lockBouncer = !lockBouncer
-                        prefs.lockBouncerOnWake = lockBouncer
-                    },
-                )
                 MenuRow(
                     label = "Notifications",
                     detail = when {

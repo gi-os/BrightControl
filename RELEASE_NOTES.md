@@ -1,61 +1,62 @@
-## BrightControl v2.6 — The lock face, actually working
+## BrightControl v2.7 — The thumb works
 
-**Three things were wrong with v2.5. Two of them were the same bug. The third was a wrong
-assumption about the hardware, and it is the one worth reading.**
+**The lock face stopped being an activity, and that is the entire release.**
 
-### Your thumb never worked, and it could not have
+### What was wrong
 
-v2.5 said WAITING FOR FINGERPRINT and then waited forever. The reasoning behind that line was
-that the keyguard keeps listening to the sensor while something is drawn over it — which is how
-you unlock out of the camera-from-lock shortcut on other phones.
+`showWhenLocked` does not mean "draw over the lock screen". It means **occlude the keyguard** —
+and an occluded keyguard stops listening to the fingerprint sensor unless the sensor is under the
+display. The LPIII's is in the power button. So v2.5 and v2.6 switched the sensor off by existing,
+and no flag, permission or API was going to change that.
 
-That is true only for phones with an **under-display** sensor. The LPIII's is in the power button.
-AOSP arms the keyguard's fingerprint listener while it is occluded in exactly three cases: an
-under-display sensor, a dreaming device, or a bouncer that is already showing. A side sensor with
-a quiet face over the lock screen is none of them, so the press went nowhere. There is no flag, no
-permission and no API that changes this — it is the framework, not a setting.
+v2.6's answer was to make you raise the bouncer first. That was working around the wrong thing.
 
-So every route out of this screen now goes through the bouncer, because raising the bouncer is
-what turns the sensor back on:
+### What it is now
 
-- **Swipe up, or tap.** The code screen comes up and **your thumb works there** — it is still the
-  quick way through, it just needs one gesture first.
-- **Settings → LOCK SCREEN → Unlock → ON WAKE**, if you would rather not have that gesture. The
-  bouncer is raised the instant the phone wakes, so the thumb works immediately — at the cost of
-  the stock screen being what you look at, with this one behind it.
+A window, added by the accessibility service that has been in this app since v1.0.1. From AOSP's
+own `getWindowLayerFromTypeLw`:
 
-One extra gesture against one stock-looking screen. There is no third option, and pretending
-otherwise is what v2.5 did.
+| window | layer |
+| --- | --- |
+| `TYPE_APPLICATION_OVERLAY` — the brightness readout, the volume HUD | 11 |
+| `TYPE_NOTIFICATION_SHADE` — **the keyguard** | 17 |
+| `TYPE_KEYGUARD_DIALOG` — the bouncer | 19 |
+| **`TYPE_ACCESSIBILITY_OVERLAY`** — this | **31** |
 
-The line on the face now says **SWIPE UP TO UNLOCK** / *then your thumb, or your code*, which is
-what actually happens.
+Which also explains something that had never been explained: the brightness readout has never
+appeared over the lock screen, because at layer 11 it is underneath it.
 
-### A correct PIN left the face on screen
+Because this is a window and not an activity, **the keyguard is never occluded**. As far as
+SystemUI is concerned the lock screen is showing and visible exactly as it always is, its
+fingerprint listener is armed exactly as it always is, and the press on the power button unlocks
+the phone exactly as it always did. We are painting over the top and nothing else.
 
-The activity was watching for `ACTION_USER_PRESENT` itself. But raising the bouncer over an
-occluding activity **stops** that activity — so `onStop` unregistered the receiver, and the
-broadcast for the unlock arrived while nothing was listening. The face stayed up over an open
-phone, which is the worst thing on the list.
+The face says **PRESS THE POWER BUTTON**, and this time that is true.
 
-Noticing the unlock has moved to the accessibility service, which the system binds and never
-stops and never freezes. It takes the face down and then launches. Three more nets underneath it:
-a `KeyguardLockedStateListener`, a receiver on the activity registered for its whole life rather
-than just the visible part, and a re-check every time the face returns to the front.
+### Three more problems that went away on their own
 
-### The stock screen flashed before ours
+- **The flash is gone, and so is the 900 ms delay** v2.6 needed to tune. A window at layer 31 is
+  above LightOS's lock screen whenever it arrives, so there is nothing to race.
+- **No overlay appop.** No activity means no background activity start, so `SYSTEM_ALERT_WINDOW`
+  is not part of this feature at all any more.
+- **Nothing to get stuck in.** The window holds no key focus, owns no task and has no back stack.
+  Every key — power, wheel, camera button — goes exactly where it went before. If the code throws,
+  the lock screen is right there underneath, untouched.
 
-Because LightOS's lock screen is an activity, and it comes over **as** the screen goes off — the
-same fact this app already relies on to work out what to resume. Ours was being started in the
-same instant, which means started underneath it. On waking you saw LightOS first and ours a moment
-later, arriving over the top.
+### Reaching the keypad
 
-The face is now raised **900 ms after** the screen goes off, by which time LightOS's lock screen
-has finished coming up and there is nothing left to race, and it is re-asserted on screen-on in
-case anything came over it while the phone was down. The screen is off for all of that, so the
-delay costs nothing.
+Tap the face. That is all a tap does: hides this window, revealing the real lock screen already
+behind it. It never asks the keyguard for anything. Once tapped it stays out of the way until the
+next time the phone sleeps.
 
-### Unchanged
+### What you need
 
-It still is not a lock screen and still cannot be. The real keyguard is underneath, still holds
-the device, still takes your code. The failure mode of everything here is still "you see the stock
-lock screen, working".
+Just a screen lock set — it refuses to draw with no PIN, because "press the power button" over
+nothing would be a lie. Notifications still want the listener grant:
+
+```
+adb shell cmd notification allow_listener com.gios.lightcontrol/.lock.LockNotifications
+```
+
+The `SYSTEM_ALERT_WINDOW` line is no longer needed for the lock face. Keep it — the brightness
+readout and volume HUD still use it.

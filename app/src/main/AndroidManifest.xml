@@ -64,28 +64,12 @@
         </activity>
 
         <!--
-          The face drawn over the keyguard. Not a lock screen: `showWhenLocked` lets it
-          *occlude* the real one, which is still there and is still the only thing that
-          opens the device.
-
-          `singleTask` with an empty `taskAffinity` keeps it in a task of its own, so
-          finishing it on unlock returns to whatever was underneath rather than to this
-          app, and `excludeFromRecents` keeps it out of the task switcher. Deliberately
-          NOT `noHistory`: this is started while the screen is already off, so it stops
-          the instant it starts, and noHistory finishes anything that stops - the face
-          would have destroyed itself before it was ever seen. Not exported; it is
-          started by our own service and by nothing else.
+          The lock face is a window, not an activity - added by ControlService at
+          TYPE_ACCESSIBILITY_OVERLAY, which is layer 31 and so sits above the keyguard
+          at 17. There is deliberately no activity here: `showWhenLocked` marks the
+          keyguard *occluded*, and an occluded keyguard stops listening to a
+          power-button fingerprint sensor. See lock/LockOverlay.kt.
         -->
-        <activity
-            android:name=".lock.LockActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTask"
-            android:taskAffinity=""
-            android:showWhenLocked="true"
-            android:resizeableActivity="false"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
-            android:theme="@style/Theme.LightControl.Lock" />
 
         <!--
           Reads the shade so the lock face can list it. Granted once over adb, like

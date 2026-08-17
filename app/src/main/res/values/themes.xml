@@ -8,15 +8,4 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
-    <!--
-      The lock face. Opaque, on purpose: the framework only treats the keyguard as
-      occluded for a fullscreen opaque window, and a translucent one leaves the stock
-      screen composited underneath and visible around the edges of anything that does
-      not paint. No animation, because this window goes up while the screen is off and
-      comes down as an app opens - there is nothing for a transition to explain.
-    -->
-    <style name="Theme.LightControl.Lock" parent="Theme.LightControl">
-        <item name="android:windowAnimationStyle">@null</item>
-        <item name="android:windowShowWallpaper">false</item>
-    </style>
 </resources>

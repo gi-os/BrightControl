@@ -347,9 +347,11 @@ class Prefs(context: Context) {
      * over is the only screen on the device that has to work when nothing else does. Opting in is
      * the right shape for that.
      *
-     * Turning it on does not make the phone less secure — the keyguard is still underneath and
-     * still the only thing that opens the device — but it does put a window between the user and a
-     * screen they rely on, so it disarms itself at the first sign of trouble. See [disarmLock].
+     * Turning it on does not make the phone less secure, and does not change how the phone
+     * unlocks: the face is a window painted over the keyguard rather than an activity in front of
+     * it, so the keyguard is never occluded and its fingerprint listener stays armed. But it does
+     * put a window between the user and a screen they rely on, so it disarms itself at the first
+     * sign of trouble. See [disarmLock].
      */
     var lockScreen: Boolean
         get() = sp.getBoolean("lock_screen", false)
@@ -382,25 +384,6 @@ class Prefs(context: Context) {
     var lockImage: String?
         get() = sp.getString("lock_image", null)
         set(v) = sp.edit().putString("lock_image", v).apply()
-
-    /**
-     * Whether to raise the real bouncer the moment the face appears.
-     *
-     * The setting exists because of a hardware fact that cannot be worked around. The LPIII's
-     * fingerprint sensor is in the power button, not under the display, and AOSP only keeps the
-     * keyguard's fingerprint listener armed while it is occluded for under-display sensors, a
-     * dreaming device, or a bouncer that is already up. So a face sitting quietly over the
-     * keyguard means a thumb that does nothing — there is no flag, no permission and no API that
-     * changes this.
-     *
-     * Off: the face is what you see, and a swipe or a tap raises the bouncer, where the thumb
-     * works. On: the bouncer is raised immediately, so the thumb works the instant the screen
-     * lights and the face is only really what you see as you put the phone down. One extra
-     * gesture against one stock-looking screen; there is no third option.
-     */
-    var lockBouncerOnWake: Boolean
-        get() = sp.getBoolean("lock_bouncer_wake", false)
-        set(v) = sp.edit().putBoolean("lock_bouncer_wake", v).apply()
 
     /** Whether the face lists what is in the shade. Needs the notification listener grant. */
     var lockNotes: Boolean

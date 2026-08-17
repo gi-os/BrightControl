@@ -27,7 +27,7 @@ import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
-import com.gios.lightcontrol.lock.LockActivity
+import com.gios.lightcontrol.lock.LockOverlay
 
 /**
  * The wheel and the buttons, everywhere on the phone.
@@ -139,6 +139,9 @@ class ControlService : AccessibilityService() {
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
 
+    /** The Light face over the lock screen. A window this service owns, not an activity. */
+    private lateinit var lockFace: LockOverlay
+
     /**
      * Which packages are cameras, memoised. Answering means a `PackageManager` query, and the
      * question is asked on the key event — so it is asked once per app and then remembered.
@@ -170,6 +173,7 @@ class ControlService : AccessibilityService() {
         volumeHud.onTap = { volume.onHudTap() }
         volume.start()
         swipe = WheelSwipe(this)
+        lockFace = LockOverlay(this)
         // ACTION_SCREEN_OFF is a protected system broadcast, so the export flag is not strictly
         // required — passed anyway, because "not exported" is the true answer and the default
         // has changed once already.
@@ -243,14 +247,11 @@ class ControlService : AccessibilityService() {
         // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
         // face that raised its own window first would be reading the value it had just changed.
         Lock.pending = slept
-        // Deliberately late, and this is the fix for v2.5's flash of the stock screen on every
-        // wake. LightOS's lock screen is an activity and it comes over *as* the screen goes off —
-        // the same fact `onScreenOff` above already leans on to decide what to resume. Starting
-        // ours in the same instant means starting it underneath, and what you then see on waking
-        // is LightOS first and ours a moment later, arriving over the top. Waiting lands ours on
-        // top of a lock screen that has already finished coming up, with nothing left to race.
-        handler.removeCallbacks(raiseLockFace)
-        handler.postDelayed(raiseLockFace, LOCK_START_DELAY_MS)
+        // Immediately, with no delay to tune. v2.6 had to wait 900 ms for LightOS's lock screen to
+        // finish coming up, because an activity would otherwise have been started underneath it.
+        // A window at layer 31 is above anything LightOS can put on screen whenever it arrives, so
+        // there is nothing left to race.
+        showLockFace()
     }
 
     /**
@@ -263,6 +264,9 @@ class ControlService : AccessibilityService() {
      */
     private fun onScreenOn() {
         if (!prefs.lockScreen) return
+        // Not if a tap put it away. Re-raising a face the user just dismissed to reach the keypad
+        // would make the keypad unreachable, which is the one bug this feature must never have.
+        if (lockFace.dismissed()) return
         showLockFace()
     }
 
@@ -275,14 +279,11 @@ class ControlService : AccessibilityService() {
      * that reliably lands behind the wrong window.
      */
     private fun onUserPresent() {
-        handler.removeCallbacks(raiseLockFace)
-        val wasShowing = Lock.showing
-        runCatching { Lock.dismiss?.invoke() }
-        if (!wasShowing) return
+        val wasUp = lockFace.showing || lockFace.dismissed()
+        runCatching { lockFace.hide() }
+        if (!wasUp) return
         handler.postDelayed({ runCatching { resumeFromLock() } }, LOCK_HANDOFF_MS)
     }
-
-    private val raiseLockFace = Runnable { runCatching { showLockFace() } }
 
     /**
      * Screen off, screen on, and the unlock.
@@ -795,8 +796,8 @@ class ControlService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
-        handler.removeCallbacks(raiseLockFace)
         Lock.pending = null
+        runCatching { lockFace.hide() }
         slept = null
         visitingLightOs = false
         visitTapAt = 0L
@@ -1122,56 +1123,38 @@ class ControlService : AccessibilityService() {
     // -------------------------------------------------------------------- the lock face
 
     /**
-     * Put our own face over the keyguard, as the screen goes off.
+     * Put the Light face up over the lock screen.
      *
-     * At screen-off and not at screen-on, which is the whole trick. An activity started on wake
-     * races the keyguard and loses often enough that you see a frame of the stock screen on most
-     * unlocks; started as the phone is put down it is simply already on top when the panel next
-     * lights, with nothing to race. It is also the only moment available — see [onScreenOff] for
-     * why a broadcast this app's own activities could never receive is handled here.
+     * A window, not an activity, and that distinction is the whole feature — see [LockOverlay] for
+     * the layer table and for why v2.5 and v2.6 could not make the fingerprint work. Because
+     * nothing here starts an activity there is no background-activity-start to be refused, no
+     * overlay appop involved, and no way for this to fail silently: `addView` either works or
+     * throws, and a throw leaves the stock lock screen exactly where it was.
      *
-     * Every line below is a guard, because the screen this draws over is the one screen on the
-     * phone that has to work. In order: the master switch, the opt-in, a keyguard that is actually
-     * securing something, and the appop without which the start is dropped in silence. That last
-     * one is checked rather than attempted deliberately — a background activity start refused on
-     * Android 14 throws nothing and returns nothing, so "it did not appear" and "it was never
-     * allowed" are indistinguishable afterwards.
+     * Two guards, both about not drawing over a screen that has a job to do. The master switch,
+     * and a keyguard that is actually securing something — with no PIN set there is nothing behind
+     * this and "press the power button" would be a lie.
      */
     private fun showLockFace() {
         if (!prefs.enabled || !prefs.lockScreen) return
-        if (Lock.showing) return
 
         val km = runCatching { getSystemService(KeyguardManager::class.java) }.getOrNull()
-        // Nothing behind it means nothing to occlude: on a phone with no PIN this would be a black
-        // screen the user swipes past, and the fingerprint line on it would be a lie. Disarm rather
-        // than skip, so the settings screen can say why instead of the feature just never working.
         if (km?.isDeviceSecure != true) {
-            prefs.disarmLock("no screen lock is set, so there is nothing to wait for")
-            return
-        }
-        if (!Grants.canDrawOverlays(this)) {
-            prefs.disarmLock("no SYSTEM_ALERT_WINDOW appop — the face could not be started")
+            prefs.disarmLock("no screen lock is set, so there is nothing to draw over")
             return
         }
 
-        val intent = Intent(this, LockActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
-            .addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
-        when (start(intent, target = LOCK_TARGET)) {
-            Start.Done -> {
+        val before = lockFace.showing
+        runCatching { lockFace.show(prefs) }
+        if (!before && lockFace.showing) {
+            lockMisses = 0
+            log("lock face up")
+        } else if (!lockFace.showing) {
+            lockMisses++
+            log("lock face failed · $lockMisses")
+            if (lockMisses >= MAX_LOCK_MISSES) {
+                prefs.disarmLock("the window failed to attach $lockMisses times running")
                 lockMisses = 0
-                log("lock face up")
-            }
-            // Two screens off inside a second. Ordinary, and not evidence of anything.
-            Start.Throttled -> Unit
-            Start.Failed -> {
-                lockMisses++
-                log("lock face failed · $lockMisses")
-                if (lockMisses >= MAX_LOCK_MISSES) {
-                    prefs.disarmLock("the face failed to start $lockMisses times running")
-                    lockMisses = 0
-                }
             }
         }
     }
@@ -1368,18 +1351,7 @@ class ControlService : AccessibilityService() {
         /** Throttle keys for the destinations that aren't named by package. See [start]. */
         const val HOME_TARGET = "\u0000home"
         const val CAMERA_TARGET = "\u0000camera"
-        const val LOCK_TARGET = "\u0000lock"
-
-        /**
-         * How long after the screen goes off to raise our face.
-         *
-         * Long enough to be behind LightOS's lock screen coming up and then in front of it; short
-         * enough that a phone picked straight back up still finds it there. The screen is off for
-         * all of it, so the only cost of being generous is the width of that second window.
-         */
-        const val LOCK_START_DELAY_MS = 900L
-
-        /** Gap between taking the face down and launching, so the finish is through first. */
+        /** Gap between taking the face down and launching, so the window is gone first. */
         const val LOCK_HANDOFF_MS = 120L
 
         /** Failed lock-face starts in a row before the face disarms itself. */
