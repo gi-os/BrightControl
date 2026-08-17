@@ -1,17 +1,14 @@
-## BrightControl v2.13 — Black first, then the face
+## BrightControl v2.14 — The camera button works from the lock face
 
-Pressing the power button with your thumb already on the sensor opens the phone in a couple of
-hundred milliseconds. For that whole gesture the right thing to show is what a phone that is *about
-to be open* shows: nothing. Painting a lock screen and taking it away again a moment later is a
-flicker the eye reads as a fault, even though everything worked.
+Pressing the camera button while the phone was locked *did* start the camera. The problem was that
+the lock face is a window at `TYPE_ACCESSIBILITY_OVERLAY`, layer 31 — above everything, including an
+app that has just come to the front. So the camera was running underneath it: the shutter fired, the
+photos were taken, and the viewfinder was never visible.
 
-So the panel now lights **black and stays black for half a second**. If the phone is still locked
-when that wait is out, the face fades up over 320 ms.
+Any binding that brings something forward — the camera, a launched app, LightOS, Resume — now takes
+the face down with it, and leaves it down until the next time the phone sleeps. Roll opens over the
+keyguard the way it always did; there is simply nothing painted on top of it any more.
 
-The wait is how it finds out which unlock this was. A thumb that landed first takes the whole window
-down before the fade begins, and nothing was ever drawn. Someone who picked the phone up to *look*
-at it waits half a second and then gets the clock — long enough to cover the fast case, short enough
-that it never reads as the phone failing to wake.
-
-The window itself stays opaque black throughout; what fades is the picture and the clock over it, so
-there is no point at which anything underneath shows through.
+The torch and the volume keys deliberately do **not** do this. They change nothing about what is on
+screen, and putting the lock face away for them would mean the lock screen vanishing every time you
+reached for the flashlight in the dark.

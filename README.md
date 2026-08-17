@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.13.** See [Version history](#version-history).
+**Current version: v2.14.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -418,6 +418,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.14 | **The camera button works from the lock face.** It always started the camera — but at layer 31 the face is above even an app that has just come to the front, so the shutter fired, the photos were taken, and the viewfinder was never visible. Any binding that brings something forward (camera, an app, LightOS, Resume) now takes the face down with it, and it stays down until the next sleep. The torch and the volume keys deliberately do not, since they change nothing about what is on screen |
 | v2.13 | **The face holds black for half a second, then fades up.** Unlocking with your thumb already on the button opens the phone in a couple of hundred milliseconds, and painting a lock screen only to take it away again inside that window is a flicker that reads as a fault. So the panel lights black and stays black; if the phone is still locked when the wait is out, the face fades in over 320 ms. A thumb that landed first takes the window down before the fade starts and nothing is ever seen |
 | v2.12 | **BrightChat's photo grid, not the system picker.** The picker reads MediaStore and nothing on LightOS keeps MediaStore current, so a photo taken minutes ago simply is not offered — which made v2.11's SAF picker the same dead end behind a different door. The background editor now walks DCIM and Pictures itself, newest first, three across, one tap to choose. A directory listing cannot go stale. Needs `READ_MEDIA_IMAGES`, which it asks for itself |
 | v2.11 | **BrightChat's background editor, on the lock screen.** Pick a photo, choose how it meets the panel, then stack filters on it — ordered Bayer dither to halftone at a chosen cell size, black & white, opacity, corner blur, corner fade — reorderable and repeatable, with a live preview at the panel's own aspect and drag-to-frame the crop. The same pipeline as the chat wallpapers, unchanged. Also: **the flash of LightOS before your app is gone** — the face is now held up *over* the handover and comes down when the target reports itself in front, because taking it down first uncovers whatever the system put there and LightOS holds the HOME role. Plus a **12-hour clock**, and the two prompt lines are now a toggle, off by default |

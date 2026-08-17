@@ -1042,7 +1042,21 @@ class ControlService : AccessibilityService() {
     }
 
     /** True if the action reported that it did something. */
-    private fun perform(action: Action): Boolean = when (action) {
+    private fun perform(action: Action): Boolean {
+        // Anything that brings something to the front has to take the lock face with it. The window
+        // is at layer 31, above even an app that has just been started, so the camera button used to
+        // open the camera *behind* it: the shutter worked and the viewfinder was invisible. The
+        // torch and the volume keys are deliberately not in this set — they change nothing about
+        // what is on screen, and putting the face away for them would mean the lock screen
+        // disappearing whenever you found the flashlight in the dark.
+        if (action.needsActivityStart && lockFace.showing) {
+            log("lock face away for ${action.store()}")
+            runCatching { lockFace.dismiss() }
+        }
+        return performAction(action)
+    }
+
+    private fun performAction(action: Action): Boolean = when (action) {
         Action.Torch -> {
             toggleTorch()
             true

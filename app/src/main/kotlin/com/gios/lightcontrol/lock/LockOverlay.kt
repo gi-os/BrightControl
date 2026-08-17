@@ -213,8 +213,24 @@ class LockOverlay(private val context: Context) {
         return true
     }
 
-    /** True once a tap has put it away, so a re-show on screen-on does not fight the user. */
+    /** True once a swipe has put it away, so a re-show on screen-on does not fight the user. */
     fun dismissed(): Boolean = dismissedByTouch
+
+    /**
+     * Get out of the way for something the user deliberately opened, and stay out.
+     *
+     * The camera button is the case this exists for. Pressing it while the phone is locked starts
+     * the camera *behind* this window — layer 31 is above everything, including an app that has
+     * come to the front — so the shutter worked, the photos were taken, and the viewfinder was
+     * never visible. A face that covers the app you just asked for is worse than no face.
+     *
+     * Sticky like a swipe, and for the same reason: coming back on the next screen-on would put it
+     * over the viewfinder a second later.
+     */
+    fun dismiss() {
+        dismissedByTouch = true
+        hide()
+    }
 
     // ------------------------------------------------------------------------ the view
 
