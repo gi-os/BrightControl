@@ -103,6 +103,7 @@ camera button does nothing; brightness still works.
 | Apps | Turning the wheel | Everything else |
 |---|---|---|
 | `com.lightos*`, `com.thelightphone.*`, `com.lightphone.*`, the launcher, SystemUI, Camera2 | untouched | untouched |
+| `com.gios.brightrecorder` | untouched | untouched |
 | `com.gios.*`, `com.lightfastread`, `com.lightrss.reader` | goes to the app, which scrolls per notch | ours |
 | everything else | brightness (or `SWIPE`, per app) | ours |
 
@@ -115,7 +116,15 @@ notch, which is still better than any synthetic finger.
 Light's own tools are hands-off because the wheel already works there — anything
 intercepted would be a feature *removed*. Apps carrying a `hw/` scroll module get their
 turns passed through, because per-notch scrolling inside the app beats anything
-reachable from outside it. Per-app overrides cycle on tap through
+reachable from outside it.
+
+BrightRecorder gets the stronger treatment because its wheel *press* is a control too — it is a
+tape recorder, and pressing the wheel plays and stops it. Turns-through-with-our-buttons is not
+enough there: the click's default is the torch, so the press would light the flashlight and be
+consumed before the app ever saw it, with nothing the app could do from its side. So it is
+hands-off outright, and the trade is that the torch and the camera key do nothing of ours while
+it is in front. The list is `ownsWheelPrefixes`, consulted before the scroll-aware one because
+`com.gios.brightrecorder` sits inside `com.gios.` and would otherwise be claimed by it. Per-app overrides cycle on tap through
 `AUTO → BRIGHT → SWIPE → APP → OFF`, and rows left on `AUTO` show what it resolved to,
 so this table is visible in the UI, not folklore.
 
@@ -418,6 +427,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v2.15 | **Apps that own the whole wheel.** The scroll-aware rule passes an app's turns but keeps the click, and the click's default is the torch — so an app whose wheel *press* is a control of its own never saw it, with nothing it could do from its side. BrightRecorder, a tape recorder where pressing the wheel plays and stops, is now hands-off outright: every key reaches it untouched and the turn mode does not apply. Consulted before the scroll-aware list, since `com.gios.brightrecorder` sits inside `com.gios.`. The trade is that the torch and camera key do nothing of ours while it is in front; nothing changes for the rest of the family |
 | v2.14 | **The camera button works from the lock face.** It always started the camera — but at layer 31 the face is above even an app that has just come to the front, so the shutter fired, the photos were taken, and the viewfinder was never visible. Any binding that brings something forward (camera, an app, LightOS, Resume) now takes the face down with it, and it stays down until the next sleep. The torch and the volume keys deliberately do not, since they change nothing about what is on screen |
 | v2.13 | **The face holds black for half a second, then fades up.** Unlocking with your thumb already on the button opens the phone in a couple of hundred milliseconds, and painting a lock screen only to take it away again inside that window is a flicker that reads as a fault. So the panel lights black and stays black; if the phone is still locked when the wait is out, the face fades in over 320 ms. A thumb that landed first takes the window down before the fade starts and nothing is ever seen |
 | v2.12 | **BrightChat's photo grid, not the system picker.** The picker reads MediaStore and nothing on LightOS keeps MediaStore current, so a photo taken minutes ago simply is not offered — which made v2.11's SAF picker the same dead end behind a different door. The background editor now walks DCIM and Pictures itself, newest first, three across, one tap to choose. A directory listing cannot go stale. Needs `READ_MEDIA_IMAGES`, which it asks for itself |
