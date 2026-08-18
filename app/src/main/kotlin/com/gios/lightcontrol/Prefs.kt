@@ -476,6 +476,27 @@ object Policy {
      * forwarded to LightOS — which already does the right thing with it. Claiming their
      * buttons would remove behaviour that works.
      */
+    /**
+     * Apps that own the **whole** wheel — its turns and its press.
+     *
+     * [scrollAwarePrefixes] is not enough for these. That rule passes turns through but keeps the
+     * click for this service, and the click's default binding is the torch, so an app that uses
+     * the press as a control of its own never sees it: the torch comes on instead and the key is
+     * consumed. Nothing the app can do about that from its side — this service decides first.
+     *
+     * So these resolve to [AppRule.Off] outright, which is the same hands-off treatment Light's
+     * own tools get: every key goes to the app untouched, and the turn mode does not apply either.
+     * The cost is that the torch and the camera key do nothing while such an app is in front,
+     * which is the correct trade when the app is a tape recorder and the wheel is its transport.
+     *
+     * Checked before everything below, because `com.gios.` in the scroll-aware list would
+     * otherwise claim these first and hand back the weaker rule.
+     */
+    private val ownsWheelPrefixes = listOf(
+        // BrightRecorder: turning the wheel scrubs the tape, pressing it plays and stops.
+        "com.gios.brightrecorder",
+    )
+
     private val scrollAwarePrefixes = listOf(
         "com.gios.",
         "com.lightfastread",
@@ -488,7 +509,21 @@ object Policy {
     fun ruleFor(prefs: Prefs, pkg: String): AppRule {
         val explicit = prefs.ruleFor(pkg)
         if (explicit != AppRule.Default) return explicit
-        // Scroll-aware is checked first because it holds the more specific ids: one of them
+        return builtInRuleFor(pkg)
+    }
+
+    /**
+     * The built-in table, with no stored preference involved.
+     *
+     * Split out from [ruleFor] so the ordering below can be tested on the JVM — it is three
+     * overlapping prefix lists and the order they are consulted in is the whole behaviour, which
+     * is exactly the kind of thing that looks obviously right and is not.
+     */
+    fun builtInRuleFor(pkg: String): AppRule {
+        // Whole-wheel apps first: they sit inside the scroll-aware prefixes and need the stronger
+        // rule, not the weaker one. See [ownsWheelPrefixes].
+        if (ownsWheelPrefixes.any { pkg.startsWith(it) }) return AppRule.Off
+        // Scroll-aware next because it holds the more specific ids: one of them
         // sits inside a hands-off prefix, and being ours is the stronger fact.
         if (scrollAwarePrefixes.any { pkg.startsWith(it) }) return AppRule.ScrollThrough
         if (handsOffPrefixes.any { pkg.startsWith(it) }) return AppRule.Off
