@@ -1,35 +1,45 @@
-## BrightControl v2.15 — Apps that own the whole wheel
+## BrightControl v2.16 — The notifications that fit, and a drag for the rest
 
-**A new built-in rule for apps whose wheel *press* is a control of their own, not just their
-turns. BrightRecorder is the first, and it is why this exists.**
+**The third notification on the lock face was cut in half. It always was, and it was never going to
+be fixed by showing fewer of them.**
 
-The scroll-aware rule passes an app's bare turns through and keeps the click for this service. That
-is right for nearly everything — the click is the torch, phone-wide, and an app that scrolls with
-the wheel still wants a flashlight. It is wrong for an app where pressing the wheel *is* a control.
+The column was a plain list at the end of a weighted layout: it was handed whatever vertical space
+the clock and the date had left over, and it drew its rows regardless of whether they went past the
+end of it. Two notifications fit, the third one lost its bottom, and the fourth was not there at
+all — with nothing on screen to say there was more.
 
-BrightRecorder is a tape recorder: turning the wheel scrubs the tape and pressing it plays and
-stops. Under the scroll-aware rule its press never arrived — the torch came on instead and the key
-was consumed, with nothing the app could do from its side, because this service decides first.
+Lowering the cap would have traded one wrong answer for another, because **how many fit is not a
+number this code can know in advance**. A notification is one line if it has only a title and three
+if it has a body, and the space left over depends on the picture, the prompt lines and the screen.
+The count has to be measured, not decided.
 
-So there is now a short list of applicationIds that own the whole wheel, turns and press alike, and
-they resolve to the same hands-off treatment Light's own tools get: every key reaches the app
-untouched, and the global turn mode does not apply either. It is consulted before the scroll-aware
-list, because `com.gios.brightrecorder` sits inside `com.gios.` and would otherwise be claimed by
-the weaker rule.
+So it is measured. The column now asks its rows how tall they turned out, keeps the ones that fit
+**whole**, and ends exactly where the last of them ends — the bottom edge of the list is the bottom
+edge of a notification, always. What does not fit is not thrown away either: **a drag inside the
+column moves through the rest**, and letting go settles it on a boundary rather than resting
+mid-notification. Up to eight are reachable that way, with `+N MORE` past that, since a lock screen
+that has to be scrolled through is a shade.
 
-The cost, and it is deliberate: **while such an app is in front, the wheel click and the camera
-button do nothing of ours** — no torch, no camera. That is the correct trade when the app in front
-is a tape recorder and the wheel is its transport, and it is the same bargain already struck for
-LightOS's own screens. Nothing changes for any other app: the rest of the `com.gios.` family still
-gets turns-through-with-our-buttons exactly as before.
+### Swiping up still reaches the keypad
 
-Doing this by hand was already possible — the per-app rule **Off** has always meant this — so this
-release is about it being right without anyone having to find the setting.
+This is the part that had to be right. The face is dismissed by swiping up, and that gesture is how
+the keypad is reached — a scrolling area in the middle of the screen is normally a band where the
+swipe silently stops working, because a scroll view claims every touch it is offered whether or not
+it has anything to scroll.
+
+The column claims a drag **only when there is something to scroll**. When everything fits, it never
+sees the touch at all and the swipe behaves exactly as it did before. When it does scroll, the drag
+moves the list and nothing else: it does not raise the bouncer, does not dismiss the keyguard, and
+does not unlock the phone. There is no fling, either — momentum is what would leave the list resting
+half way through a notification, which is the thing this release exists to stop.
 
 ### Under the hood
 
-The built-in table is now a pure function of the applicationId, split out from the stored-preference
-lookup so it can be tested on the JVM. Five new tests, because three prefix lists overlap here and
-the order they are consulted in *is* the behaviour: that a whole-wheel app is left alone entirely,
-that the rest of the `com.gios.` family still only gets its turns, that Light's own software stays
-hands-off, and that the phono fork keeps its bindings despite its Light-looking id.
+The column is also **rebuilt only when the notifications change**, rather than on every minute tick.
+The old code tore down its views and built them again once a minute, which was a flicker before and
+would now also throw away a scroll position while it was being read.
+
+The two sums this depends on — how tall the column may be, and where a released drag settles — are a
+pure function apart from the view that uses them, and there are eight new JVM tests over them. Not
+ceremony: the failure they cover is a notification with its bottom half missing on a locked phone at
+midnight, which is invisible to every other kind of check.

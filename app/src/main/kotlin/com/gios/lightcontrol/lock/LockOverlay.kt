@@ -93,7 +93,17 @@ class LockOverlay(private val context: Context) {
     private var date: TextView? = null
     private var bars: SignalBars? = null
     private var alarm: TextView? = null
-    private var notes: LinearLayout? = null
+    private var notes: NoteScroll? = null
+
+    /**
+     * What the note column was last built from.
+     *
+     * The column is rebuilt only when this changes, which matters for two reasons: [refresh] runs
+     * on every minute tick, and tearing down four views and building them again once a minute is
+     * both a flicker and — now that the column scrolls — a scroll position thrown away while
+     * someone was reading it.
+     */
+    private var noteStamp: String? = null
 
     /** Hidden by a tap, and left hidden until the next sleep. */
     private var dismissedByTouch = false
@@ -157,6 +167,10 @@ class LockOverlay(private val context: Context) {
             handler.removeCallbacks(fadeIn)
             face?.animate()?.cancel()
             face?.alpha = 0f
+            // A fresh lock is a fresh look at the newest thing on the phone, so a window that
+            // survived one starts at the top of its notifications rather than wherever last
+            // night's drag left them.
+            notes?.toTop()
             refresh()
             return
         }
@@ -210,6 +224,7 @@ class LockOverlay(private val context: Context) {
         bars = null
         alarm = null
         notes = null
+        noteStamp = null
         return true
     }
 
@@ -308,9 +323,14 @@ class LockOverlay(private val context: Context) {
             textSize = type.paragraph
             gravity = Gravity.CENTER
         }
-        val noteList = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, type.gridPx(2f), 0, 0)
+        // Two grid units of air under the date, as a margin rather than as padding inside the
+        // column: padding would scroll away with the first notification, and the gap between the
+        // date and the list is part of the page, not part of the list.
+        val noteList = NoteScroll(context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = type.gridPx(2f) }
         }
         middle.addView(time)
         middle.addView(day)
@@ -468,11 +488,18 @@ class LockOverlay(private val context: Context) {
     }
 
     private fun fillNotes() {
-        val list = notes ?: return
+        val column = notes ?: return
+        val current = LockNotes.notes.value
+        // Nothing has changed since the last tick, so leave the views — and whatever the user has
+        // scrolled the column to — alone. See [noteStamp].
+        val stamp = current.joinToString("\u0000") { "${it.key}|${it.title}|${it.text}" }
+        if (stamp == noteStamp) return
+        noteStamp = stamp
+
+        val list = column.list
         // Wrapped by every caller, but named here too: this runs on a broadcast, on the main
         // thread, behind the lock screen. A throw here is the phone appearing to freeze.
         list.removeAllViews()
-        val current = LockNotes.notes.value
         val pad = type.gridPx(0.55f)
         // The SDK's list row is `copy` over `detail`; the app name above it is the small tracked
         // label the rest of the phone uses for a section.
@@ -521,7 +548,10 @@ class LockOverlay(private val context: Context) {
         if (current.size > MAX_NOTES) {
             list.addView(barLabel(pad).apply { text = "+${current.size - MAX_NOTES} MORE" })
         }
-        list.visibility = if (current.isEmpty()) View.GONE else View.VISIBLE
+        column.visibility = if (current.isEmpty()) View.GONE else View.VISIBLE
+        // A new notification is the newest thing on the phone, so the column shows it rather than
+        // wherever the last drag happened to leave it.
+        column.toTop()
     }
 
     /**
@@ -599,7 +629,15 @@ class LockOverlay(private val context: Context) {
         /** The fade itself. Slow enough to read as arriving, not as a repaint. */
         const val FADE_MS = 320L
 
-        const val MAX_NOTES = 4
+        /**
+         * How many are reachable at all, whether or not they fit.
+         *
+         * Not a guess at what the screen holds any more — [NoteScroll] measures that, and how many
+         * fit depends on how many lines each notification turns out to have. This is only the point
+         * past which a lock screen stops being a lock screen: beyond it the count is printed and the
+         * shade is the place to go.
+         */
+        const val MAX_NOTES = 8
         const val BATTERY_TAG = "lock_battery"
 
         /**
