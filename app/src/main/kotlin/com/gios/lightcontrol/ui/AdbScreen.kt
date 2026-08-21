@@ -34,7 +34,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gios.lightcontrol.Prefs
+import android.content.Intent
+import android.provider.Settings
 import com.gios.lightcontrol.adb.AdbManager
+import com.gios.lightcontrol.adb.AdbPairOverlay
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
@@ -132,6 +135,35 @@ fun AdbScreen(onBack: () -> Unit) {
                 "Keep Wi-Fi connected.")
 
             SectionLabel("STEP 2 — PAIR (ONCE)")
+            Guide(
+                "Best way: the floating panel. It sits on top of the Settings pairing dialog, so " +
+                    "the dialog stays open and the pairing stays alive while you type the code " +
+                    "into the panel. Tap below, then open the pairing dialog.",
+            )
+            BigButton(
+                label = "OPEN FLOATING PAIR PANEL",
+                filled = true,
+                enabled = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                if (!AdbPairOverlay.allowed(context)) {
+                    say("needs the Overlay grant — see Setup, or grant it once over adb")
+                } else {
+                    AdbPairOverlay.show(context)
+                    say("floating panel opened — now open Wireless debugging → pair")
+                    // Jump straight to Developer options so the pairing dialog is two taps away;
+                    // the panel floats above it. Best-effort — some builds hide this action.
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            }
+            Rule()
+            Guide("Or pair here in the app — only works if the dialog survives being left with " +
+                "Home on your build:")
             Step("3", "In Wireless debugging, tap \"Pair device with pairing code\". A box shows a " +
                 "six-digit code and an IP address with a port. You only need the code.")
             Step("4", "IMPORTANT: leave that box with the HOME button, not Back. Back cancels the " +
