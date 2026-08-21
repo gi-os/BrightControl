@@ -10,17 +10,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.gios.lightcontrol.keys.LightKey
 import com.gios.lightcontrol.keys.LightKeys
 import com.gios.lightcontrol.keys.OwnWindow
+import com.gios.lightcontrol.ui.AdbScreen
 import com.gios.lightcontrol.ui.AppListScreen
+import com.gios.lightcontrol.ui.BrightnessScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
+import com.gios.lightcontrol.ui.ColorAppListScreen
+import com.gios.lightcontrol.ui.ColorScreen
+import com.gios.lightcontrol.ui.DiagnosticsScreen
+import com.gios.lightcontrol.ui.HomeScreen
+import com.gios.lightcontrol.ui.IntroScreen
+import com.gios.lightcontrol.ui.LockBackgroundScreen
+import com.gios.lightcontrol.ui.LockScreenScreen
 import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
-import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
-import com.gios.lightcontrol.ui.SettingsScreen
+import com.gios.lightcontrol.ui.SetupScreen
+import com.gios.lightcontrol.ui.VolumeScreen
+import com.gios.lightcontrol.ui.WheelScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,15 +39,33 @@ import kotlinx.coroutines.flow.asSharedFlow
 import com.gios.lightcontrol.report.CrashLog
 import com.gios.lightcontrol.report.ReportOverlay
 
-/** Six screens, one level deep each — a nav library would be more code than this. */
+/**
+ * The settings, as a hub and a set of section screens rather than one long scroll.
+ *
+ * [Screen.Home] is the root. Each door off it is one level deep, except the pickers that hang off
+ * a list ([Screen.Pick] under Buttons, [Screen.ResumeFallback] under ResumeApps) — [parentOf]
+ * encodes where Back lands, so the whole thing needs no nav library. A first install opens on
+ * [Screen.Intro] instead of Home.
+ */
 private sealed interface Screen {
-    data object Settings : Screen
+    data object Intro : Screen
+    data object Home : Screen
+    data object Setup : Screen
     data object Buttons : Screen
-    data object Apps : Screen
+    data object Wheel : Screen
+    data object PerAppWheel : Screen
+    data object Brightness : Screen
+    data object Volume : Screen
+    data object Color : Screen
+    data object PerAppColor : Screen
+    data object Lock : Screen
+    data object Background : Screen
     data object ResumeApps : Screen
     data object ResumeFallback : Screen
-    data object Background : Screen
-    /** [fromSettings] is only so Back returns where the picker was opened from. */
+    data object Adb : Screen
+    data object Diagnostics : Screen
+
+    /** [fromSettings] only decides where Back returns the picker to. */
     data class Pick(
         val button: Button,
         val gesture: Gesture,
@@ -44,92 +73,116 @@ private sealed interface Screen {
     ) : Screen
 }
 
-/**
- * The settings screens, and the one place the wheel is handled in-app rather than in the
- * service.
- *
- * LightControl resolves to `ScrollThrough` for itself — it's a `com.gios.` package — so the
- * service passes turns straight here. Which is the point being demonstrated: an app that
- * handles the wheel scrolls per notch, and one that doesn't gets brightness or a swipe.
- */
 class MainActivity : ComponentActivity() {
 
     private val notches = MutableSharedFlow<Int>(extraBufferCapacity = 64)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // First thing, before anything else can throw: the handler chains onto whatever is
-        // already installed and only writes a file, so it is safe this early.
         CrashLog.install(this)
         setContent {
             LightControlTheme {
                 CompositionLocalProvider(LocalNotches provides notches.asSharedFlow()) {
-                    var screen by remember { mutableStateOf<Screen>(Screen.Settings) }
-                    val home = { screen = Screen.Settings }
+                    val context = LocalContext.current
+                    val prefs = remember { Prefs(context) }
+                    var screen by remember {
+                        mutableStateOf<Screen>(if (prefs.introSeen) Screen.Home else Screen.Intro)
+                    }
+                    val home = { screen = Screen.Home }
 
-                    BackHandler(enabled = screen != Screen.Settings) {
-                        // The picker belongs to the buttons screen, unless it was opened straight
-                        // from the settings screen's home-button row.
-                        val current = screen
-                        screen = when {
-                            current is Screen.Pick && !current.fromSettings -> Screen.Buttons
-                            current is Screen.ResumeFallback -> Screen.ResumeApps
-                            else -> Screen.Settings
-                        }
+                    BackHandler(enabled = screen != Screen.Home && screen != Screen.Intro) {
+                        screen = parentOf(screen)
                     }
 
                     when (val current = screen) {
-                        Screen.Settings -> SettingsScreen(
-                            onButtons = { screen = Screen.Buttons },
-                            onPerApp = { screen = Screen.Apps },
-                            onHomeTap = {
-                                screen = Screen.Pick(Button.Home, Gesture.Tap, fromSettings = true)
+                        Screen.Intro -> IntroScreen(
+                            onSetup = { screen = Screen.Setup },
+                            onDone = {
+                                prefs.introSeen = true
+                                screen = Screen.Home
                             },
-                            onResumeApps = { screen = Screen.ResumeApps },
-                            onResumeFallback = { screen = Screen.ResumeFallback },
-                            onBackground = { screen = Screen.Background },
                         )
 
-                        Screen.Background -> LockBackgroundScreen(onClose = home)
+                        Screen.Home -> HomeScreen(
+                            onGuide = { screen = Screen.Intro },
+                            onButtons = { screen = Screen.Buttons },
+                            onWheel = { screen = Screen.Wheel },
+                            onBrightness = { screen = Screen.Brightness },
+                            onColor = { screen = Screen.Color },
+                            onLock = { screen = Screen.Lock },
+                            onVolume = { screen = Screen.Volume },
+                            onAdb = { screen = Screen.Adb },
+                            onSetup = { screen = Screen.Setup },
+                            onDiagnostics = { screen = Screen.Diagnostics },
+                        )
 
-                        Screen.Buttons -> ButtonsScreen(
-                            onPick = { button, gesture -> screen = Screen.Pick(button, gesture) },
+                        Screen.Setup -> SetupScreen(
+                            onAdb = { screen = Screen.Adb },
                             onBack = home,
                         )
 
-                        Screen.Apps -> AppListScreen(onBack = home)
+                        Screen.Buttons -> ButtonsScreen(
+                            onPick = { button, gesture -> screen = Screen.Pick(button, gesture) },
+                            onResumeApps = { screen = Screen.ResumeApps },
+                            onBack = home,
+                        )
+
+                        Screen.Wheel -> WheelScreen(
+                            onPerApp = { screen = Screen.PerAppWheel },
+                            onBack = home,
+                        )
+
+                        Screen.PerAppWheel -> AppListScreen(onBack = { screen = Screen.Wheel })
+
+                        Screen.Brightness -> BrightnessScreen(onBack = home)
+
+                        Screen.Volume -> VolumeScreen(onBack = home)
+
+                        Screen.Color -> ColorScreen(
+                            onPerApp = { screen = Screen.PerAppColor },
+                            onAdb = { screen = Screen.Adb },
+                            onBack = home,
+                        )
+
+                        Screen.PerAppColor -> ColorAppListScreen(onBack = { screen = Screen.Color })
+
+                        Screen.Lock -> LockScreenScreen(
+                            onBackground = { screen = Screen.Background },
+                            onResumeApps = { screen = Screen.ResumeApps },
+                            onResumeFallback = { screen = Screen.ResumeFallback },
+                            onBack = home,
+                        )
+
+                        Screen.Background -> LockBackgroundScreen(onClose = { screen = Screen.Lock })
 
                         Screen.ResumeApps -> ResumeAppsScreen(
                             onBack = home,
                             onChooseFallback = { screen = Screen.ResumeFallback },
                         )
 
-                        // Back from here returns to the resume list rather than all the way out,
-                        // because it was opened from a row on it.
                         Screen.ResumeFallback -> ResumeFallbackScreen(
                             onBack = { screen = Screen.ResumeApps },
                         )
+
+                        Screen.Adb -> AdbScreen(onBack = home)
+
+                        Screen.Diagnostics -> DiagnosticsScreen(onBack = home)
 
                         is Screen.Pick -> PickerScreen(
                             button = current.button,
                             gesture = current.gesture,
                             onDone = {
-                                screen =
-                                    if (current.fromSettings) Screen.Settings else Screen.Buttons
+                                screen = if (current.fromSettings) Screen.Home else Screen.Buttons
                             },
                             onChooseResumeApps = { screen = Screen.ResumeApps },
                         )
                     }
                 }
-                // Shake to report, the crash offer on next launch, and the app's own noticed
-                // failures. A sibling, not a wrapper — the sheet is its own window, so it covers
-                // the app whether or not it contains it.
                 ReportOverlay()
             }
         }
     }
 
-    /** The service reads this rather than trusting a window-state event from our overlay. */
     override fun onResume() {
         super.onResume()
         OwnWindow.resumed = true
@@ -140,10 +193,6 @@ class MainActivity : ComponentActivity() {
         OwnWindow.resumed = false
     }
 
-    /**
-     * The wheel, in here. The service passes turns through for this package, and the activity
-     * is the only thing that sees them before the view hierarchy does.
-     */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         when (LightKeys.of(event)) {
             LightKey.WheelUp -> {
@@ -158,6 +207,16 @@ class MainActivity : ComponentActivity() {
         }
         return super.dispatchKeyEvent(event)
     }
+}
+
+/** Where Back goes from each screen. Most return to Home; a few hang off a parent list. */
+private fun parentOf(screen: Screen): Screen = when (screen) {
+    Screen.PerAppWheel -> Screen.Wheel
+    Screen.PerAppColor -> Screen.Color
+    Screen.Background -> Screen.Lock
+    Screen.ResumeFallback -> Screen.ResumeApps
+    is Screen.Pick -> if (screen.fromSettings) Screen.Home else Screen.Buttons
+    else -> Screen.Home
 }
 
 /** Wheel notches, for whichever list is on screen. */

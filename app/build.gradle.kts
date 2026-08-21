@@ -32,7 +32,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "2.15.0"
+        versionName = "2.16.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -85,6 +85,16 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // On-device ADB. Lets the app connect to its own phone's wireless-debugging daemon over
+    // loopback and run the grant commands itself, so a reinstall no longer means plugging into a
+    // computer to re-enable the service and re-grant the appops. See adb/AdbManager.kt.
+    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
+    // Generates the X509 client certificate libadb needs for the TLS handshake; the daemon
+    // shows its fingerprint in the pairing dialog. Pure-Java sun.security backport, no NDK.
+    implementation("com.github.MuntashirAkon:sun-security-android:1.1")
+    // Custom Conscrypt so the TLS 1.3 pairing handshake works without any hidden-API bypass.
+    implementation("org.conscrypt:conscrypt-android:2.5.3")
 
     // The shake gesture is plain arithmetic with no Android imports, so it runs here.
     testImplementation("junit:junit:4.13.2")

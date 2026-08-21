@@ -16,7 +16,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,11 +39,15 @@ import com.gios.lightcontrol.ui.theme.Dim
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
+fun ButtonsScreen(
+    onPick: (Button, Gesture) -> Unit,
+    onResumeApps: () -> Unit,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
-    val homeArmed = prefs.homeTakeover
+    var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -89,12 +96,27 @@ fun ButtonsScreen(onPick: (Button, Gesture) -> Unit, onBack: () -> Unit) {
                                 "on the lock screen, with the screen off, or on LightOS's own " +
                                 "screens — there the whole press goes through untouched."
                         } else {
-                            "the takeover is off, so nothing is consumed: LightOS sees every " +
-                                "press and the hold binding doesn't apply. Turn it back on in " +
-                                "Controls."
+                            "off, so nothing is consumed: LightOS sees every press and the hold " +
+                                "binding doesn't apply. Tap to arm it."
                         },
-                        dim = true,
+                        onClick = {
+                            homeArmed = !homeArmed
+                            if (homeArmed) prefs.armHome() else prefs.homeTakeover = false
+                        },
                     )
+                    if (prefs.action(Button.Home, Gesture.Tap) == Action.Resume) {
+                        val chosen = prefs.resumeApps().size
+                        MenuRow(
+                            label = "Resume apps",
+                            detail = if (chosen == 0) "NONE" else "$chosen",
+                            sub = if (chosen == 0) {
+                                "nothing chosen yet, so the home tap still just goes home"
+                            } else {
+                                "sleep in one of these and the home tap brings it back, once"
+                            },
+                            onClick = onResumeApps,
+                        )
+                    }
                 }
                 if (button == Button.Camera) {
                     MenuRow(

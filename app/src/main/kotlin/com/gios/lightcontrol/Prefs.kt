@@ -50,6 +50,26 @@ enum class AppRule {
     SwipeOnTurn,
 }
 
+/**
+ * What the screen's colour does while one app is in front.
+ *
+ * LightOS pins the whole system to monochrome through the accessibility daltonizer, which is
+ * a single system-wide setting. There is no per-app colour on this phone, so this app supplies
+ * it: the service watches which app comes to the front and drives that one setting to whatever
+ * the front app asks for. [Default] means "leave it at the baseline" — whatever the phone was
+ * doing before a rule ever fired, which on a LightOS phone is monochrome.
+ */
+enum class ColorRule {
+    /** No opinion. The baseline is restored — mono on a stock LightOS phone. */
+    Default,
+
+    /** Force full colour while this app is in front. */
+    Color,
+
+    /** Force monochrome while this app is in front, even if the baseline is colour. */
+    Mono,
+}
+
 /** The resolved behaviour for the app that is currently in front. */
 data class Behaviour(
     val bareTurn: TurnAction,
@@ -432,10 +452,73 @@ class Prefs(context: Context) {
         .associate { it.removePrefix(APP_PREFIX) to ruleFor(it.removePrefix(APP_PREFIX)) }
         .filterValues { it != AppRule.Default }
 
+    // ---------------------------------------------------------------- per-app colour
+
+    /**
+     * Whether the service drives the daltonizer at all. Off means colour rules are ignored and
+     * the phone keeps whatever the daltonizer was set to — the safe default, because forcing the
+     * setting needs a grant most phones will not have until [adb/AdbManager] or a computer sets
+     * it.
+     */
+    var colorAutoSwitch: Boolean
+        get() = sp.getBoolean("color_auto", false)
+        set(v) = sp.edit().putBoolean("color_auto", v).apply()
+
+    fun colorRuleFor(pkg: String): ColorRule =
+        runCatching {
+            ColorRule.valueOf(sp.getString(colorKey(pkg), null) ?: return ColorRule.Default)
+        }.getOrDefault(ColorRule.Default)
+
+    fun setColorRule(pkg: String, rule: ColorRule) {
+        sp.edit().apply {
+            if (rule == ColorRule.Default) remove(colorKey(pkg)) else putString(colorKey(pkg), rule.name)
+        }.apply()
+    }
+
+    /** Every package with an explicit colour rule, for the settings list. */
+    fun colorOverrides(): Map<String, ColorRule> = sp.all.keys
+        .filter { it.startsWith(COLOR_PREFIX) }
+        .associate { it.removePrefix(COLOR_PREFIX) to colorRuleFor(it.removePrefix(COLOR_PREFIX)) }
+        .filterValues { it != ColorRule.Default }
+
+    /**
+     * The daltonizer state to return to when no rule applies, captured once so a phone that was
+     * colour to begin with is not left mono by this app. -1 for the enabled flag means "not yet
+     * captured". Written by the service the first time it reads the live setting.
+     */
+    var colorBaselineEnabled: Int
+        get() = sp.getInt("color_base_enabled", -1)
+        set(v) = sp.edit().putInt("color_base_enabled", v).apply()
+
+    var colorBaselineMode: Int
+        get() = sp.getInt("color_base_mode", 0)
+        set(v) = sp.edit().putInt("color_base_mode", v).apply()
+
+    private fun colorKey(pkg: String) = COLOR_PREFIX + pkg
+
+    // ---------------------------------------------------------------- first run
+
+    /** Whether the intro guide has been dismissed. False means the app opens on it. */
+    var introSeen: Boolean
+        get() = sp.getBoolean("intro_seen", false)
+        set(v) = sp.edit().putBoolean("intro_seen", v).apply()
+
+    // ---------------------------------------------------------------- self-adb
+
+    /** Last host used for the on-device adb connection. Loopback is right almost always. */
+    var adbHost: String
+        get() = sp.getString("adb_host", "127.0.0.1") ?: "127.0.0.1"
+        set(v) = sp.edit().putString("adb_host", v).apply()
+
+    var adbPort: String
+        get() = sp.getString("adb_port", "") ?: ""
+        set(v) = sp.edit().putString("adb_port", v).apply()
+
     private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
         const val APP_PREFIX = "app:"
+        const val COLOR_PREFIX = "color:"
 
         const val RESUME_APPS = "resume_apps"
         const val RESUME_FALLBACK = "resume_fallback"

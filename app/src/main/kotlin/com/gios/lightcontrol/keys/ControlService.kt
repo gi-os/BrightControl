@@ -138,6 +138,7 @@ class ControlService : AccessibilityService() {
 
     /** The synthetic finger that scrolls apps which don't understand the wheel. */
     private lateinit var swipe: WheelSwipe
+    private lateinit var colorMode: ColorMode
 
     /** The Light face over the lock screen. A window this service owns, not an activity. */
     private lateinit var lockFace: LockOverlay
@@ -180,6 +181,11 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
+        // Per-app colour. Captures the daltonizer baseline the first time it runs and drives it
+        // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
+        // settings grant is present. See keys/ColorMode.kt.
+        colorMode = ColorMode(this, prefs)
+        runCatching { colorMode.applyFor(foreground) }
         // The first-class version of "is the phone open", on the versions that have it. A listener
         // rather than only a broadcast, because ACTION_USER_PRESENT is the one signal in this
         // feature that has already been observed not to arrive, and a lock face that outlives the
@@ -233,6 +239,9 @@ class ControlService : AccessibilityService() {
             foregroundAt = SystemClock.uptimeMillis()
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
             if (pkg == coverTarget) dropCover()
+            // The colour the new front app asks for. State-driven, so a missed switch self-corrects
+            // on the next one; see keys/ColorMode.kt.
+            runCatching { colorMode.applyFor(pkg) }
         }
         // The offer to go back only stands while you are still sitting on LightOS's lock screen
         // or dashboard, which is where a wake leaves you. Reach any other app under your own
@@ -293,6 +302,7 @@ class ControlService : AccessibilityService() {
      * `onNewIntent` on the activity already there, which costs nothing.
      */
     private fun onScreenOn() {
+        runCatching { colorMode.applyFor(foreground) }
         if (!prefs.lockScreen) return
         // Not if a tap put it away. Re-raising a face the user just dismissed to reach the keypad
         // would make the keypad unreachable, which is the one bug this feature must never have.
@@ -923,6 +933,7 @@ class ControlService : AccessibilityService() {
         presses.clear()
         cameraPackages.clear()
         alarmPackages.clear()
+        runCatching { colorMode.restoreBaseline() }
         return super.onUnbind(intent)
     }
 
