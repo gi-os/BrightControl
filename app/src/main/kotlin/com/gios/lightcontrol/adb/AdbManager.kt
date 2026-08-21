@@ -20,6 +20,12 @@ import android.sun.security.x509.X500Name
 import android.sun.security.x509.X509CertImpl
 import android.sun.security.x509.X509CertInfo
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
+import io.github.muntashirakon.adb.android.AdbMdns
+import io.github.muntashirakon.adb.android.AndroidUtils
+import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
@@ -112,6 +118,54 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
     override fun getCertificate(): Certificate = mCertificate
 
     override fun getDeviceName(): String = "BrightControl"
+
+    /**
+     * Pair with the phone's own adb daemon, finding the pairing port ourselves over mDNS.
+     *
+     * This is the crux of single-device pairing. Android's "Pair device with pairing code"
+     * dialog shows a port *and* a code, but the port changes every time and the dialog closes
+     * the moment you switch to another app to type it — so asking the user for the port cannot
+     * work. Instead we discover the pairing service (`_adb-tls-pairing._tcp`) that the dialog
+     * advertises while it is open, and the user supplies only the six-digit code. This is exactly
+     * what libadb's own reference app does.
+     *
+     * For this to land, the pairing dialog must still be *alive* when this runs — leave it with
+     * Home, not Back (Back cancels it), then come here and pair. Discovery waits up to
+     * [timeoutMs] for the service to appear, so opening the dialog a beat late is fine.
+     */
+    fun pairViaMdns(context: Context, code: String, timeoutMs: Long): Boolean {
+        val latch = CountDownLatch(1)
+        val portRef = AtomicInteger(-1)
+        val hostRef = AtomicReference<String?>(null)
+        val mdns = AdbMdns(context, AdbMdns.SERVICE_TYPE_TLS_PAIRING) { host: InetAddress?, port: Int ->
+            if (port > 0) {
+                portRef.set(port)
+                hostRef.set(host?.hostAddress)
+                latch.countDown()
+            }
+        }
+        mdns.start()
+        try {
+            if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) return false
+        } finally {
+            runCatching { mdns.stop() }
+        }
+        val port = portRef.get()
+        if (port <= 0) return false
+        val host = hostRef.get() ?: AndroidUtils.getHostIpAddress(context)
+        return pair(host, port, code)
+    }
+
+    /**
+     * Connect to the running daemon, preferring mDNS discovery of `_adb-tls-connect._tcp` and
+     * falling back to a port the user typed off the Wireless-debugging screen. The connect port is
+     * stable (unlike the pairing port) so typing it is a fine fallback when mDNS finds nothing.
+     */
+    fun connectAuto(context: Context, timeoutMs: Long): Boolean =
+        autoConnect(context, timeoutMs)
+
+    fun connectPort(context: Context, port: Int): Boolean =
+        connect(AndroidUtils.getHostIpAddress(context), port)
 
     /**
      * Run one shell command and return everything it prints, stdout and stderr merged the way
