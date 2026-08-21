@@ -222,6 +222,36 @@ fun AdbScreen(onBack: () -> Unit) {
             }
             Rule()
 
+            SectionLabel("NFC — FOR CHIP MODS")
+            Guide(
+                "Turns the phone's NFC radio on or off over adb — handy when working with NFC " +
+                    "chip mods and implants that the normal toggle fights with. Runs " +
+                    "\"svc nfc enable/disable\"; needs a connection.",
+            )
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                BigButton(
+                    label = "NFC ON",
+                    enabled = !busy && connected,
+                    modifier = Modifier.weight(1f).padding(end = 4.dp),
+                ) {
+                    run("nfc enable") {
+                        AdbManager.getInstance(context).runCommand("svc nfc enable")
+                        "NFC enabled"
+                    }
+                }
+                BigButton(
+                    label = "NFC OFF",
+                    enabled = !busy && connected,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                ) {
+                    run("nfc disable") {
+                        AdbManager.getInstance(context).runCommand("svc nfc disable")
+                        "NFC disabled"
+                    }
+                }
+            }
+            Rule()
+
             SectionLabel("ADVANCED — RUN A COMMAND")
             Guide(
                 "Runs against the phone's own shell (no \"adb shell\" prefix). Whatever the daemon " +
