@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The pairing reader, scoped as tightly as the platform allows.
+
+  packageNames pins it to the system Settings app, so this service cannot receive an event from
+  any other app on the phone. That is a registration-level guarantee, not a policy this code
+  promises to honour, and it is the reason this is a second service rather than a flag flipped
+  on control_service.xml — which stays canRetrieveWindowContent="false".
+
+  It also does nothing unless AdbPairSession is armed, which the user starts by hand and which
+  closes after ninety seconds.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/adb_pair_service_description"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
+    android:packageNames="com.android.settings"
+    android:notificationTimeout="100" />

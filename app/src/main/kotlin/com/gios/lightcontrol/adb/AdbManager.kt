@@ -129,9 +129,11 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
      * advertises while it is open, and the user supplies only the six-digit code. This is exactly
      * what libadb's own reference app does.
      *
-     * For this to land, the pairing dialog must still be *alive* when this runs — leave it with
-     * Home, not Back (Back cancels it), then come here and pair. Discovery waits up to
-     * [timeoutMs] for the service to appear, so opening the dialog a beat late is fine.
+     * For this to land, the pairing dialog must still be *alive* when this runs, and "alive"
+     * means Settings is still the foreground app. Home does not preserve it: the dialog's own
+     * `onStop()` dismisses it and calls `disablePairing()`. That is why this is normally driven
+     * by [AdbPairReader], which reads the code without the user ever leaving the dialog.
+     * Discovery waits up to [timeoutMs] for the service to appear.
      */
     fun pairViaMdns(context: Context, code: String, timeoutMs: Long): Boolean {
         val latch = CountDownLatch(1)

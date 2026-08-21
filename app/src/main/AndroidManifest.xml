@@ -137,5 +137,24 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/control_service" />
         </service>
+
+        <!--
+          Reads the six-digit code off the system pairing dialog so setup needs no computer.
+          Scoped to the Settings package in adb_pair_service.xml, and inert unless the user has
+          just tapped PAIR AUTOMATICALLY. Separate from ControlService so that service can keep
+          its canRetrieveWindowContent="false".
+        -->
+        <service
+            android:name=".adb.AdbPairReader"
+            android:exported="true"
+            android:label="@string/adb_pair_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/adb_pair_service" />
+        </service>
     </application>
 </manifest>

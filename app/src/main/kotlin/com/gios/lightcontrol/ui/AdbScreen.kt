@@ -21,6 +21,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,12 +38,13 @@ import com.gios.lightcontrol.Prefs
 import android.content.Intent
 import android.provider.Settings
 import com.gios.lightcontrol.adb.AdbManager
-import com.gios.lightcontrol.adb.AdbPairOverlay
+import com.gios.lightcontrol.adb.AdbPairSession
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGrey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,11 +52,19 @@ import kotlinx.coroutines.withContext
  * The phone granting itself everything, over its own wireless debugging — so a reinstall no
  * longer means finding a computer.
  *
- * Pairing is done the way libadb's own reference app does it: the app **discovers the pairing
- * port over mDNS** (the port the system dialog shows changes every time and the dialog closes the
- * instant you switch apps, so asking for it could never work). You supply only the six-digit
- * code. The one thing that matters: leave the pairing dialog with **Home, not Back** — Back
- * cancels it, Home leaves it alive and advertising while you come here and pair.
+ * Pairing discovers the pairing port over mDNS, the way libadb's own reference app does, so the
+ * port the dialog shows — which changes every time — never has to be typed.
+ *
+ * The code does not have to be typed either, and that is the whole design of this screen. An
+ * earlier version told users to leave the pairing dialog with **Home, not Back**, on the theory
+ * that Home kept the session alive. It does not. `AdbWirelessDialog.onStop()` calls `dismiss()`
+ * and then `onDismiss()`, which calls `disablePairing()`, and `WirelessDebuggingFragment
+ * .onPause()` removes the dialog for good measure. The session dies when Settings stops being
+ * the foreground app, whichever button got it there, so no route that carries the six digits
+ * back to this app can work.
+ *
+ * So [AdbPairSession] and [com.gios.lightcontrol.adb.AdbPairReader] read the digits off the
+ * dialog while it is still on screen. The manual field below is kept only as a last resort.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,40 +146,106 @@ fun AdbScreen(onBack: () -> Unit) {
 
             SectionLabel("STEP 2 — PAIR (ONCE)")
             Guide(
-                "Best way: the floating panel. It sits on top of the Settings pairing dialog, so " +
-                    "the dialog stays open and the pairing stays alive while you type the code " +
-                    "into the panel. Tap below, then open the pairing dialog.",
+                "The phone's pairing box closes the moment you leave Settings — leaving with " +
+                    "Home kills it exactly as dead as Back does. So nothing you carry back here " +
+                    "by hand can work. Instead the app reads the six digits off the box itself, " +
+                    "while it is still open. You type nothing.",
             )
-            BigButton(
-                label = "OPEN FLOATING PAIR PANEL",
-                filled = true,
-                enabled = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                if (!AdbPairOverlay.allowed(context)) {
-                    say("needs the Overlay grant — see Setup, or grant it once over adb")
-                } else {
-                    AdbPairOverlay.show(context)
-                    say("floating panel opened — now open Wireless debugging → pair")
-                    // Jump straight to Developer options so the pairing dialog is two taps away;
-                    // the panel floats above it. Best-effort — some builds hide this action.
+
+            // Polled rather than read once, so coming back from the Accessibility screen with it
+            // switched on updates this page without a manual refresh. Stops as soon as it is on.
+            var readerOn by remember { mutableStateOf(AdbPairSession.readerEnabled(context)) }
+            LaunchedEffect(readerOn) {
+                while (!readerOn) {
+                    delay(1_000)
+                    readerOn = AdbPairSession.readerEnabled(context)
+                }
+            }
+
+            if (!readerOn) {
+                Step("3", "One-time: turn on \"BrightControl pairing helper\" in Settings → " +
+                    "Accessibility. It can only ever see the Settings app, and only for ninety " +
+                    "seconds after you tap the button below. Turn it off when setup is done.")
+                BigButton(
+                    label = "OPEN ACCESSIBILITY SETTINGS",
+                    filled = false,
+                    enabled = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
                     runCatching {
                         context.startActivity(
-                            Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         )
                     }
                 }
             }
+
+            Step(if (readerOn) "3" else "4", "Tap below. Settings opens; go to Wireless debugging " +
+                "→ \"Pair device with pairing code\" and just leave the box on screen. The app " +
+                "takes it from there — pair, connect, and grants, all of it.")
+
+            BigButton(
+                label = when (AdbPairSession.phase) {
+                    AdbPairSession.Phase.Waiting -> "WAITING FOR THE PAIRING BOX…"
+                    AdbPairSession.Phase.Pairing -> "PAIRING…"
+                    AdbPairSession.Phase.Granting -> "GRANTING…"
+                    else -> "PAIR AUTOMATICALLY"
+                },
+                filled = true,
+                enabled = readerOn && AdbPairSession.phase !in setOf(
+                    AdbPairSession.Phase.Waiting,
+                    AdbPairSession.Phase.Pairing,
+                    AdbPairSession.Phase.Granting,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                AdbPairSession.arm()
+                say("armed — open the pairing box and leave it up")
+                runCatching {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+
+            if (AdbPairSession.message.isNotBlank()) {
+                Guide(AdbPairSession.message)
+            }
+            AdbPairSession.grants.forEach { Guide(it) }
+
+            // Light ships its own build of Settings, and whether that build still renders the
+            // code as readable text is the one thing that cannot be checked from a desk. If the
+            // read misses, show what it did see rather than leaving the user guessing.
+            AdbPairSession.unreadable?.let { seen ->
+                Guide(
+                    "Found the pairing box but no six-digit code in it. This is what the screen " +
+                        "read as — send this along and it can be fixed:",
+                )
+                Guide(seen)
+            }
+
+            if (AdbPairSession.phase == AdbPairSession.Phase.Done) {
+                BigButton(
+                    label = "TURN THE PAIRING HELPER OFF",
+                    filled = false,
+                    enabled = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            }
+
             Rule()
-            Guide("Or pair here in the app — only works if the dialog survives being left with " +
-                "Home on your build:")
-            Step("3", "In Wireless debugging, tap \"Pair device with pairing code\". A box shows a " +
-                "six-digit code and an IP address with a port. You only need the code.")
-            Step("4", "IMPORTANT: leave that box with the HOME button, not Back. Back cancels the " +
-                "pairing; Home keeps it running in the background so this app can reach it.")
-            Step("5", "Come back to BrightControl. Type the six-digit code here and tap PAIR. " +
-                "The app finds the pairing port by itself, so you never type it.")
+            Guide("Or type the code yourself. This only works while the pairing box is still on " +
+                "screen, so it means a second device or a very fast thumb — the automatic route " +
+                "above exists precisely because this one mostly cannot be done:")
 
             AdbField("Six-digit pairing code", pairCode, KeyboardType.Number) { pairCode = it }
             BigButton(

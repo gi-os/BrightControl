@@ -2,4 +2,6 @@
     <string name="app_name">Controls</string>
     <string name="service_label">LightControl hardware keys</string>
     <string name="service_description">Keeps the brightness wheel and the camera button working inside sideloaded apps. It reads no screen content — only which app is in front, so the mapping can differ per app.</string>
+    <string name="adb_pair_service_label">BrightControl pairing helper</string>
+    <string name="adb_pair_service_description">Reads the six-digit code off the system pairing dialog during setup, so pairing needs no computer. It can only ever see the Settings app, and only for ninety seconds after you tap Pair automatically. Turn it off once setup is done.</string>
 </resources>
