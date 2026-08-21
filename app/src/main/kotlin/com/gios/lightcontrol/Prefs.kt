@@ -535,6 +535,37 @@ class Prefs(context: Context) {
 object Policy {
 
     /**
+     * Windows that appear over an app without replacing it. The notification shade and this
+     * app's own readout overlay both raise window-state events, and treating either as "the
+     * app in front" would swap the key mapping — and the colour — mid-turn.
+     */
+    private val transientPackages = setOf(
+        "com.gios.lightcontrol",
+        "com.android.systemui",
+    )
+
+    /**
+     * Whether a window-state event is something floating over the front app rather than a new
+     * app arriving.
+     *
+     * A keyboard is the case this was widened for. A soft keyboard raises a window-state event
+     * carrying its own package, so the front app looked like it had changed to the keyboard —
+     * which has no colour rule, so [ColorRule.Default] fired and the panel dropped back to
+     * monochrome the moment anyone started typing. The keyboard is a window over the app, not
+     * the app, and this says so.
+     *
+     * [isInputMethodPackage] comes from the installed IME list rather than a list of package
+     * names here, so it holds for a keyboard nobody has written yet. [classIsActivity] is the
+     * escape hatch: an IME package can also ship an ordinary settings activity — BrightThumb
+     * does — and *that* really is a new app in front, so it is left alone.
+     */
+    fun isTransientWindow(
+        pkg: String,
+        isInputMethodPackage: Boolean,
+        classIsActivity: Boolean,
+    ): Boolean = pkg in transientPackages || (isInputMethodPackage && !classIsActivity)
+
+    /**
      * Light's own software. Left strictly alone: the wheel and the flashlight already work
      * in these, and every key this service swallowed would be a feature it broke. The
      * launcher and SystemUI are here for the same reason — the home screen's wheel is not

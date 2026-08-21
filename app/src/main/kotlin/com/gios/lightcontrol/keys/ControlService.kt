@@ -8,7 +8,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.content.ComponentName
 import android.os.SystemClock
+import android.view.inputmethod.InputMethodManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
@@ -159,6 +161,17 @@ class ControlService : AccessibilityService() {
     /** Which packages are clocks, memoised for the same reason. */
     private val alarmPackages = HashMap<String, Boolean>()
 
+    /**
+     * Which packages ship a keyboard. Held as a whole set rather than per package, because the
+     * system answers the whole question in one call, and re-read every [IME_CACHE_MS] so a
+     * keyboard installed mid-session starts being recognised.
+     */
+    private var imePackages: Set<String>? = null
+    private var imePackagesAt = 0L
+
+    /** Which `package/class` pairs are activities, memoised — only asked of IME packages. */
+    private val activityClasses = HashMap<String, Boolean>()
+
     /** One press in flight. Nothing but when it started — the release does the deciding. */
     private class Press(val downAt: Long)
 
@@ -232,7 +245,7 @@ class ControlService : AccessibilityService() {
      */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
-        if (pkg in transientPackages) return
+        if (Policy.isTransientWindow(pkg, isInputMethodPackage(pkg), classIsActivity(event, pkg))) return
         if (pkg != foreground) {
             previous = foreground
             foreground = pkg
@@ -855,6 +868,46 @@ class ControlService : AccessibilityService() {
      * the system has. On this phone that is `com.android.deskclock`, which is not in the
      * hands-off prefix list and, before this, was being intercepted like any other app.
      */
+    /**
+     * Whether this package ships a keyboard.
+     *
+     * Asked of the installed IME list rather than a list of package names, for the same reason
+     * [ownsCameraKey] asks what an app declares: it keeps working for keyboards that do not
+     * exist yet, including whichever one the user installs next. The whole list is read at once
+     * and held for [IME_CACHE_MS], so a keyboard installed mid-session is picked up without
+     * this costing a system call per window change.
+     */
+    private fun isInputMethodPackage(pkg: String): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (imePackages == null || now - imePackagesAt > IME_CACHE_MS) {
+            imePackages = runCatching {
+                getSystemService(InputMethodManager::class.java)
+                    ?.inputMethodList
+                    ?.mapNotNull { it.packageName }
+                    ?.toSet()
+            }.getOrNull().orEmpty()
+            imePackagesAt = now
+        }
+        return pkg in imePackages.orEmpty()
+    }
+
+    /**
+     * Whether the event's class is a real activity of [pkg], which is what separates a keyboard
+     * package's settings screen from its soft-input window. The soft-input window reports a
+     * window class, not an activity, so this comes back false for it and the event is treated as
+     * the keyboard floating over whatever is underneath.
+     */
+    private fun classIsActivity(event: AccessibilityEvent, pkg: String): Boolean {
+        val cls = event.className?.toString()?.takeIf { it.isNotBlank() } ?: return false
+        activityClasses["$pkg/$cls"]?.let { return it }
+        val isActivity = runCatching {
+            packageManager.getActivityInfo(ComponentName(pkg, cls), 0)
+            true
+        }.getOrDefault(false)
+        activityClasses["$pkg/$cls"] = isActivity
+        return isActivity
+    }
+
     private fun ownsAlarmKeys(pkg: String?): Boolean {
         if (pkg == null) return false
         if (pkg == packageName) return false
@@ -933,6 +986,8 @@ class ControlService : AccessibilityService() {
         presses.clear()
         cameraPackages.clear()
         alarmPackages.clear()
+        activityClasses.clear()
+        imePackages = null
         runCatching { colorMode.restoreBaseline() }
         return super.onUnbind(intent)
     }
@@ -1552,10 +1607,7 @@ class ControlService : AccessibilityService() {
         /** Stroke duration. Slow enough not to register as a fling, quick enough to keep up. */
         const val SWIPE_MS = 60L
 
-        /** Windows that appear over an app without replacing it. */
-        val transientPackages = setOf(
-            "com.gios.lightcontrol",
-            "com.android.systemui",
-        )
+        /** How long the installed-keyboard list is trusted before it is read again. */
+        const val IME_CACHE_MS = 5 * 60_000L
     }
 }
