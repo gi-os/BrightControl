@@ -39,7 +39,7 @@ import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGrey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rememberCoroutineScope
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 
 /**
