@@ -131,6 +131,9 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
         return output.toString().trim()
     }
 
+    /** Whether a live connection is up. Wraps the Java isConnected() so the screen can gate on it. */
+    fun connected(): Boolean = runCatching { isConnected }.getOrDefault(false)
+
     companion object {
         @Volatile
         private var instance: AdbManager? = null
@@ -139,6 +142,18 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             instance ?: synchronized(this) {
                 instance ?: AdbManager(context.applicationContext).also { instance = it }
             }
+
+        /**
+         * Drop the connection and the cached manager. A failed connect can leave the manager
+         * holding a half-open socket that every later call then reuses and fails on; resetting
+         * makes the next attempt start clean. The key pair on disk is untouched, so no re-pair.
+         */
+        fun reset() {
+            synchronized(this) {
+                runCatching { instance?.close() }
+                instance = null
+            }
+        }
 
         private fun certFile(context: Context) = File(context.filesDir, "adb_cert.pem")
         private fun keyFile(context: Context) = File(context.filesDir, "adb_private.key")

@@ -3,9 +3,9 @@ package com.gios.lightcontrol.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,21 +40,19 @@ import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGrey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 
 /**
  * The phone granting itself everything, over its own wireless debugging — so a reinstall no
  * longer means finding a computer to re-enable the service and re-grant the appops.
  *
- * How it works, said plainly on screen because it is a strange thing to ask for: Android's
- * developer options can run an ADB daemon on the device itself. This app connects to that daemon
- * over loopback with a certificate it made once, and from there the grant commands are ordinary
- * shell lines. Pairing is a one-time handshake (the phone shows a six-digit code); after it, a
- * connect and a "grant everything" is the whole job.
+ * The reliable path is the manual one: pair once with the code the phone shows, then connect on
+ * the port the Wireless debugging screen shows. Auto-find is a convenience that leans on mDNS,
+ * which only works on Wi-Fi and only while the daemon is advertising — so it is offered second,
+ * not first.
  *
- * All the network calls block, so every one runs on [Dispatchers.IO] and only the log comes back
- * to the screen.
+ * Every network call blocks and runs on [Dispatchers.IO]; after each one the real connection
+ * state is read back so the grant steps stay locked until a connection actually exists.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,20 +67,26 @@ fun AdbScreen(onBack: () -> Unit) {
     var command by remember { mutableStateOf("") }
 
     var busy by remember { mutableStateOf(false) }
+    var connected by remember { mutableStateOf(false) }
     var log by remember { mutableStateOf(listOf<String>()) }
-    fun say(line: String) { log = (log + line).takeLast(60) }
+    fun say(line: String) { log = (log + line).takeLast(80) }
 
     // Every action funnels through here: refuse to overlap, flip busy, run off the main thread,
-    // and turn any thrown transport error into a log line rather than a crash.
+    // turn any thrown transport error into a log line rather than a crash, and read the real
+    // connection state back so the UI can gate on it.
     fun run(label: String, block: suspend () -> String) {
         if (busy) return
         busy = true
         say("> $label")
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { block() }.getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
+            val (msg, conn) = withContext(Dispatchers.IO) {
+                val m = runCatching { block() }
+                    .getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
+                val c = runCatching { AdbManager.getInstance(context).connected() }.getOrDefault(false)
+                m to c
             }
-            if (result.isNotBlank()) say(result)
+            if (msg.isNotBlank()) say(msg)
+            connected = conn
             busy = false
         }
     }
@@ -103,29 +108,42 @@ fun AdbScreen(onBack: () -> Unit) {
             )
         },
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(scroll)) {
-            GuideText(
-                "One-time setup: on the phone, open Settings → Developer options → Wireless " +
-                    "debugging, turn it on, then \"Pair device with pairing code\". Type that " +
-                    "code and its port below and pair. After that, use the connect port shown on " +
-                    "the Wireless debugging screen, connect, and grant everything.",
+        // imePadding keeps the last fields above the keyboard on the phones that run edge-to-edge;
+        // adjustResize in the manifest handles the rest. Either way the fields scroll into reach.
+        Column(Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(scroll)) {
+            MenuRow(
+                label = if (connected) "Connected" else "Not connected",
+                detail = if (connected) "OK" else "—",
+                sub = if (connected) {
+                    "the phone is talking to its own daemon; grants below are unlocked"
+                } else {
+                    "pair and connect first — the grant buttons stay locked until then"
+                },
+                dim = !connected,
             )
             Rule()
 
-            SectionLabel("1 · PAIR (ONCE)")
+            GuideText(
+                "One-time setup, on the phone: Settings → System → Developer options → Wireless " +
+                    "debugging → turn on. Tap \"Pair device with pairing code\" for the pairing " +
+                    "port and code; the main Wireless debugging screen shows the connect port " +
+                    "(the number after the colon). Keep Wi-Fi on.",
+            )
+            Rule()
+
+            SectionLabel("1 · PAIR (ONCE PER INSTALL)")
             AdbField("Pairing port", pairPort, KeyboardType.Number) { pairPort = it }
             AdbField("Pairing code", pairCode, KeyboardType.Number) { pairCode = it }
             BigButton(
                 label = if (busy) "…" else "PAIR",
-                filled = false,
                 enabled = !busy && pairPort.isNotBlank() && pairCode.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 val port = pairPort.trim().toIntOrNull()
                 if (port == null) { say("pairing port is not a number"); return@BigButton }
                 run("pair on $port") {
-                    val ok = AdbManager.getInstance(context).pair(prefs.adbHost, port, pairCode.trim())
-                    if (ok) "paired — now connect below" else "pairing failed"
+                    val ok = AdbManager.getInstance(context).pair("127.0.0.1", port, pairCode.trim())
+                    if (ok) "paired — now connect below" else "pairing rejected — re-check the code and port"
                 }
             }
             Rule()
@@ -134,6 +152,7 @@ fun AdbScreen(onBack: () -> Unit) {
             AdbField("Connect port", connectPort, KeyboardType.Number) { connectPort = it }
             BigButton(
                 label = if (busy) "…" else "CONNECT",
+                filled = true,
                 enabled = !busy && connectPort.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
@@ -141,27 +160,39 @@ fun AdbScreen(onBack: () -> Unit) {
                 if (port == null) { say("connect port is not a number"); return@BigButton }
                 prefs.adbPort = connectPort.trim()
                 run("connect $port") {
-                    val ok = AdbManager.getInstance(context).connect(prefs.adbHost, port)
-                    if (ok) "connected" else "connect failed — check the port and that pairing succeeded"
+                    // A stale half-open manager fails every retry; start clean each connect.
+                    AdbManager.reset()
+                    val ok = AdbManager.getInstance(context).connect("127.0.0.1", port)
+                    if (ok) "connected" else "connect refused — is the connect port right, and did pairing succeed?"
                 }
             }
-            BigButton(
-                label = "AUTO-FIND & CONNECT",
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                run("auto-connect") {
-                    val ok = AdbManager.getInstance(context).autoConnect(context, 15_000L)
-                    if (ok) "connected (auto-discovered)" else "no daemon found — enter the port by hand"
-                }
-            }
+            MenuRow(
+                label = "Auto-find (best effort)",
+                detail = if (busy) "…" else "TRY",
+                sub = "discovers the port over mDNS. Wi-Fi only, and only while the Wireless " +
+                    "debugging screen is open. If it finds nothing, type the port above.",
+                onClick = {
+                    if (!busy) run("auto-find") {
+                        AdbManager.reset()
+                        val ok = AdbManager.getInstance(context).autoConnect(context, 15_000L)
+                        if (ok) "connected (auto-discovered)" else "nothing found — enter the connect port by hand"
+                    }
+                },
+            )
             Rule()
 
             SectionLabel("3 · GRANT EVERYTHING")
+            if (!connected) {
+                MenuRow(
+                    label = "Connect first",
+                    sub = "these run against the connected daemon",
+                    dim = true,
+                )
+            }
             BigButton(
                 label = "GRANT ALL",
                 filled = true,
-                enabled = !busy,
+                enabled = !busy && connected,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 run("grant all") {
@@ -182,12 +213,12 @@ fun AdbScreen(onBack: () -> Unit) {
             SectionLabel("ADVANCED — RUN A COMMAND")
             GuideText(
                 "Runs against the phone's own shell (no \"adb shell\" prefix). Whatever the daemon " +
-                    "can do, this can — so be as careful as you would be at a terminal.",
+                    "can do, this can — be as careful as you would be at a terminal.",
             )
             AdbField("shell command", command, KeyboardType.Text) { command = it }
             BigButton(
                 label = "RUN",
-                enabled = !busy && command.isNotBlank(),
+                enabled = !busy && connected && command.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 val c = command.trim()
@@ -210,7 +241,7 @@ fun AdbScreen(onBack: () -> Unit) {
                 }
                 MenuRow(label = "Clear log", detail = "×", onClick = { log = emptyList() })
             }
-            Gap(28)
+            Gap(48)
         }
     }
 }
