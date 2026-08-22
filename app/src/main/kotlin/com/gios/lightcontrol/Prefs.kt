@@ -51,10 +51,10 @@ enum class AppRule {
 }
 
 /**
- * What the screen's colour does while one app is in front.
+ * What the screen's color does while one app is in front.
  *
  * LightOS pins the whole system to monochrome through the accessibility daltonizer, which is
- * a single system-wide setting. There is no per-app colour on this phone, so this app supplies
+ * a single system-wide setting. There is no per-app color on this phone, so this app supplies
  * it: the service watches which app comes to the front and drives that one setting to whatever
  * the front app asks for. [Default] means "leave it at the baseline" — whatever the phone was
  * doing before a rule ever fired, which on a LightOS phone is monochrome.
@@ -63,15 +63,15 @@ enum class ColorRule {
     /** No opinion. The baseline is restored — mono on a stock LightOS phone. */
     Default,
 
-    /** Force full colour while this app is in front. */
+    /** Force full color while this app is in front. */
     Color,
 
-    /** Force monochrome while this app is in front, even if the baseline is colour. */
+    /** Force monochrome while this app is in front, even if the baseline is color. */
     Mono,
 }
 
-/** The resolved behaviour for the app that is currently in front. */
-data class Behaviour(
+/** The resolved behavior for the app that is currently in front. */
+data class Behavior(
     val bareTurn: TurnAction,
     /** False for hands-off apps: no binding fires, nothing is consumed. */
     val buttonsActive: Boolean,
@@ -85,7 +85,7 @@ data class Behaviour(
  * that the phone behaves sensibly without being configured:
  *
  *  - **Light's own tools** are left alone. They already implement the wheel themselves, so
- *    anything this service consumes is behaviour it would be *removing*.
+ *    anything this service consumes is behavior it would be *removing*.
  *  - **Apps built against `hw/`** — the LightX family — get turns passed through, because
  *    per-notch scrolling inside the app beats anything reachable from outside it.
  *  - **Everything else** treats a bare turn as brightness, the way the home screen does.
@@ -139,7 +139,7 @@ class Prefs(context: Context) {
     /**
      * Whether LightOS still gets the wheel on its own screens, where it means brightness.
      *
-     * On, the shipping default, is the behaviour above: a turn on the lock screen or the
+     * On, the shipping default, is the behavior above: a turn on the lock screen or the
      * dashboard passes through and LightOS dims the screen, the way it always has.
      *
      * Off swallows the turn instead — and swallowing is the whole of it. Not "brightness, but
@@ -324,7 +324,7 @@ class Prefs(context: Context) {
      * The apps [Action.Resume] is allowed to take you back to.
      *
      * A list rather than "the last app you were in", because the home button is the one key on
-     * the phone whose wrong behaviour is not an annoyance. Opt-in per app means every press you
+     * the phone whose wrong behavior is not an annoyance. Opt-in per app means every press you
      * did not set up goes home, which is the answer you can predict without remembering what you
      * were doing before the screen timed out.
      */
@@ -452,10 +452,10 @@ class Prefs(context: Context) {
         .associate { it.removePrefix(APP_PREFIX) to ruleFor(it.removePrefix(APP_PREFIX)) }
         .filterValues { it != AppRule.Default }
 
-    // ---------------------------------------------------------------- per-app colour
+    // ---------------------------------------------------------------- per-app color
 
     /**
-     * Whether the service drives the daltonizer at all. Off means colour rules are ignored and
+     * Whether the service drives the daltonizer at all. Off means color rules are ignored and
      * the phone keeps whatever the daltonizer was set to — the safe default, because forcing the
      * setting needs a grant most phones will not have until [adb/AdbManager] or a computer sets
      * it.
@@ -475,7 +475,7 @@ class Prefs(context: Context) {
         }.apply()
     }
 
-    /** Every package with an explicit colour rule, for the settings list. */
+    /** Every package with an explicit color rule, for the settings list. */
     fun colorOverrides(): Map<String, ColorRule> = sp.all.keys
         .filter { it.startsWith(COLOR_PREFIX) }
         .associate { it.removePrefix(COLOR_PREFIX) to colorRuleFor(it.removePrefix(COLOR_PREFIX)) }
@@ -483,7 +483,7 @@ class Prefs(context: Context) {
 
     /**
      * The daltonizer state to return to when no rule applies, captured once so a phone that was
-     * colour to begin with is not left mono by this app. -1 for the enabled flag means "not yet
+     * color to begin with is not left mono by this app. -1 for the enabled flag means "not yet
      * captured". Written by the service the first time it reads the live setting.
      */
     var colorBaselineEnabled: Int
@@ -531,13 +531,13 @@ class Prefs(context: Context) {
     }
 }
 
-/** Turning settings plus a package name into behaviour, defaults and all. */
+/** Turning settings plus a package name into behavior, defaults and all. */
 object Policy {
 
     /**
      * Windows that appear over an app without replacing it. The notification shade and this
      * app's own readout overlay both raise window-state events, and treating either as "the
-     * app in front" would swap the key mapping — and the colour — mid-turn.
+     * app in front" would swap the key mapping — and the color — mid-turn.
      */
     private val transientPackages = setOf(
         "com.gios.lightcontrol",
@@ -550,7 +550,7 @@ object Policy {
      *
      * A keyboard is the case this was widened for. A soft keyboard raises a window-state event
      * carrying its own package, so the front app looked like it had changed to the keyboard —
-     * which has no colour rule, so [ColorRule.Default] fired and the panel dropped back to
+     * which has no color rule, so [ColorRule.Default] fired and the panel dropped back to
      * monochrome the moment anyone started typing. The keyboard is a window over the app, not
      * the app, and this says so.
      *
@@ -588,7 +588,7 @@ object Policy {
      * Note what is deliberately *absent*: the light-sdk tools (`com.thelightphone.*`) scroll
      * with the wheel too, but they stay hands-off, because in an SDK tool an unclaimed key is
      * forwarded to LightOS — which already does the right thing with it. Claiming their
-     * buttons would remove behaviour that works.
+     * buttons would remove behavior that works.
      */
     /**
      * Apps that own the **whole** wheel — its turns and its press.
@@ -630,7 +630,7 @@ object Policy {
      * The built-in table, with no stored preference involved.
      *
      * Split out from [ruleFor] so the ordering below can be tested on the JVM — it is three
-     * overlapping prefix lists and the order they are consulted in is the whole behaviour, which
+     * overlapping prefix lists and the order they are consulted in is the whole behavior, which
      * is exactly the kind of thing that looks obviously right and is not.
      */
     fun builtInRuleFor(pkg: String): AppRule {
@@ -644,23 +644,23 @@ object Policy {
         return AppRule.Default
     }
 
-    fun behaviourFor(prefs: Prefs, pkg: String?): Behaviour {
+    fun behaviorFor(prefs: Prefs, pkg: String?): Behavior {
         // LightOS's lock screen and dashboard are one activity, so they are one decision.
         if (pkg != null && pkg.startsWith("com.lightos")) {
             // Turns are still never reinterpreted here — doing something with them is what broke
             // it. The only choice is whether LightOS receives them at all: through, and it dims
             // the screen; or dropped on the floor, and its brightness ramp never runs.
             val turn = if (prefs.lightOsBrightness) TurnAction.PassThrough else TurnAction.Consume
-            if (prefs.lightOsScreens) return Behaviour(bareTurn = turn, buttonsActive = true)
+            if (prefs.lightOsScreens) return Behavior(bareTurn = turn, buttonsActive = true)
             // Blocking turns is its own switch, so it applies even with the buttons left alone.
             // Hands-off for everything else, which is what the table would have said anyway.
             if (turn == TurnAction.Consume) {
-                return Behaviour(bareTurn = turn, buttonsActive = false)
+                return Behavior(bareTurn = turn, buttonsActive = false)
             }
         }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)
         if (rule == AppRule.Off) {
-            return Behaviour(bareTurn = TurnAction.PassThrough, buttonsActive = false)
+            return Behavior(bareTurn = TurnAction.PassThrough, buttonsActive = false)
         }
         val bare = when (rule) {
             // Brightness wins here, deliberately. An app carrying the hw/ module scrolls better
@@ -687,6 +687,6 @@ object Policy {
             }
             else -> prefs.unknownAppTurn
         }
-        return Behaviour(bareTurn = bare, buttonsActive = true)
+        return Behavior(bareTurn = bare, buttonsActive = true)
     }
 }

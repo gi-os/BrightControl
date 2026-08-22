@@ -46,7 +46,7 @@ fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
             Bullet("The wheel", "changes brightness, or scrolls, in any app.")
             Bullet("The buttons", "the wheel click and camera key become bindings you choose.")
             Bullet("The home button", "can open Luma or any launcher instead of LightOS.")
-            Bullet("Colour", "force full colour in the apps you pick, on a phone that is mono " +
+            Bullet("Color", "force full color in the apps you pick, on a phone that is mono " +
                 "everywhere else.")
             Bullet("A lock face", "a Light-style clock, notifications and your own photo over the " +
                 "stock lock screen.")
@@ -60,7 +60,7 @@ fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
             )
             Para(
                 "Until the service is on, nothing here does anything. Everything else — brightness, " +
-                    "overlays, colour — is a second set of grants the same two ways can give.",
+                    "overlays, color — is a second set of grants the same two ways can give.",
             )
 
             Heading("If a button ever misbehaves")

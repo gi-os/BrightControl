@@ -10,7 +10,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/** LightOS renders greyscale on a matte panel, so the palette is luminance only. */
+/** LightOS renders grayscale on a matte panel, so the palette is luminance only. */
 private val MonoDark = darkColorScheme(
     primary = Color.White, onPrimary = Color.Black,
     background = Color.Black, onBackground = Color.White,
@@ -20,7 +20,7 @@ private val MonoDark = darkColorScheme(
 
 val Dim = Color(0xFF9A9A9A)
 val Faint = Color(0xFF5E5E5E)
-val RuleGrey = Color(0xFF262626)
+val RuleGray = Color(0xFF262626)
 
 @Composable
 fun LightControlTheme(content: @Composable () -> Unit) {

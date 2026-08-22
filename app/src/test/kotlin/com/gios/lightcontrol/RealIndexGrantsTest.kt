@@ -7,14 +7,14 @@ import org.junit.Test
 /**
  * Every ADB line the live index actually ships, run through the parser.
  *
- * These were read out of each app's README and put into the catalogue by hand, so this is the
+ * These were read out of each app's README and put into the catalog by hand, so this is the
  * test that they survive the trip: a line that the parser refuses would reach a user as a button
- * that opens BrightControl only to say no. Copied here verbatim -- if the catalogue gains an app
+ * that opens BrightControl only to say no. Copied here verbatim -- if the catalog gains an app
  * whose setup does not parse, that is a thing to find here rather than on a phone.
  */
 class RealIndexGrantsTest {
 
-    private val catalogue = mapOf(
+    private val catalog = mapOf(
         "com.gios.brightway" to listOf(
             "adb shell pm grant com.gios.brightway android.permission.WRITE_SECURE_SETTINGS",
         ),
@@ -54,8 +54,8 @@ class RealIndexGrantsTest {
     )
 
     @Test
-    fun `every line in the catalogue parses`() {
-        catalogue.forEach { (pkg, lines) ->
+    fun `every line in the catalog parses`() {
+        catalog.forEach { (pkg, lines) ->
             val parsed = GrantRequest.parse(pkg, lines)
             assertTrue(
                 "$pkg refused: ${(parsed as? GrantRequest.Parsed.Refused)?.why}",

@@ -189,7 +189,7 @@ class VolumeHud(private val context: Context) {
      *
      * Discrete rather than a continuous bar because the control is discrete — one press is one
      * segment, so the bar answers "how many more presses" and not only "roughly how loud". Two
-     * colours, square corners, no animation: the whole of LightOS's visual vocabulary.
+     * colors, square corners, no animation: the whole of LightOS's visual vocabulary.
      */
     private class SegmentBar(context: Context) : View(context) {
 
@@ -198,7 +198,7 @@ class VolumeHud(private val context: Context) {
             isAntiAlias = false
         }
         private val empty = Paint().apply {
-            // contentSecondary, the SDK's third and last colour, dimmed for a black background.
+            // contentSecondary, the SDK's third and last color, dimmed for a black background.
             color = Color.parseColor("#4A4A4A")
             isAntiAlias = false
         }

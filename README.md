@@ -238,7 +238,7 @@ whole reason it can ship: what made LightOS unstable the first time was two owne
 the same system brightness value a notch apart, and dropping a key has no second writer in
 it. The switch is for keeping a brightness where you put it — a wheel that lives under a
 thumb in a pocket is a wheel that dims the screen on its own. It applies on both LightOS
-screens whether or not **LightOS screens** is on, since it takes behaviour away rather than
+screens whether or not **LightOS screens** is on, since it takes behavior away rather than
 claiming any, and it changes nothing in any other app.
 
 ### Camera-in-front

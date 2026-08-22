@@ -66,7 +66,7 @@ object Grants {
     /**
      * Whether `WRITE_SECURE_SETTINGS` has been granted — the permission the daltonizer writes
      * need. It is signature|privileged, so it never comes from a runtime prompt; the ADB screen
-     * or a computer grants it with `pm grant`, and until then the per-app colour feature is inert.
+     * or a computer grants it with `pm grant`, and until then the per-app color feature is inert.
      */
     fun canWriteSecureSettings(context: Context): Boolean =
         runCatching {

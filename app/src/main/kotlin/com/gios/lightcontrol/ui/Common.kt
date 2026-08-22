@@ -41,7 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
-import com.gios.lightcontrol.ui.theme.RuleGrey
+import com.gios.lightcontrol.ui.theme.RuleGray
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,14 +54,14 @@ fun barColors() = TopAppBarDefaults.topAppBarColors(
 
 @Composable
 fun Rule(modifier: Modifier = Modifier) =
-    HorizontalDivider(modifier = modifier, color = RuleGrey, thickness = 1.dp)
+    HorizontalDivider(modifier = modifier, color = RuleGray, thickness = 1.dp)
 
 @Composable
 fun Gap(height: Int) = Box(Modifier.height(height.dp))
 
 /**
  * A target big enough to hit without looking. Filled means destructive-or-primary;
- * on a greyscale matte panel inversion is the only emphasis that reads at arm's
+ * on a grayscale matte panel inversion is the only emphasis that reads at arm's
  * length, so there is no third style.
  */
 @Composable
@@ -81,7 +81,7 @@ fun BigButton(
         modifier
             .height(58.dp)
             .background(if (filled && enabled) Color.White else Color.Black)
-            .border(BorderStroke(1.dp, if (enabled) Color.White else RuleGrey))
+            .border(BorderStroke(1.dp, if (enabled) Color.White else RuleGray))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

@@ -48,8 +48,8 @@ enum class ReportReason { Shaken, Crashed, Failed }
  * private to this file and built from plain Compose plus `MaterialTheme.colorScheme`, so the
  * whole `report/` package drops into any app with nothing changed but the package line.
  *
- * The greys are the LightOS three — background, content, contentSecondary — read from the host
- * app's own colour scheme where possible so a sheet in a light-themed app is not a black hole.
+ * The grays are the LightOS three — background, content, contentSecondary — read from the host
+ * app's own color scheme where possible so a sheet in a light-themed app is not a black hole.
  *
  * It assumes typing on this phone is expensive: a chip is a complete report on its own, and the
  * note is optional. But the note is also the only part that carries anything the build table

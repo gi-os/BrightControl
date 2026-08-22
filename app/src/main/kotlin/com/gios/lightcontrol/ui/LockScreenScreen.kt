@@ -12,7 +12,7 @@ import com.gios.lightcontrol.lock.LockNotes
 
 /**
  * The Light-style lock face and everything it draws. Extracted whole from the old single
- * settings scroll — the behaviour is unchanged, it just has its own screen and a guide now.
+ * settings scroll — the behavior is unchanged, it just has its own screen and a guide now.
  */
 @Composable
 fun LockScreenScreen(

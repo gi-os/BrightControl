@@ -252,7 +252,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
 /**
  * The grant request carried by a launching intent, if there is one.
  *
- * Sent by BrightMarket when an app in the catalogue declares ADB setup in its README. Nothing is
+ * Sent by BrightMarket when an app in the catalog declares ADB setup in its README. Nothing is
  * trusted here beyond "these are the words that arrived" — [com.gios.lightcontrol.adb
  * .GrantRequest] does the checking, and the screen shows the result before anything runs.
  */

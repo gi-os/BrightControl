@@ -21,7 +21,7 @@ import org.json.JSONObject
  * The picture behind the lock face, and the filter stack that makes it wearable.
  *
  * Lifted from BrightChat's per-chat wallpaper, which solved the same problem one screen over: a
- * photograph on a greyscale matte panel is a bad background by default, and the fix is not "dim it
+ * photograph on a grayscale matte panel is a bad background by default, and the fix is not "dim it
  * 50%" but a *stack* of small pixel passes the user assembles themselves. An ordered Bayer dither
  * quantises the photo to pure black-and-white halftone at a chosen cell size — 8× reads chunky and
  * deliberate rather than like a rendering fault. Fade pulls the whole thing toward the black the
@@ -58,7 +58,7 @@ object LockBackground {
      * Percentage types adjust by ± [step] between [min] and [max]; DITHER instead doubles and
      * halves, because halftone cells read in octaves — the step from 7 to 8 is invisible where 4 to
      * 8 is the whole point. Its amount is in *quarter-pixels* (4 = a 1px cell) so the ladder
-     * extends below one pixel and settles back down to the canvas, which reads as a softer, greyer
+     * extends below one pixel and settles back down to the canvas, which reads as a softer, grayer
      * halftone rather than hard 1px checkering.
      */
     enum class FilterType(
@@ -71,13 +71,13 @@ object LockBackground {
         /** Ordered Bayer dither to pure black/white. Amount in quarter-px: 1..64 = 0.25×..16×. */
         DITHER("Dither", 1, 64, 0, 32),
 
-        /** Plain luminance greyscale. No amount — it either is or isn't. */
+        /** Plain luminance grayscale. No amount — it either is or isn't. */
         MONO("Black & white", 0, 0, 0, 0),
 
         /** How much of the image survives over the black behind it, in percent. */
         FADE("Opacity", 10, 90, 10, 40),
 
-        /** Blur growing from a sharp centre out to the corners, percent strength. */
+        /** Blur growing from a sharp center out to the corners, percent strength. */
         CORNER_BLUR("Corner blur", 10, 100, 10, 50),
 
         /** The same reach, but into black instead of blur. */
@@ -105,7 +105,7 @@ object LockBackground {
      * A copy, unlike v2.5's persistable SAF grant, because the pipeline needs to re-read the
      * original every time the recipe changes and a document permission is one revoked grant away
      * from a lock screen that quietly goes black. The copy also means the phone still has a
-     * background after the photo is deleted from the camera roll — which is the behaviour BrightChat
+     * background after the photo is deleted from the camera roll — which is the behavior BrightChat
      * settled on for exactly the same reason.
      */
     fun sourceFile(context: Context): File =
@@ -132,7 +132,7 @@ object LockBackground {
         return ScaleMode.entries.firstOrNull { it.name == name } ?: ScaleMode.FILL
     }
 
-    /** Where the FILL crop sits in the photo's slack, each axis 0..1 (0.5 = centred). */
+    /** Where the FILL crop sits in the photo's slack, each axis 0..1 (0.5 = centered). */
     fun offset(prefs: Prefs): Pair<Float, Float> {
         val json = prefs.lockBackground ?: return 0.5f to 0.5f
         return runCatching {
@@ -269,9 +269,9 @@ object LockBackground {
         return runStack(compose(decoded, mode, aspect, maxDim, ox, oy), filters)
     }
 
-    /** A flat colour at the screen's shape, run through the same stack — dither on
-     *  a mid-grey is a halftone *texture*, corner fade a vignette; the filters are
-     *  what make a colour background more than a colour. */
+    /** A flat color at the screen's shape, run through the same stack — dither on
+     *  a mid-gray is a halftone *texture*, corner fade a vignette; the filters are
+     *  what make a color background more than a color. */
     private fun renderColor(color: Int, filters: List<Filter>, aspect: Float, maxDim: Int): Bitmap {
         val h = if (aspect < 1f) maxDim else max(1, (maxDim / aspect).roundToInt())
         val w = if (aspect < 1f) max(1, (maxDim * aspect).roundToInt()) else maxDim
@@ -296,7 +296,7 @@ object LockBackground {
 
     /** The screen-shaped canvas, black, with [src] drawn on per [mode]. [ox]/[oy]
      *  slide the FILL crop through its slack — 0 shows the photo's leading edge,
-     *  1 its trailing one, 0.5 the centre. Only FILL has slack to spend them on. */
+     *  1 its trailing one, 0.5 the center. Only FILL has slack to spend them on. */
     private fun compose(
         src: Bitmap,
         mode: ScaleMode,
@@ -327,7 +327,7 @@ object LockBackground {
                 Rect(left, top, left + dw, top + dh)
             }
             ScaleMode.FIT -> {
-                // Scale down to be contained, centred; the rest stays black.
+                // Scale down to be contained, centered; the rest stays black.
                 val scale = min(w.toFloat() / src.width, h.toFloat() / src.height)
                 val dw = (src.width * scale).roundToInt()
                 val dh = (src.height * scale).roundToInt()
@@ -409,15 +409,15 @@ object LockBackground {
     }
 
     /**
-     * Where a corner effect begins, as the fraction of the centre-to-corner
+     * Where a corner effect begins, as the fraction of the center-to-corner
      * distance that stays untouched. Shared by blur and fade so "50%" means the
      * same reach in both rows: a gentle step grazes the corners, and each step up
-     * walks the effect further in — at 100% it starts at the centre itself.
+     * walks the effect further in — at 100% it starts at the center itself.
      */
     private fun cornerStart(strength: Int): Float = 0.9f * (1f - strength / 100f)
 
     /**
-     * Blur rising from a sharp centre out to the corners.
+     * Blur rising from a sharp center out to the corners.
      *
      * The blurred copy is the cheap classic — downscale bilinear, upscale bilinear —
      * which at 1/20 scale is a heavy, smooth blur with no kernel code to get wrong.
@@ -461,7 +461,7 @@ object LockBackground {
     }
 
     /** The shared radial-mask walk: computes each pixel's eased 0..1 corner factor
-     *  and hands it (with the pixel) to [blend]. Skips the untouched centre. */
+     *  and hands it (with the pixel) to [blend]. Skips the untouched center. */
     private inline fun cornerBlend(
         src: Bitmap,
         strength: Int,

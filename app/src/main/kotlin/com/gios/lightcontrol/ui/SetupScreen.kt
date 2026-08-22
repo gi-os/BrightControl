@@ -55,11 +55,11 @@ fun SetupScreen(onAdb: () -> Unit, onBack: () -> Unit) {
             sub = "the level readouts, and opening an app from the service",
         )
         GrantRow(
-            label = "Colour (WRITE_SECURE_SETTINGS)",
+            label = "Color (WRITE_SECURE_SETTINGS)",
             ok = canSecure,
             fix = "adb shell pm grant com.gios.lightcontrol " +
                 "android.permission.WRITE_SECURE_SETTINGS",
-            sub = "per-app colour. Inert without it, never a crash",
+            sub = "per-app color. Inert without it, never a crash",
         )
         if (!LightKeys.wheelLabelsPresent()) {
             MenuRow(

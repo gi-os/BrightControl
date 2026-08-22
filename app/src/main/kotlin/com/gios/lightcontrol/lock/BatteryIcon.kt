@@ -12,7 +12,7 @@ import android.view.View
  *
  * It used to be the string "85%", which is four characters of arithmetic to read a thing you
  * glance at. A filled outline says the same at arm's length without being read — and on a
- * greyscale panel at this size, shape carries further than digits do.
+ * grayscale panel at this size, shape carries further than digits do.
  *
  * Deliberately the same box as [SignalBars], so the two ends of the top bar have the same weight.
  * Two status glyphs of different heights read as one being more important, which is not true.
@@ -70,7 +70,7 @@ class BatteryIcon(context: Context) : View(context) {
         val radius = h * 0.28f
         canvas.drawRoundRect(body, radius, radius, outline)
 
-        // Nub, centred vertically, a third of the height.
+        // Nub, centered vertically, a third of the height.
         val nubHeight = h * 0.34f
         val nubTop = (h - nubHeight) / 2f
         val nubRect = RectF(bodyRight + nubGap, nubTop, w, nubTop + nubHeight)
@@ -108,7 +108,7 @@ class BatteryIcon(context: Context) : View(context) {
         }
     }
 
-    /** A lightning bolt centred on the body, in whichever colour the region under it needs. */
+    /** A lightning bolt centered on the body, in whichever color the region under it needs. */
     private fun drawBolt(canvas: Canvas, r: RectF, paint: Paint) {
         val cx = r.centerX()
         val cy = r.centerY()

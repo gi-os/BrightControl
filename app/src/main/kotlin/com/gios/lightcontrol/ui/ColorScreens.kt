@@ -34,7 +34,7 @@ import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
- * The colour feature's own screen: what it is, the master switch, the grant it needs, and the
+ * The color feature's own screen: what it is, the master switch, the grant it needs, and the
  * door to the per-app list.
  */
 @Composable
@@ -46,34 +46,34 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
     var auto by remember { mutableStateOf(prefs.colorAutoSwitch) }
 
     SectionScaffold(
-        title = "Colour",
+        title = "Color",
         onBack = onBack,
-        guide = "LightOS keeps the whole phone in black and white. There is no per-app colour on " +
+        guide = "LightOS keeps the whole phone in black and white. There is no per-app color on " +
             "this phone — so this adds it. Turn it on, then set a rule per app: some apps in full " +
-            "colour (a camera, maps), the rest left mono. The screen switches as you move between " +
+            "color (a camera, maps), the rest left mono. The screen switches as you move between " +
             "them.",
     ) {
         MenuRow(
-            label = "Per-app colour",
+            label = "Per-app color",
             detail = if (auto) "ON" else "OFF",
             sub = if (auto) {
                 "the screen follows each app's rule as you switch. Off leaves the phone exactly " +
                     "as you last set it."
             } else {
-                "off — colour rules are ignored and nothing is forced. Tap to switch on."
+                "off — color rules are ignored and nothing is forced. Tap to switch on."
             },
             onClick = {
                 auto = !auto
                 prefs.colorAutoSwitch = auto
                 // Switching off is the one moment the baseline should be put back: a rule that
-                // forced colour is no longer being maintained, so leaving the phone on it would
+                // forced color is no longer being maintained, so leaving the phone on it would
                 // strand a setting nothing is watching any more. This used to happen on service
-                // unbind instead, which fired on every app update and repainted colour apps mono.
+                // unbind instead, which fired on every app update and repainted color apps mono.
                 if (!auto) runCatching { ColorMode(context, prefs).restoreBaseline() }
             },
         )
         GrantRow(
-            label = "Colour grant",
+            label = "Color grant",
             ok = canWriteSecure,
             fix = "adb shell pm grant com.gios.lightcontrol " +
                 "android.permission.WRITE_SECURE_SETTINGS",
@@ -90,14 +90,14 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
         MenuRow(
             label = "Per-app rules",
             detail = "${prefs.colorOverrides().size}",
-            sub = "which apps are colour, which are mono",
+            sub = "which apps are color, which are mono",
             onClick = onPerApp,
         )
     }
 }
 
 /**
- * Every launchable app and its colour rule. Tapping a row cycles AUTO → COLOR → MONO, the same
+ * Every launchable app and its color rule. Tapping a row cycles AUTO → COLOR → MONO, the same
  * one-tap idiom as the wheel per-app list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,7 +129,7 @@ fun ColorAppListScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 colors = barColors(),
-                title = { Text("Per-app colour", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Per-app color", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -157,7 +157,7 @@ fun ColorAppListScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "AUTO leaves an app at the baseline — mono, on a stock LightOS phone. " +
-                            "Set the apps you want in colour to COLOR and leave the rest.",
+                            "Set the apps you want in color to COLOR and leave the rest.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Dim,
                         modifier = Modifier.padding(16.dp),
@@ -182,6 +182,6 @@ private fun colorDetail(rule: ColorRule): String = when (rule) {
 
 private fun colorDescribe(rule: ColorRule): String = when (rule) {
     ColorRule.Default -> "baseline — mono on a stock phone"
-    ColorRule.Color -> "full colour while this app is in front"
+    ColorRule.Color -> "full color while this app is in front"
     ColorRule.Mono -> "monochrome while this app is in front"
 }

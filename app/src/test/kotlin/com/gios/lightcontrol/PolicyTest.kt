@@ -6,7 +6,7 @@ import org.junit.Test
 /**
  * Which built-in rule an app gets, and — more to the point — in which order the lists are asked.
  *
- * Three prefix lists overlap here on purpose, so the order is the behaviour rather than a detail
+ * Three prefix lists overlap here on purpose, so the order is the behavior rather than a detail
  * of it. `com.gios.brightrecorder` sits inside `com.gios.`, and `com.lightphone.spotify` sits
  * inside `com.lightphone.`; in both cases the more specific entry has to win or the app silently
  * gets the weaker treatment.

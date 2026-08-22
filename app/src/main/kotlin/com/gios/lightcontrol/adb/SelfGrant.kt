@@ -32,7 +32,7 @@ object SelfGrant {
             "appops set $PKG SYSTEM_ALERT_WINDOW allow",
         ),
         Step(
-            "Colour (WRITE_SECURE_SETTINGS)",
+            "Color (WRITE_SECURE_SETTINGS)",
             "pm grant $PKG android.permission.WRITE_SECURE_SETTINGS",
         ),
         Step(

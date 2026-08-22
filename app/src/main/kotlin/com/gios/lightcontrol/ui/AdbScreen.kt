@@ -42,7 +42,7 @@ import com.gios.lightcontrol.adb.AdbPairSession
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
-import com.gios.lightcontrol.ui.theme.RuleGrey
+import com.gios.lightcontrol.ui.theme.RuleGray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -447,7 +447,7 @@ private fun AdbField(
             keyboardOptions = KeyboardOptions(keyboardType = keyboard),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, RuleGrey)
+                .border(1.dp, RuleGray)
                 .background(Color.Black)
                 .padding(horizontal = 12.dp, vertical = 12.dp),
         )

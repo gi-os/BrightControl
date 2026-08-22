@@ -22,7 +22,7 @@ import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import com.gios.lightcontrol.Action
-import com.gios.lightcontrol.Behaviour
+import com.gios.lightcontrol.Behavior
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
@@ -44,7 +44,7 @@ import com.gios.lightcontrol.lock.LockOverlay
  *
  * Every key this service swallows is a key some app doesn't get, so the rule is narrow: a key
  * is consumed only when a binding for it actually does something, and never for apps whose
- * [Behaviour] is hands-off. Light's own tools resolve to hands-off, because the wheel already
+ * [Behavior] is hands-off. Light's own tools resolve to hands-off, because the wheel already
  * works there and anything intercepted would be a feature removed rather than added.
  */
 class ControlService : AccessibilityService() {
@@ -194,7 +194,7 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
-        // Per-app colour. Captures the daltonizer baseline the first time it runs and drives it
+        // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
         colorMode = ColorMode(this, prefs)
@@ -255,11 +255,11 @@ class ControlService : AccessibilityService() {
         }
         // Re-asserted on every event rather than only when the package changes, so the screen
         // heals itself. ColorMode.set() writes only on a difference, so for the overwhelmingly
-        // common case — same app, already the right colour — this costs two reads of a secure
+        // common case — same app, already the right color — this costs two reads of a secure
         // setting and writes nothing.
         //
         // What it buys: anything that moves the daltonizer while an app stays in front no longer
-        // strands it. Before, colour was strictly edge-triggered, so a single missed edge lasted
+        // strands it. Before, color was strictly edge-triggered, so a single missed edge lasted
         // until you switched apps and back, and there was no way for the app to notice.
         runCatching { colorMode.applyFor(pkg) }
         // The offer to go back only stands while you are still sitting on LightOS's lock screen
@@ -609,11 +609,11 @@ class ControlService : AccessibilityService() {
             }
             return false
         }
-        val behaviour = Policy.behaviourFor(prefs, front)
+        val behavior = Policy.behaviorFor(prefs, front)
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
             val notches = if (key == LightKey.WheelUp) 1 else -1
-            return onTurn(front, behaviour, notches, event.action == KeyEvent.ACTION_DOWN)
+            return onTurn(front, behavior, notches, event.action == KeyEvent.ACTION_DOWN)
         }
 
         // A stream pinned by tapping the volume strip. The only place this app moves a volume
@@ -643,7 +643,7 @@ class ControlService : AccessibilityService() {
         // Only a fresh DOWN gets to consult the rules. Everything after it belongs to the press.
         val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         if (fresh) log("${button.name} down · ${front?.substringAfterLast('.') ?: "?"}")
-        if (!fresh && presses.containsKey(button)) return onButton(button, behaviour, event)
+        if (!fresh && presses.containsKey(button)) return onButton(button, behavior, event)
 
         // The home button is the one key the phone cannot do without, so its door comes *before*
         // the hands-off gate. [onHome] holds the complete refusal list, and a hands-off app in
@@ -653,14 +653,14 @@ class ControlService : AccessibilityService() {
         // place the tap stopped working: wake the phone, land on the dashboard, and the press that
         // should have opened your launcher belonged to LightOS alone — the idle face again, with
         // nothing left anywhere to leave it by. See [onHome].
-        if (button == Button.Home) return onHome(front, behaviour, event)
-        if (!behaviour.buttonsActive) {
+        if (button == Button.Home) return onHome(front, behavior, event)
+        if (!behavior.buttonsActive) {
             if (fresh) log("${button.name} hands off")
             return false
         }
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
-        return onButton(button, behaviour, event)
+        return onButton(button, behavior, event)
     }
 
     // ---------------------------------------------------------------- the home button
@@ -692,7 +692,7 @@ class ControlService : AccessibilityService() {
      * over, the next hold falls through here to LightOS itself, which is what makes the second one
      * open its menu.
      */
-    private fun onHome(front: String?, behaviour: Behaviour, event: KeyEvent): Boolean {
+    private fun onHome(front: String?, behavior: Behavior, event: KeyEvent): Boolean {
         val fresh = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         val hold = prefs.action(Button.Home, Gesture.Hold)
         val tap = prefs.action(Button.Home, Gesture.Tap)
@@ -712,7 +712,7 @@ class ControlService : AccessibilityService() {
             // Hands-off apps reach here now instead of being gated upstream, so the refusal is
             // owned here, where refusing still means the shadow tap. Same exception as LightOS
             // below: a tap that picks a destination is reason to take the key anywhere.
-            !behaviour.buttonsActive && !tap.picksDestination -> "hands off"
+            !behavior.buttonsActive && !tap.picksDestination -> "hands off"
             front != null && front.startsWith(LIGHTOS) && !tap.picksDestination ->
                 "LightOS in front"
             // The expensive checks last, and each refusal under its own name: "not consumable"
@@ -724,7 +724,7 @@ class ControlService : AccessibilityService() {
             if (fresh) log("HOME shadow · $reason")
             return shadowHome(event)
         }
-        return onButton(Button.Home, behaviour, event)
+        return onButton(Button.Home, behavior, event)
     }
 
     /**
@@ -947,7 +947,7 @@ class ControlService : AccessibilityService() {
      * keeps working for cameras that don't exist yet. Light's own camera is already hands-off
      * by prefix; this covers `com.gios.lightcamera` and everyone else.
      *
-     * An explicit per-app rule still wins — [Behaviour.buttonsActive] is checked first — so a
+     * An explicit per-app rule still wins — [Behavior.buttonsActive] is checked first — so a
      * camera can be forced back under the service's control if it ever needs to be.
      */
     private fun ownsCameraKey(pkg: String?): Boolean {
@@ -994,11 +994,11 @@ class ControlService : AccessibilityService() {
         alarmPackages.clear()
         activityClasses.clear()
         imePackages = null
-        // Deliberately NOT restoring the colour baseline here.
+        // Deliberately NOT restoring the color baseline here.
         //
         // An unbind is almost never "the user turned this off" — it is an app update, a reboot,
         // or the system recycling the service. Forcing the baseline on the way out meant an
-        // update repainted the phone mono, and because colour is otherwise only applied when the
+        // update repainted the phone mono, and because color is otherwise only applied when the
         // front *package changes*, an app that was already on screen never got it back: the new
         // process starts with no idea what is in front, and the app it is looking at raises no
         // new window-state event. Roll went black and white and stayed there.
@@ -1024,7 +1024,7 @@ class ControlService : AccessibilityService() {
      *
      * It costs the feeling of a hold "going off" in your hand. Worth it.
      */
-    private fun onButton(button: Button, behaviour: Behaviour, event: KeyEvent): Boolean {
+    private fun onButton(button: Button, behavior: Behavior, event: KeyEvent): Boolean {
         val tap = prefs.action(button, Gesture.Tap)
         val hold = prefs.action(button, Gesture.Hold)
 
@@ -1174,11 +1174,11 @@ class ControlService : AccessibilityService() {
 
     private fun onTurn(
         front: String?,
-        behaviour: Behaviour,
+        behavior: Behavior,
         notches: Int,
         down: Boolean,
     ): Boolean {
-        return when (behaviour.bareTurn) {
+        return when (behavior.bareTurn) {
             TurnAction.Brightness -> {
                 if (down) adjustBrightness(front, notches)
                 true

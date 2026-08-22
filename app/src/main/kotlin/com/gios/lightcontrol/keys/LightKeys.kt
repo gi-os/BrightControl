@@ -51,7 +51,7 @@ enum class LightKey {
  *
  * Nothing intercepts these in `PhoneWindowManager`; they are dispatched to the focused
  * window like any other key, which is why brightness and the flashlight are dead inside
- * every sideloaded app. Light's own tools implement the behaviour in their app layer, and
+ * every sideloaded app. Light's own tools implement the behavior in their app layer, and
  * this app is that layer for everything else.
  *
  * `WHEEL_CCW`, `WHEEL_CW` and `WHEEL_CLICK` are not AOSP keycodes; Light added them, so

@@ -6,7 +6,7 @@ import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Prefs
 
 /**
- * Per-app colour, on a phone that only has one colour switch.
+ * Per-app color, on a phone that only has one color switch.
  *
  * LightOS forces the whole system to monochrome through the accessibility *daltonizer* — two
  * secure settings, [ENABLED] (0/1) and [MODE] (0 is monochromacy). This drives those two from
@@ -42,8 +42,8 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      * **An unknown front app leaves the screen alone.** It used to be treated as [ColorRule
      * .Default], which forces the baseline — mono, on a stock phone. That is the wrong guess in
      * the one situation it actually arose: the service has just rebound after an app update and
-     * has not seen a window-state event yet, so `foreground` is null while a colour app is
-     * sitting on screen. Every re-assert from that state actively repainted a colour app mono,
+     * has not seen a window-state event yet, so `foreground` is null while a color app is
+     * sitting on screen. Every re-assert from that state actively repainted a color app mono,
      * and a screen off/on did it again. Not knowing which app is in front is a reason to do
      * nothing, not a reason to override.
      */
@@ -68,8 +68,8 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      *
      * The capture is deliberately kept rather than cleared. Clearing it would mean the next
      * [captureBaseline] reads whatever the daltonizer happens to be at that moment — and if that
-     * moment falls while a Color app is in front, the baseline is recorded as "colour" and every
-     * app with no rule stays colour from then on. The first capture, taken before this app had
+     * moment falls while a Color app is in front, the baseline is recorded as "color" and every
+     * app with no rule stays color from then on. The first capture, taken before this app had
      * forced anything, is the only honest one.
      *
      * Notably *not* called on service unbind. See ControlService.onUnbind.
@@ -80,7 +80,7 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
     }
 
     private fun set(enabled: Int, mode: Int) {
-        // Only write on a difference: these settings notify observers, and LightOS's own colour
+        // Only write on a difference: these settings notify observers, and LightOS's own color
         // pipeline is one of them, so a redundant write is a redundant repaint of the whole panel.
         runCatching {
             if (read(MODE, mode) != mode) {

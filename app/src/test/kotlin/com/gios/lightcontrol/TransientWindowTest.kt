@@ -7,9 +7,9 @@ import org.junit.Test
 /**
  * Which window-state events count as a new app in front.
  *
- * The colour switch rides on this. Anything treated as the front app has its colour rule
+ * The color switch rides on this. Anything treated as the front app has its color rule
  * applied, so a window that merely floats over the app must not qualify — a keyboard opening
- * over a colour app was turning the panel back to monochrome mid-sentence.
+ * over a color app was turning the panel back to monochrome mid-sentence.
  */
 class TransientWindowTest {
 
@@ -58,7 +58,7 @@ class TransientWindowTest {
     @Test
     fun `an ordinary app is still the front app when its class is unrecognised`() {
         // Plenty of apps report a dialog or a window class on a state change. Only a keyboard
-        // package gets held back by that, or every dialog would drop the colour.
+        // package gets held back by that, or every dialog would drop the color.
         assertFalse(
             Policy.isTransientWindow("com.gios.roll", isInputMethodPackage = false, classIsActivity = false),
         )

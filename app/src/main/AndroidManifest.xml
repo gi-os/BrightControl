@@ -17,14 +17,14 @@
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
     <!--
-      Per-app colour, and the on-device ADB screen's own self-grant. LightOS pins the whole
+      Per-app color, and the on-device ADB screen's own self-grant. LightOS pins the whole
       phone to monochrome through the accessibility daltonizer; driving that per-app needs this,
       and it is signature|privileged so it never comes from a runtime prompt. Granted once, from
       the app's own ADB screen or a computer:
 
         adb shell pm grant com.gios.lightcontrol android.permission.WRITE_SECURE_SETTINGS
 
-      Absent, the colour feature is inert (every write is swallowed) rather than crashing.
+      Absent, the color feature is inert (every write is swallowed) rather than crashing.
     -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />

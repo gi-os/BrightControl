@@ -404,7 +404,7 @@ class LockOverlay(private val context: Context) {
     /**
      * The finished background, rendered through the editor's filter stack.
      *
-     * No colour matrix and no fixed alpha any more. v2.5 desaturated the photo and dropped it to
+     * No color matrix and no fixed alpha any more. v2.5 desaturated the photo and dropped it to
      * 55% because that is the one setting that works for every picture and is right for none;
      * what replaced it is [LockBackground], where the recipe is the user's — dither it to halftone,
      * fade the corners into the black, or leave it alone.
@@ -596,7 +596,7 @@ class LockOverlay(private val context: Context) {
     }.getOrNull()
 
     private companion object {
-        /** The SDK's `contentSecondary`. Three colours in LightOS, and this is the third. */
+        /** The SDK's `contentSecondary`. Three colors in LightOS, and this is the third. */
         val DIM = Color.rgb(0xBB, 0xBB, 0xBB)
         /**
          * How long the panel stays black before the face appears. See [wake].

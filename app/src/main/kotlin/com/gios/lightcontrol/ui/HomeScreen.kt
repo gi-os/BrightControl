@@ -151,9 +151,9 @@ fun HomeScreen(
 
             SectionLabel("SCREEN")
             MenuRow(
-                label = "Colour",
+                label = "Color",
                 detail = if (prefs.colorAutoSwitch) "AUTO" else "›",
-                sub = "force colour or mono per app, on a phone that is mono everywhere",
+                sub = "force color or mono per app, on a phone that is mono everywhere",
                 onClick = onColor,
             )
             MenuRow(
