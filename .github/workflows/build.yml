@@ -1,7 +1,13 @@
 name: Build & Release APK
 
 on:
+  # main only. This workflow publishes a v-tagged release that BrightMarket and
+  # Obtainium both offer to everyone within minutes, and a bare `push:` meant every
+  # feature branch shipped one -- half-finished work reaching phones because someone
+  # pushed a branch to get it compiled. check.yml is what runs on branches; it does
+  # everything up to the publish and nothing after it.
   push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
