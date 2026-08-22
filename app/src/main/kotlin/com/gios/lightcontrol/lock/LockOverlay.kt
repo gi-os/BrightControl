@@ -92,6 +92,7 @@ class LockOverlay(private val context: Context) {
     private var clock: TextView? = null
     private var date: TextView? = null
     private var bars: SignalBars? = null
+    private var batteryIcon: BatteryIcon? = null
     private var alarm: TextView? = null
     private var notes: LinearLayout? = null
 
@@ -278,7 +279,13 @@ class LockOverlay(private val context: Context) {
             layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
         }
         val alarmView = barLabel()
-        val battery = barLabel().apply { setPadding(type.gridPx(0.7f), 0, 0, 0) }
+        // Same box as the signal bars: two status glyphs of different heights read as one
+        // being more important than the other, which is not true.
+        val battery = BatteryIcon(context).apply {
+            layoutParams = LinearLayout.LayoutParams(type.gridPx(2.2f), type.gridPx(1.1f)).apply {
+                marginStart = type.gridPx(0.7f)
+            }
+        }
         bar.addView(signal)
         bar.addView(spacer)
         bar.addView(alarmView)
@@ -380,7 +387,7 @@ class LockOverlay(private val context: Context) {
         bars = signal
         alarm = alarmView
         notes = noteList
-        battery.tag = BATTERY_TAG
+        batteryIcon = battery
         frame
     }.getOrNull()
 
@@ -463,7 +470,10 @@ class LockOverlay(private val context: Context) {
         date?.text = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now))
         bars?.level = signalLevel()
         alarm?.text = nextAlarm()?.let { "ALARM $it" }.orEmpty()
-        frame.findViewWithTag<TextView>(BATTERY_TAG)?.text = battery()
+        batteryIcon?.let { icon ->
+            icon.level = batteryLevel()
+            icon.charging = batteryCharging()
+        }
         fillNotes()
     }
 
@@ -568,16 +578,17 @@ class LockOverlay(private val context: Context) {
         tm.signalStrength?.level ?: -1
     }.getOrDefault(-1)
 
-    private fun battery(): String = runCatching {
-        val bm = context.getSystemService(BatteryManager::class.java)
-        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        val charging = bm?.isCharging == true
-        if (level in 0..100) {
-            if (charging) "CHARGING · $level%" else "$level%"
-        } else {
-            ""
-        }
-    }.getOrDefault("")
+    /** 0..100, or -1 when the platform will not say -- which the icon draws as an empty shell. */
+    private fun batteryLevel(): Int = runCatching {
+        context.getSystemService(BatteryManager::class.java)
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            ?.takeIf { it in 0..100 }
+            ?: -1
+    }.getOrDefault(-1)
+
+    private fun batteryCharging(): Boolean = runCatching {
+        context.getSystemService(BatteryManager::class.java)?.isCharging == true
+    }.getOrDefault(false)
 
     private fun nextAlarm(): String? = runCatching {
         context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
@@ -600,7 +611,6 @@ class LockOverlay(private val context: Context) {
         const val FADE_MS = 320L
 
         const val MAX_NOTES = 4
-        const val BATTERY_TAG = "lock_battery"
 
         /**
          * Below this, a reported RSSI is not a reading.

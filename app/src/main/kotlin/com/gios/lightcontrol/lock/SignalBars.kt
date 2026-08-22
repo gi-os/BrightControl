@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.view.View
 
 /**
@@ -36,25 +37,27 @@ class SignalBars(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
 
+    private val rect = RectF()
+
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        val gap = w / (BARS * 4f - 1f)
-        val bar = gap * 3f
+        // Wider bars and a tighter gap than the old 3:1. Hairline gaps between broad bars is what
+        // separates a current status glyph from one drawn in 2011.
+        val gap = w / (BARS * 5f - 1f)
+        val bar = gap * 4f
+        val radius = bar * 0.3f
         for (i in 0 until BARS) {
             // Shortest bar is a third of the height, tallest is all of it — enough difference to
             // read the shape without the first bar becoming a dot.
             val fraction = (i + 1).toFloat() / BARS
             val barHeight = h * (0.34f + 0.66f * fraction)
             val left = i * (bar + gap)
-            canvas.drawRect(
-                left,
-                h - barHeight,
-                left + bar,
-                h,
-                if (i < level) lit else unlit,
-            )
+            rect.set(left, h - barHeight, left + bar, h)
+            // Rounded on every corner, including where the bar meets the baseline. Rounding only
+            // the top reads as a bar chart; rounding all four reads as an icon.
+            canvas.drawRoundRect(rect, radius, radius, if (i < level) lit else unlit)
         }
     }
 
