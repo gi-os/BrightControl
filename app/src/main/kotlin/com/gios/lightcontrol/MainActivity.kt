@@ -22,6 +22,7 @@ import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.ColorAppListScreen
 import com.gios.lightcontrol.ui.ColorScreen
 import com.gios.lightcontrol.ui.DiagnosticsScreen
+import com.gios.lightcontrol.ui.GrantRequestScreen
 import com.gios.lightcontrol.ui.HomeScreen
 import com.gios.lightcontrol.ui.IntroScreen
 import com.gios.lightcontrol.ui.LockBackgroundScreen
@@ -65,6 +66,16 @@ private sealed interface Screen {
     data object Adb : Screen
     data object Diagnostics : Screen
 
+    /**
+     * Another app's ADB setup, handed over by BrightMarket. Carries the request rather than
+     * reading it again, so what the user approves is exactly what arrived.
+     */
+    data class GrantRequestFor(
+        val label: String,
+        val pkg: String,
+        val lines: List<String>,
+    ) : Screen
+
     /** [fromSettings] only decides where Back returns the picker to. */
     data class Pick(
         val button: Button,
@@ -85,8 +96,14 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalNotches provides notches.asSharedFlow()) {
                     val context = LocalContext.current
                     val prefs = remember { Prefs(context) }
+                    // A grant request arriving by intent opens straight onto it, ahead of the
+                    // intro: the user did not come here to read a guide, they tapped a button in
+                    // another app and expected this one to answer for it.
                     var screen by remember {
-                        mutableStateOf<Screen>(if (prefs.introSeen) Screen.Home else Screen.Intro)
+                        mutableStateOf<Screen>(
+                            grantRequestFrom(intent)
+                                ?: if (prefs.introSeen) Screen.Home else Screen.Intro,
+                        )
                     }
                     val home = { screen = Screen.Home }
 
@@ -166,6 +183,14 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Adb -> AdbScreen(onBack = home)
 
+                        is Screen.GrantRequestFor -> GrantRequestScreen(
+                            appLabel = current.label,
+                            pkg = current.pkg,
+                            lines = current.lines,
+                            onBack = home,
+                            onAdb = { screen = Screen.Adb },
+                        )
+
                         Screen.Diagnostics -> DiagnosticsScreen(onBack = home)
 
                         is Screen.Pick -> PickerScreen(
@@ -218,6 +243,28 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     is Screen.Pick -> if (screen.fromSettings) Screen.Home else Screen.Buttons
     else -> Screen.Home
 }
+
+/**
+ * The grant request carried by a launching intent, if there is one.
+ *
+ * Sent by BrightMarket when an app in the catalogue declares ADB setup in its README. Nothing is
+ * trusted here beyond "these are the words that arrived" — [com.gios.lightcontrol.adb
+ * .GrantRequest] does the checking, and the screen shows the result before anything runs.
+ */
+private fun grantRequestFrom(intent: android.content.Intent?): Screen? {
+    if (intent?.action != ACTION_RUN_GRANTS) return null
+    val pkg = intent.getStringExtra(EXTRA_PACKAGE)?.takeIf { it.isNotBlank() } ?: return null
+    val lines = intent.getStringArrayListExtra(EXTRA_COMMANDS)?.filter { it.isNotBlank() }
+        ?: return null
+    if (lines.isEmpty()) return null
+    val label = intent.getStringExtra(EXTRA_LABEL)?.takeIf { it.isNotBlank() } ?: pkg
+    return Screen.GrantRequestFor(label = label, pkg = pkg, lines = lines)
+}
+
+const val ACTION_RUN_GRANTS = "com.gios.lightcontrol.action.RUN_GRANTS"
+const val EXTRA_PACKAGE = "com.gios.lightcontrol.extra.PACKAGE"
+const val EXTRA_LABEL = "com.gios.lightcontrol.extra.LABEL"
+const val EXTRA_COMMANDS = "com.gios.lightcontrol.extra.COMMANDS"
 
 /** Wheel notches, for whichever list is on screen. */
 val LocalNotches = staticCompositionLocalOf<SharedFlow<Int>?> { null }
