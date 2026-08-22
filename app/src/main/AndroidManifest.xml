@@ -55,6 +55,9 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- The Wi-Fi login screen's state row: which network is Wi-Fi, and has it validated. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
     <!--
       Signal bars on the lock face, and nothing else. A runtime permission LightOS has
       no screen for, so it is granted once over adb:
@@ -82,6 +85,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.LightControl">
 
         <activity
@@ -95,6 +99,25 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          The captive-portal sign-in page. Plain http is allowed app-wide
+          (usesCleartextTraffic above) because a portal can only hijack a request it can read:
+          the probe URL is http on purpose, and portals themselves are routinely http. Exported
+          with the system's CAPTIVE_PORTAL action so "sign in to network" can land here too;
+          mostly it is opened by hand from the Wi-Fi login settings screen.
+        -->
+        <activity
+            android:name=".portal.PortalActivity"
+            android:exported="true"
+            android:label="Wi-Fi login"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.LightControl">
+            <intent-filter>
+                <action android:name="android.net.conn.CAPTIVE_PORTAL" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

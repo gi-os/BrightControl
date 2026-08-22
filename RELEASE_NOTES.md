@@ -1,35 +1,35 @@
-## BrightControl v2.15 — Apps that own the whole wheel
+## BrightControl v3.1 — Wi-Fi login
 
-**A new built-in rule for apps whose wheel *press* is a control of their own, not just their
-turns. BrightRecorder is the first, and it is why this exists.**
+**The phone can now sign in to hotel and café Wi-Fi — the networks that want a webpage
+before they let you through, on a phone that has no browser to show one.**
 
-The scroll-aware rule passes an app's bare turns through and keeps the click for this service. That
-is right for nearly everything — the click is the torch, phone-wide, and an app that scrolls with
-the wheel still wants a flashlight. It is wrong for an app where pressing the wheel *is* a control.
+A captive portal answers every request with its own login page until the page is submitted.
+LightOS connects to the network, the portal answers, and there the story ended: nothing on the
+phone could draw the page, so the network sat "connected" and useless. Settings → Wi-Fi login
+is the missing piece — a WebView pinned to the captive network that loads the portal's page,
+lets you sign it (the wheel scrolls it), and closes itself the moment the network lets you
+through.
 
-BrightRecorder is a tape recorder: turning the wheel scrubs the tape and pressing it plays and
-stops. Under the scroll-aware rule its press never arrived — the torch came on instead and the key
-was consumed, with nothing the app could do from its side, because this service decides first.
+Two decisions carry it. The activity **binds its process to the captive network**, because an
+unvalidated Wi-Fi is exactly what Android routes around — unbound, every request would ride
+cellular and the portal would never see one. And **success is probed, not inferred**: every few
+seconds one request goes to a 204-endpoint over that network, and the day it answers 204 instead
+of the portal's redirect, you're through. Portals end their flows a dozen different ways; the
+probe is the only signal that means anything.
 
-So there is now a short list of applicationIds that own the whole wheel, turns and press alike, and
-they resolve to the same hands-off treatment Light's own tools get: every key reaches the app
-untouched, and the global turn mode does not apply either. It is consulted before the scroll-aware
-list, because `com.gios.brightrecorder` sits inside `com.gios.` and would otherwise be claimed by
-the weaker rule.
+The settings screen also answers the question the phone otherwise leaves you guessing at,
+reading the platform's own capability bits: **Sign-in required** (a portal announced itself),
+**Online** (validated, nothing to do), or **Connected, not yet online** — the common quiet case,
+where opening the page forces the question.
 
-The cost, and it is deliberate: **while such an app is in front, the wheel click and the camera
-button do nothing of ours** — no torch, no camera. That is the correct trade when the app in front
-is a tape recorder and the wheel is its transport, and it is the same bargain already struck for
-LightOS's own screens. Nothing changes for any other app: the rest of the `com.gios.` family still
-gets turns-through-with-our-buttons exactly as before.
+### The edges
 
-Doing this by hand was already possible — the per-app rule **Off** has always meant this — so this
-release is about it being right without anyone having to find the setting.
-
-### Under the hood
-
-The built-in table is now a pure function of the applicationId, split out from the stored-preference
-lookup so it can be tested on the JVM. Five new tests, because three prefix lists overlap here and
-the order they are consulted in *is* the behaviour: that a whole-wheel app is left alone entirely,
-that the rest of the `com.gios.` family still only gets its turns, that Light's own software stays
-hands-off, and that the phono fork keeps its bindings despite its Light-looking id.
+- The system's own "sign in to network" flow lands here too (`ACTION_CAPTIVE_PORTAL_SIGN_IN`),
+  and success is reported back through its `CaptivePortal` handle so LightOS marks the network
+  usable instead of giving up on it.
+- If LightOS ships no WebView, the screen says so instead of crashing, and the settings screen
+  carries the workaround: sign in from a computer whose MAC is set to the phone's — portals
+  remember devices by MAC.
+- Cleartext http is now allowed app-wide. Deliberate: the probe is http *on purpose* (a portal
+  can only hijack a request it can read), and portals themselves are routinely http. Nothing
+  else in the app speaks http.

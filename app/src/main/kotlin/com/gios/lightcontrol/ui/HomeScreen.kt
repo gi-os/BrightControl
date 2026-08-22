@@ -40,6 +40,7 @@ fun HomeScreen(
     onLock: () -> Unit,
     onVolume: () -> Unit,
     onAdb: () -> Unit,
+    onWifiLogin: () -> Unit,
     onSetup: () -> Unit,
     onDiagnostics: () -> Unit,
 ) {
@@ -164,6 +165,12 @@ fun HomeScreen(
             Rule()
 
             SectionLabel("SYSTEM")
+            MenuRow(
+                label = "Wi-Fi login",
+                sub = "sign in to hotel and café Wi-Fi that wants a webpage first",
+                detail = "›",
+                onClick = onWifiLogin,
+            )
             MenuRow(
                 label = "ADB & grants",
                 sub = "let the phone grant itself everything, over its own wireless debugging",

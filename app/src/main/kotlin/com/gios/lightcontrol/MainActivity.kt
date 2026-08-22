@@ -32,6 +32,7 @@ import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
 import com.gios.lightcontrol.ui.VolumeScreen
 import com.gios.lightcontrol.ui.WheelScreen
+import com.gios.lightcontrol.ui.WifiLoginScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -63,6 +64,7 @@ private sealed interface Screen {
     data object ResumeApps : Screen
     data object ResumeFallback : Screen
     data object Adb : Screen
+    data object WifiLogin : Screen
     data object Diagnostics : Screen
 
     /** [fromSettings] only decides where Back returns the picker to. */
@@ -112,6 +114,7 @@ class MainActivity : ComponentActivity() {
                             onLock = { screen = Screen.Lock },
                             onVolume = { screen = Screen.Volume },
                             onAdb = { screen = Screen.Adb },
+                            onWifiLogin = { screen = Screen.WifiLogin },
                             onSetup = { screen = Screen.Setup },
                             onDiagnostics = { screen = Screen.Diagnostics },
                         )
@@ -165,6 +168,8 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Screen.Adb -> AdbScreen(onBack = home)
+
+                        Screen.WifiLogin -> WifiLoginScreen(onBack = home)
 
                         Screen.Diagnostics -> DiagnosticsScreen(onBack = home)
 
