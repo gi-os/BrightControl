@@ -35,14 +35,23 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
     }
 
     /**
-     * Drive the daltonizer to whatever [pkg] asks for. Null (no app known) is treated as
-     * Default. A no-op when the master switch is off, so turning the feature off leaves the
-     * phone exactly as the user last set it rather than forcing a baseline.
+     * Drive the daltonizer to whatever [pkg] asks for. A no-op when the master switch is off, so
+     * turning the feature off leaves the phone exactly as the user last set it rather than
+     * forcing a baseline.
+     *
+     * **An unknown front app leaves the screen alone.** It used to be treated as [ColorRule
+     * .Default], which forces the baseline — mono, on a stock phone. That is the wrong guess in
+     * the one situation it actually arose: the service has just rebound after an app update and
+     * has not seen a window-state event yet, so `foreground` is null while a colour app is
+     * sitting on screen. Every re-assert from that state actively repainted a colour app mono,
+     * and a screen off/on did it again. Not knowing which app is in front is a reason to do
+     * nothing, not a reason to override.
      */
     fun applyFor(pkg: String?) {
         if (!prefs.colorAutoSwitch) return
+        if (pkg.isNullOrBlank()) return
         captureBaseline()
-        val rule = if (pkg == null) ColorRule.Default else prefs.colorRuleFor(pkg)
+        val rule = prefs.colorRuleFor(pkg)
         when (rule) {
             ColorRule.Color -> set(enabled = 0, mode = prefs.colorBaselineMode)
             ColorRule.Mono -> set(enabled = 1, mode = 0)
@@ -54,9 +63,16 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
     }
 
     /**
-     * Put the phone back to its captured baseline and forget the capture. Called when the
-     * feature is switched off and on unbind, so nothing is left forced by an app that is no
-     * longer being watched.
+     * Put the phone back to its captured baseline. Called when the user switches the feature
+     * off, so nothing is left forced by an app that is no longer being watched.
+     *
+     * The capture is deliberately kept rather than cleared. Clearing it would mean the next
+     * [captureBaseline] reads whatever the daltonizer happens to be at that moment — and if that
+     * moment falls while a Color app is in front, the baseline is recorded as "colour" and every
+     * app with no rule stays colour from then on. The first capture, taken before this app had
+     * forced anything, is the only honest one.
+     *
+     * Notably *not* called on service unbind. See ControlService.onUnbind.
      */
     fun restoreBaseline() {
         if (prefs.colorBaselineEnabled == -1) return

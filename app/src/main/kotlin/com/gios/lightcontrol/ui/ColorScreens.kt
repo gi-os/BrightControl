@@ -29,6 +29,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.keys.ColorMode
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.ui.theme.Dim
 
@@ -64,6 +65,11 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             onClick = {
                 auto = !auto
                 prefs.colorAutoSwitch = auto
+                // Switching off is the one moment the baseline should be put back: a rule that
+                // forced colour is no longer being maintained, so leaving the phone on it would
+                // strand a setting nothing is watching any more. This used to happen on service
+                // unbind instead, which fired on every app update and repainted colour apps mono.
+                if (!auto) runCatching { ColorMode(context, prefs).restoreBaseline() }
             },
         )
         GrantRow(

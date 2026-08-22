@@ -252,10 +252,16 @@ class ControlService : AccessibilityService() {
             foregroundAt = SystemClock.uptimeMillis()
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
             if (pkg == coverTarget) dropCover()
-            // The colour the new front app asks for. State-driven, so a missed switch self-corrects
-            // on the next one; see keys/ColorMode.kt.
-            runCatching { colorMode.applyFor(pkg) }
         }
+        // Re-asserted on every event rather than only when the package changes, so the screen
+        // heals itself. ColorMode.set() writes only on a difference, so for the overwhelmingly
+        // common case — same app, already the right colour — this costs two reads of a secure
+        // setting and writes nothing.
+        //
+        // What it buys: anything that moves the daltonizer while an app stays in front no longer
+        // strands it. Before, colour was strictly edge-triggered, so a single missed edge lasted
+        // until you switched apps and back, and there was no way for the app to notice.
+        runCatching { colorMode.applyFor(pkg) }
         // The offer to go back only stands while you are still sitting on LightOS's lock screen
         // or dashboard, which is where a wake leaves you. Reach any other app under your own
         // steam and the offer is withdrawn — otherwise home would yank you out of the thing you
@@ -988,7 +994,17 @@ class ControlService : AccessibilityService() {
         alarmPackages.clear()
         activityClasses.clear()
         imePackages = null
-        runCatching { colorMode.restoreBaseline() }
+        // Deliberately NOT restoring the colour baseline here.
+        //
+        // An unbind is almost never "the user turned this off" — it is an app update, a reboot,
+        // or the system recycling the service. Forcing the baseline on the way out meant an
+        // update repainted the phone mono, and because colour is otherwise only applied when the
+        // front *package changes*, an app that was already on screen never got it back: the new
+        // process starts with no idea what is in front, and the app it is looking at raises no
+        // new window-state event. Roll went black and white and stayed there.
+        //
+        // Switching the feature off is the case restoreBaseline exists for, and that is now
+        // where it is called from — see ui/ColorScreens.kt.
         return super.onUnbind(intent)
     }
 
