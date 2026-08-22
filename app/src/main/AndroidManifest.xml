@@ -100,6 +100,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+              An app in BrightMarket asking for the ADB setup its README describes. Exported on
+              purpose, because the sender is another app. Nothing that arrives is executed as
+              written: adb/GrantRequest.kt rebuilds every command, pinned to the requesting
+              package, and the user approves the result before any of it runs.
+            -->
+            <intent-filter>
+                <action android:name="com.gios.lightcontrol.action.RUN_GRANTS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <!--
