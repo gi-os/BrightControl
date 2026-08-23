@@ -134,6 +134,10 @@ class ControlService : AccessibilityService() {
     /** When something last rang. See [ringing]. */
     private var lastRingAt = 0L
 
+    /** [ringing]'s last answer, and when it was worked out. See the note there. */
+    private var lastRingCheckAt = 0L
+    private var lastRingAnswer = false
+
     /** When an activity was last started from here, and where it was going. See [start]. */
     private var lastStartAt = 0L
     private var lastStartTarget: String? = null
@@ -508,12 +512,30 @@ class ControlService : AccessibilityService() {
      */
     private fun ringing(): Boolean = runCatching {
         val now = SystemClock.uptimeMillis()
+        // **Answered from cache for a quarter of a second.** This runs inside `onKeyEvent`, and an
+        // accessibility filter's `onKeyEvent` is *blocking* -- the input dispatcher holds the key
+        // until it returns. The two lines below are binder calls, `activePlaybackConfigurations`
+        // returning a list of parcelables, and they ran twice per press, on the way down and on
+        // the way up. On a single press nobody notices. Held or spammed, the volume keys repeat
+        // faster than four binder round trips take, and the volume climbs in steps you can count.
+        //
+        // Nothing can be missed by this. The busy answer already carries a thirty-second grace
+        // below; this caches the *quiet* one, and an alarm that starts ringing does not need
+        // dismissing within 250 ms of the last time we looked.
+        if (now - lastRingCheckAt < RING_CHECK_MS) return@runCatching lastRingAnswer
+        lastRingCheckAt = now
         // Still inside the grace window from the last thing that rang. Sampling only at key events
         // means the moment an alarm is *silenced* looks identical to silence, while the screen with
         // the "stop" button on it is still up and being pressed at. Half a minute of hands-off
         // after a ring costs nothing and covers the whole of that.
-        if (lastRingAt != 0L && now - lastRingAt < RING_GRACE_MS) return true
-        val audio = getSystemService(AudioManager::class.java) ?: return false
+        if (lastRingAt != 0L && now - lastRingAt < RING_GRACE_MS) {
+            lastRingAnswer = true
+            return true
+        }
+        val audio = getSystemService(AudioManager::class.java) ?: run {
+            lastRingAnswer = false
+            return false
+        }
         val playing = audio.activePlaybackConfigurations.any {
             it.audioAttributes.usage in ringUsages
         }
@@ -525,6 +547,7 @@ class ControlService : AccessibilityService() {
             mode == AudioManager.MODE_IN_CALL ||
             mode == AudioManager.MODE_IN_COMMUNICATION
         if (busy) lastRingAt = now
+        lastRingAnswer = busy
         busy
     }.getOrDefault(false)
 
@@ -1556,6 +1579,9 @@ class ControlService : AccessibilityService() {
 
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L
+
+        /** How long [ringing]'s quiet answer is reused. See the note there. */
+        const val RING_CHECK_MS = 250L
 
         /** The same binding this many times inside this window and the service stands down. */
         const val MASH_PRESSES = 4

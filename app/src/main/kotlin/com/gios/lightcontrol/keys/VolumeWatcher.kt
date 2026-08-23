@@ -106,13 +106,31 @@ class VolumeWatcher(
      * what that method returns — the key is not ours and the HUD is cosmetic. Hence the two reads
      * being posted rather than done here, and the whole of it inside a catch.
      */
+    /**
+     * The reads are one pair, not a pair per press.
+     *
+     * Two anonymous lambdas cannot be cancelled, so every volume key posted two more reads and
+     * nothing ever removed any of them. Holding the key down for a second queued something like
+     * forty, each one calling `activePlaybackConfigurations` on the main thread -- the same thread
+     * the accessibility filter has to answer the input dispatcher on. The volume climbed in steps
+     * you could count, and this readout was the reason.
+     *
+     * One stable Runnable each, removed before they are posted again. A press that lands while
+     * the last one is still pending replaces it, which is also more correct: what the strip should
+     * show is the level after the *last* press, not after each one on the way.
+     */
     fun onVolumeKey() {
         if (!wanted()) return
         runCatching {
-            handler.postDelayed({ readAndShow() }, FIRST_READ_MS)
-            handler.postDelayed({ readAndShow() }, SECOND_READ_MS)
+            handler.removeCallbacks(firstRead)
+            handler.removeCallbacks(secondRead)
+            handler.postDelayed(firstRead, FIRST_READ_MS)
+            handler.postDelayed(secondRead, SECOND_READ_MS)
         }
     }
+
+    private val firstRead = Runnable { readAndShow() }
+    private val secondRead = Runnable { readAndShow() }
 
     private fun readAndShow() {
         runCatching {
