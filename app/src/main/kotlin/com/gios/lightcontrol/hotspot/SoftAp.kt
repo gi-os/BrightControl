@@ -55,9 +55,28 @@ class SoftAp(context: Context) {
      * tick, and a poll that needed the adb connection would make the readout go blank whenever the
      * connection was between reconnects.
      */
-    fun apState(): Int = runCatching {
-        wifi.javaClass.getMethod("getWifiApState").invoke(wifi) as Int
-    }.getOrDefault(AP_STATE_UNKNOWN)
+    fun apState(): Int {
+        // The direct route, which works on a build that has not blocklisted the method.
+        runCatching {
+            return wifi.javaClass.getMethod("getWifiApState").invoke(wifi) as Int
+        }
+        // **And the shell, because on Android 14 the direct route usually fails.**
+        // `getWifiApState` is a hidden API, and reflection on a blocklisted method throws rather
+        // than returning anything — which is caught above and reads as "not known" for ever. The
+        // separate app carried a HiddenApiBypass dependency to get around that; this one already
+        // has a shell that can simply ask, so it asks.
+        val out = run("dumpsys wifi | grep -i -m1 'ap state\|mWifiApState'")
+        if (!out.ok) return AP_STATE_UNKNOWN
+        val said = out.said.uppercase()
+        return when {
+            said.contains("ENABLED") && !said.contains("DISABL") -> AP_STATE_ENABLED
+            said.contains("ENABLING") -> AP_STATE_ENABLING
+            said.contains("DISABLING") -> AP_STATE_DISABLING
+            said.contains("DISABLED") -> AP_STATE_DISABLED
+            said.contains("FAILED") -> AP_STATE_FAILED
+            else -> AP_STATE_UNKNOWN
+        }
+    }
 
     fun apEnabled(): Boolean = apState() == AP_STATE_ENABLED
 

@@ -60,7 +60,29 @@ class HotspotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIF_ID, notification("Watching for your iPad"))
+        /**
+         * **This threw, and took the app down with it.**
+         *
+         * On Android 14 a foreground service declaring `connectedDevice` has to *hold* one of the
+         * permissions that type is about — BLUETOOTH_CONNECT and friends — at the moment
+         * `startForeground` runs, or the platform raises a SecurityException. Not a refusal to
+         * start: a throw, out of a system callback, which is a crash.
+         *
+         * And the settings screen invited it. The switch that starts this sat above the button
+         * that asks for the scan, so turning the feature on before granting anything was both the
+         * obvious order and the one that killed the app. The screen is fixed; this is the belt to
+         * that pair of braces, because a service must not be able to crash the app that starts it
+         * whatever anybody taps.
+         */
+        val started = runCatching {
+            startForeground(NOTIF_ID, notification("Watching for your iPad"))
+        }.isSuccess
+        if (!started) {
+            Log.w(TAG, "no foreground service permission yet — standing down")
+            running.value = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (loop == null) loop = scope.launch { run() }
         running.value = true
         return START_STICKY
@@ -155,7 +177,19 @@ class HotspotService : Service() {
         val clients = MutableStateFlow(SoftAp.UNKNOWN)
         val lastEvent = MutableStateFlow("")
 
+        /** Every permission the `connectedDevice` service type will be asked to justify. */
+        val NEEDED = arrayOf(
+            android.Manifest.permission.BLUETOOTH_SCAN,
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+        )
+
+        /** Whether starting the service can possibly succeed. See [onStartCommand]. */
+        fun allowed(context: Context): Boolean = NEEDED.all {
+            context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
         fun start(context: Context) {
+            if (!allowed(context)) return
             val intent = Intent(context, HotspotService::class.java)
             runCatching { context.startForegroundService(intent) }
         }

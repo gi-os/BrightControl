@@ -255,9 +255,13 @@ would be taking a function away to add one.
 Three things are set up once and then never again. The order matters — step 2 is the one
 everybody skips and it is the one that makes the rest automatic.
 
-**1. Pair the two.** On the iPad: Settings → Bluetooth, and leave that screen open. On the phone,
-open LightOS's Bluetooth settings so it is discoverable. The phone appears on the iPad under
-*Other Devices* — tap it, accept on both sides.
+**1. Pair the two — from the phone.** This is the wrong way round from how it sounds, and it is
+the only way it works: iOS lists only the accessories it knows how to be, so an **Android phone
+never appears in the iPad's Bluetooth list**, however long you stare at it.
+
+Open Settings → Bluetooth on the iPad and leave it on that screen — that is what makes the iPad
+advertise. Then scan from LightOS's Bluetooth settings: the iPad turns up there. Tap it, accept
+the six-digit code on both sides.
 
 This is not a formality. An iPad advertises under an address that rotates every few minutes so it
 cannot be followed, and the identity key exchanged during pairing is the only thing that turns

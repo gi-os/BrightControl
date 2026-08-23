@@ -127,11 +127,17 @@ fun HotspotScreen(onBack: () -> Unit) {
         SectionLabel("AUTO")
         MenuRow(
             label = "Watch for the device",
-            detail = if (auto) "ON" else "OFF",
+            detail = when {
+                !scanAllowed -> "ALLOW"
+                auto -> "ON"
+                else -> "OFF"
+            },
             sub = when {
                 // The refusal that would otherwise look like the scan not working. Above
                 // lastEvent on purpose: it is the answer to the question you are asking while
                 // you stare at a hotspot that has not come up.
+                !scanAllowed ->
+                    "needs the Bluetooth scan first — tap to allow it"
                 running && noUplink ->
                     "the iPad is here, but this phone has nothing to share — no data, or the " +
                         "carrier does not allow tethering on this SIM"
@@ -139,6 +145,20 @@ fun HotspotScreen(onBack: () -> Unit) {
                 else -> "off — the hotspot is yours to raise by hand"
             },
             onClick = {
+                // **Asks before it starts, because starting without the permission crashed.**
+                // A `connectedDevice` foreground service has to hold the Bluetooth permissions
+                // when startForeground runs or Android 14 throws out of a system callback. So
+                // the switch cannot be the thing that discovers the permission is missing.
+                if (!scanAllowed) {
+                    askScan.launch(
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_SCAN,
+                            Manifest.permission.BLUETOOTH_CONNECT,
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                        ),
+                    )
+                    return@MenuRow
+                }
                 auto = !auto
                 prefs.hotspotAuto = auto
                 if (auto) HotspotService.start(context) else HotspotService.stop(context)
@@ -199,10 +219,13 @@ fun HotspotScreen(onBack: () -> Unit) {
         // resolution, and nothing this app can do about it from its side.
         GuideText(
             if (bonded.isEmpty()) {
-                "Nothing is paired with this phone yet.\n\nDo it from the iPad: Settings → " +
-                    "Bluetooth, and leave LightOS's Bluetooth screen open so the phone is " +
-                    "discoverable. The phone appears under Other Devices — tap it, accept on " +
-                    "both. Then come back here and it will be in this list."
+                "Nothing is paired with this phone yet.\n\nPAIR FROM THE PHONE, NOT FROM THE " +
+                    "IPAD. iOS only lists accessories it knows how to be — speakers, " +
+                    "keyboards — so an Android phone never appears in the iPad's Bluetooth " +
+                    "list, however long you wait.\n\nOpen Settings → Bluetooth on the iPad and " +
+                    "leave it on that screen, which is what makes the iPad advertise. Then in " +
+                    "LightOS's Bluetooth settings, scan: the iPad appears there. Tap it, and " +
+                    "accept the six-digit code on both."
             } else {
                 "Devices paired with this phone. Turn on the one whose arrival should raise the " +
                     "hotspot. Nothing has to be installed on it."
