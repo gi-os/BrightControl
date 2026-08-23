@@ -19,13 +19,16 @@ class PolicyTest {
         // torch — so the press would light the torch instead of reaching the app, with nothing
         // the app could do about it. BrightRecorder uses the press as play/stop.
         assertEquals(AppRule.Off, Policy.builtInRuleFor("com.gios.brightrecorder"))
+        // Roll's dial lock is unlocked by a wheel click and by nothing else, so under
+        // ScrollThrough the lock could be set and then never cleared: the app told you to click
+        // the wheel while the click was being spent on the torch one layer above it.
+        assertEquals(AppRule.Off, Policy.builtInRuleFor("com.gios.lightcamera"))
     }
 
     @Test
     fun `other gios apps still only get their turns`() {
         // The stronger rule must not leak to the rest of the family: they want their buttons.
         assertEquals(AppRule.ScrollThrough, Policy.builtInRuleFor("com.gios.lightnoise"))
-        assertEquals(AppRule.ScrollThrough, Policy.builtInRuleFor("com.gios.lightcamera"))
         assertEquals(AppRule.ScrollThrough, Policy.builtInRuleFor("com.gios.lightcontrol"))
     }
 

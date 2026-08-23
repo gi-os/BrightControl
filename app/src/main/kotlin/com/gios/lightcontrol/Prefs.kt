@@ -609,6 +609,13 @@ object Policy {
     private val ownsWheelPrefixes = listOf(
         // BrightRecorder: turning the wheel scrubs the tape, pressing it plays and stops.
         "com.gios.brightrecorder",
+        // Roll: turning the wheel is the filter dial, and the click is the only gesture that
+        // unlocks it. Under ScrollThrough the turns arrived and the click did not, so the dial
+        // could be locked and then never unlocked -- it told you to click the wheel for a click
+        // that was being spent on the torch before Roll was dispatched the key. A camera is also
+        // the one app where losing the torch costs nothing: it has its own flash control, and it
+        // handles the camera button itself.
+        "com.gios.lightcamera",
     )
 
     private val scrollAwarePrefixes = listOf(
