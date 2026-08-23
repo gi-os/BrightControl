@@ -250,6 +250,58 @@ rule of `OFF` still wins over this. The volume keys are bindable but pass throug
 default — they're the one pair that already works, so consuming them out of the box
 would be taking a function away to add one.
 
+## Hotspot: connecting the iPad
+
+Three things are set up once and then never again. The order matters — step 2 is the one
+everybody skips and it is the one that makes the rest automatic.
+
+**1. Pair the two.** On the iPad: Settings → Bluetooth, and leave that screen open. On the phone,
+open LightOS's Bluetooth settings so it is discoverable. The phone appears on the iPad under
+*Other Devices* — tap it, accept on both sides.
+
+This is not a formality. An iPad advertises under an address that rotates every few minutes so it
+cannot be followed, and the identity key exchanged during pairing is the only thing that turns
+that back into "this is my iPad". No pairing, no recognition, and nothing this app can do from its
+side. **BrightControl → Hotspot → CAN IT HEAR THE IPAD?** tells you whether it worked.
+
+**2. Join the hotspot by hand, once.** Turn the phone's hotspot on from LightOS, join it from the
+iPad the ordinary way, and check *Auto-Join* is on for it in Settings → Wi-Fi.
+
+This is the whole trick. iOS will only join a network it already knows without being asked, so
+this one manual join is what buys every automatic one afterwards. Skip it and the hotspot will
+come up faithfully every time and the iPad will sit there ignoring it.
+
+**3. Tell BrightControl.** Hotspot →
+
+- **THE NETWORK IT RAISES** — READ FROM PHONE, or type the name and password. They have to match
+  what the iPad joined in step 2 exactly, or it meets a network it has never seen.
+- **WATCH FOR** — turn on the iPad.
+- **LEAVE IT ALONE HERE** — add your home Wi-Fi, so it does not raise a hotspot where everything
+  already has internet.
+- **AUTO** — turn on *Watch for the device*.
+
+Then: open the iPad near the phone, off home Wi-Fi, and the hotspot comes up within a scan window
+— 15 to 45 seconds — and the iPad joins on its own. Nothing to tap on the iPad, nothing installed
+on it. Nobody joins within three minutes and it stands back down and stops guessing for a while,
+so a cafe with good Wi-Fi does not make the phone flap.
+
+### When it does not work
+
+**Hotspot comes up, iPad ignores it.** Step 2 was skipped, the name or password does not match
+what the iPad knows, or Auto-Join is off for that network on the iPad.
+
+**Hotspot never comes up.** Try *START HOTSPOT NOW*. It says what the shell said. No adb
+connection is the usual answer, and the ADB screen is where to fix it.
+
+**iPad joins, but has no internet.** Nothing to do with any of this — the phone has nothing to
+share. Either it is not on cellular data, or the carrier does not allow tethering on that plan.
+Worth knowing when travelling: a SIM that tethers at home may not while roaming.
+
+**"Hearing other devices, but none of them are yours."** The pairing did not exchange the identity
+key on this phone. Presence triggering cannot work as built; the fallbacks are matching Apple's
+Continuity advertisements instead (looser, still needs nothing on the iPad) or a small trigger on
+the iPad side.
+
 ## Privacy
 
 The service declares one event type and `canRetrieveWindowContent="false"`. What it can
