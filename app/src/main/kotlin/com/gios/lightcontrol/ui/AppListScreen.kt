@@ -88,13 +88,26 @@ fun AppListScreen(onBack: () -> Unit) {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 items(apps, key = { it.pkg }) { app ->
                     val rule = rules[app.pkg] ?: AppRule.Default
+                    // What the app would get with nothing set here. Worth showing even when
+                    // something *is* set, for the one case below.
+                    val builtIn = Policy.builtInRuleFor(app.pkg)
                     MenuRow(
                         label = app.label,
                         detail = detail(rule),
-                        sub = if (rule == AppRule.Default) {
-                            "default · ${describe(Policy.ruleFor(prefs, app.pkg))}"
-                        } else {
-                            describe(rule)
+                        sub = when {
+                            rule == AppRule.Default -> "default · ${describe(builtIn)}"
+                            // **An explicit rule masking a whole-wheel app.** This screen writes a
+                            // rule the moment you tap a row, and it wins over the built-in table
+                            // for ever after — so an app that later joins the list of apps owning
+                            // the whole wheel keeps whatever was set months ago, and its wheel
+                            // click keeps going to the torch. From the phone that looks like the
+                            // app ignoring the button: it works in one app and not the one beside
+                            // it, with nothing anywhere to say why. Now the row says why.
+                            builtIn == AppRule.Off && rule != AppRule.Off ->
+                                describe(rule) + " · this app wants the whole wheel, and your " +
+                                    "setting is overriding that — its click will not reach it. " +
+                                    "Tap round to OFF, or to AUTO to use the built-in rule."
+                            else -> describe(rule)
                         },
                         onClick = {
                             val next = cycle(rule)
