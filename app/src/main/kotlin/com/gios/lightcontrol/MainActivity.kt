@@ -33,6 +33,7 @@ import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
 import com.gios.lightcontrol.ui.VolumeScreen
 import com.gios.lightcontrol.ui.WheelScreen
+import com.gios.lightcontrol.ui.HotspotScreen
 import com.gios.lightcontrol.ui.WifiLoginScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -66,6 +67,7 @@ private sealed interface Screen {
     data object ResumeFallback : Screen
     data object Adb : Screen
     data object WifiLogin : Screen
+    data object Hotspot : Screen
     data object Diagnostics : Screen
 
     /**
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
                             onVolume = { screen = Screen.Volume },
                             onAdb = { screen = Screen.Adb },
                             onWifiLogin = { screen = Screen.WifiLogin },
+                            onHotspot = { screen = Screen.Hotspot },
                             onSetup = { screen = Screen.Setup },
                             onDiagnostics = { screen = Screen.Diagnostics },
                         )
@@ -187,6 +190,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Adb -> AdbScreen(onBack = home)
 
                         Screen.WifiLogin -> WifiLoginScreen(onBack = home)
+                        Screen.Hotspot -> HotspotScreen(onBack = home)
 
                         is Screen.GrantRequestFor -> GrantRequestScreen(
                             appLabel = current.label,

@@ -112,6 +112,66 @@ class Prefs(context: Context) {
 
     private fun bindKey(button: Button, gesture: Gesture) = "bind:${button.name}:${gesture.name}"
 
+    // --------------------------------------------------------------------- the hotspot
+
+    /**
+     * Presence-triggered tethering, folded in from BrightHotspot.
+     *
+     * It lives here rather than in an app of its own because the privileged half was always the
+     * hard half: raising an access point needs a shell UID, and this app has held one the whole
+     * time. The separate app borrowed one from Shizuku, whose way in Android tears down on every
+     * reboot — so the feature worked and nobody could keep it working. See
+     * [com.gios.lightcontrol.hotspot.SoftAp].
+     *
+     * Plain SharedPreferences like everything else here. The two strings are a network name and
+     * its password, which the shell command needs as arguments because `start-softap` takes the
+     * configuration rather than reading the saved one.
+     */
+    var hotspotAuto: Boolean
+        get() = sp.getBoolean(HOTSPOT_AUTO, false)
+        set(value) { sp.edit().putBoolean(HOTSPOT_AUTO, value).apply() }
+
+    /** Bluetooth identity addresses whose presence raises the hotspot. */
+    var hotspotTriggers: Set<String>
+        get() = sp.getStringSet(HOTSPOT_TRIGGERS, emptySet()).orEmpty()
+        set(value) { sp.edit().putStringSet(HOTSPOT_TRIGGERS, value).apply() }
+
+    fun toggleHotspotTrigger(address: String): Boolean {
+        val next = hotspotTriggers.toMutableSet()
+        val added = next.add(address)
+        if (!added) next.remove(address)
+        hotspotTriggers = next
+        return added
+    }
+
+    /** Networks where the hotspot stays down, because everything here already has internet. */
+    var hotspotTrustedSsids: Set<String>
+        get() = sp.getStringSet(HOTSPOT_TRUSTED, emptySet()).orEmpty()
+        set(value) { sp.edit().putStringSet(HOTSPOT_TRUSTED, value).apply() }
+
+    fun toggleHotspotTrusted(ssid: String): Boolean {
+        val next = hotspotTrustedSsids.toMutableSet()
+        val added = next.add(ssid)
+        if (!added) next.remove(ssid)
+        hotspotTrustedSsids = next
+        return added
+    }
+
+    /**
+     * The network the hotspot comes up as.
+     *
+     * Has to match what the iPad already knows, or it will see a network it has never met and
+     * will not join it unprompted — which is the whole feature. The settings screen offers to
+     * read both off the phone so that in the ordinary case nobody types anything.
+     */
+    var hotspotSsid: String
+        get() = sp.getString(HOTSPOT_SSID, "").orEmpty()
+        set(value) { sp.edit().putString(HOTSPOT_SSID, value).apply() }
+
+    var hotspotPassword: String
+        get() = sp.getString(HOTSPOT_PASSWORD, "").orEmpty()
+        set(value) { sp.edit().putString(HOTSPOT_PASSWORD, value).apply() }
+
     // -------------------------------------------------------------------- the wheel
 
     /** What a bare turn does in an app with no rule of its own and no entry in the table. */
@@ -517,6 +577,12 @@ class Prefs(context: Context) {
     private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
+        const val HOTSPOT_AUTO = "hotspotAuto"
+        const val HOTSPOT_TRIGGERS = "hotspotTriggers"
+        const val HOTSPOT_TRUSTED = "hotspotTrustedSsids"
+        const val HOTSPOT_SSID = "hotspotSsid"
+        const val HOTSPOT_PASSWORD = "hotspotPassword"
+
         const val APP_PREFIX = "app:"
         const val COLOR_PREFIX = "color:"
 

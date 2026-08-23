@@ -459,7 +459,7 @@ private fun Row2(number: String, text: String) {
 
 /** A bordered single-line input in the mono idiom — BasicTextField so no Material chrome leaks in. */
 @Composable
-private fun AdbField(
+internal fun AdbField(
     label: String,
     value: String,
     keyboard: KeyboardType,

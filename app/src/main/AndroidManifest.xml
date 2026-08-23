@@ -59,6 +59,30 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!--
+      The hotspot. Everything below is for the presence trigger folded in from BrightHotspot,
+      and every one of them is a runtime prompt or a normal permission - the privileged half,
+      raising the access point itself, goes over this app's own adb shell instead. See
+      hotspot/SoftAp.kt.
+
+      BLUETOOTH_SCAN is what hears the iPad advertising. ACCESS_FINE_LOCATION comes with it on
+      this platform whether or not anybody wants a location: a BLE scan is a location signal as
+      far as Android is concerned, and neverForLocation is not enough on its own for a scan that
+      resolves bonded addresses.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!--
+      So the shell comes back by itself after a restart, which is the whole reason this feature
+      moved into this app. See hotspot/HotspotBoot.kt.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
       Signal bars on the lock face, and nothing else. A runtime permission LightOS has
       no screen for, so it is granted once over adb:
 
@@ -178,6 +202,29 @@
           just tapped PAIR AUTOMATICALLY. Separate from ControlService so that service can keep
           its canRetrieveWindowContent="false".
         -->
+        <!--
+          The presence loop. A foreground service because that is the only way LightOS lets a
+          sideloaded app keep a BLE scan alive with the screen off, which is the entire point:
+          the hotspot is meant to come up while the phone sits in a pocket.
+
+          Its own service rather than a job on ControlService. The key filter is what this
+          phone's buttons depend on, and a scan that misbehaves must not be able to take it
+          down - an accessibility service that throws often enough is stood down by the system,
+          and standing down the key filter to fix a hotspot would be a poor trade.
+        -->
+        <service
+            android:name=".hotspot.HotspotService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <receiver
+            android:name=".hotspot.HotspotBoot"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".adb.AdbPairReader"
             android:exported="true"

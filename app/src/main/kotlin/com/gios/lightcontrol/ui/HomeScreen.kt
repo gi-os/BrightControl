@@ -41,6 +41,7 @@ fun HomeScreen(
     onVolume: () -> Unit,
     onAdb: () -> Unit,
     onWifiLogin: () -> Unit,
+    onHotspot: () -> Unit,
     onSetup: () -> Unit,
     onDiagnostics: () -> Unit,
 ) {
@@ -170,6 +171,12 @@ fun HomeScreen(
                 sub = "sign in to hotel and café Wi-Fi that wants a webpage first",
                 detail = "›",
                 onClick = onWifiLogin,
+            )
+            MenuRow(
+                label = "Hotspot",
+                detail = "›",
+                sub = "raise it when a paired iPad is near, over this app's own shell",
+                onClick = onHotspot,
             )
             MenuRow(
                 label = "ADB & grants",
