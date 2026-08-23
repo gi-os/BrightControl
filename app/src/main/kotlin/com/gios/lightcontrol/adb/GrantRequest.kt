@@ -121,8 +121,40 @@ object GrantRequest {
                 command = enableAccessibility("$pkg/$cls"),
             )
         }
+        if (SHIZUKU.matches(line)) {
+            return Step(label = "Start Shizuku", command = START_SHIZUKU)
+        }
         return null
     }
+
+    /**
+     * Start Shizuku, which is the one thing here that is not about the requesting app.
+     *
+     * ### Why this is a verb and not a command
+     *
+     * Everything else on the allowlist is "do X to yourself", checked by comparing a package name.
+     * This one is "start somebody else's service", so package pinning says nothing about it and
+     * the safety has to come from somewhere else: the request may only *ask*, and the string that
+     * runs is written here. `start shizuku` is four letters of intent; a requester cannot smuggle
+     * a path, an argument or a second command through it.
+     *
+     * ### Why it is safe to run
+     *
+     * The script lives in Shizuku's own external-storage directory. Since Android 11's scoped
+     * storage, `Android/data/<pkg>/` is writable by that package and by the shell and by nothing
+     * else — so no third-party app can plant a script for this to execute. And starting Shizuku
+     * grants nothing by itself: it brings up a service that then asks the user, per app, in its
+     * own UI. Two consents, neither of them here.
+     *
+     * ### Why it is worth having at all
+     *
+     * Shizuku's own startup route is the wireless-debugging pairing flow, and Android tears it
+     * down on every reboot — so it is a flow you repeat, not one you complete. This app already
+     * holds an adb shell, which is the same privilege by a route the user has already set up.
+     * One tap instead of the dance.
+     */
+    private const val START_SHIZUKU =
+        "sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh"
 
     /** Why a line was turned down, in words worth showing someone. */
     private fun refusalFor(pkg: String, line: String): String {
@@ -132,7 +164,8 @@ object GrantRequest {
             named != null && named != pkg ->
                 "names $named, but this request is from $pkg — an app may only set up itself"
             else ->
-                "not a permission, app op, notification listener or accessibility service"
+                "not a permission, app op, notification listener, accessibility service, or " +
+                    "\"start shizuku\""
         }
     }
 
@@ -171,6 +204,12 @@ object GrantRequest {
      */
     private val ACCESSIBILITY =
         Regex("""(?:enable )?accessibility(?: service)? ($PKG)/($CLS)""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Matched as a *declaration* like [ACCESSIBILITY], not as the shell line. Deliberately narrow:
+     * anything with an argument on it is a different request, and there is only one thing to say.
+     */
+    private val SHIZUKU = Regex("""(?:start|run) shizuku""", RegexOption.IGNORE_CASE)
 
     private val APPOP_MODES = setOf("allow", "deny", "ignore", "default")
 }

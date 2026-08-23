@@ -360,6 +360,36 @@ fun AdbScreen(onBack: () -> Unit) {
             }
             Rule()
 
+            SectionLabel("SHIZUKU")
+            Guide(
+                "Shizuku hands a shell UID to apps that need one — BrightHotspot uses it to raise " +
+                    "the hotspot, which is a system-only call since Android 11. Its own way in is " +
+                    "the wireless-debugging pairing flow, and Android tears that down on every " +
+                    "reboot, so it is a dance you repeat rather than finish.\n\nThis app already " +
+                    "has the shell. Same privilege, one tap, and Shizuku still asks you app by " +
+                    "app in its own screen afterwards.",
+            )
+            BigButton(
+                label = "START SHIZUKU",
+                enabled = !busy && connected,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                run("start shizuku") {
+                    val out = AdbManager.getInstance(context)
+                        .runCommand("sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh")
+                    // Shizuku's script says nothing on success and a good deal on failure, and
+                    // the commonest failure is the one worth naming: it is not installed, so the
+                    // path does not exist.
+                    when {
+                        out.contains("No such file", ignoreCase = true) ->
+                            "Shizuku is not installed — get it from shizuku.rikka.app first"
+                        out.isBlank() -> "Started. Grant the app you want inside Shizuku."
+                        else -> out.take(400)
+                    }
+                }
+            }
+            Rule()
+
             SectionLabel("ADVANCED — RUN A COMMAND")
             Guide(
                 "Runs against the phone's own shell (no \"adb shell\" prefix). Whatever the daemon " +

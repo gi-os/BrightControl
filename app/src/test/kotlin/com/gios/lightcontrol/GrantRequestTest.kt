@@ -132,4 +132,53 @@ class GrantRequestTest {
         assertTrue(GrantRequest.parse(roll, listOf("   ")) is GrantRequest.Parsed.Refused)
         assertTrue(GrantRequest.parse("", listOf("pm grant x.y z")) is GrantRequest.Parsed.Refused)
     }
+
+    // ------------------------------------------------------------------ start shizuku
+
+    @Test
+    fun `start shizuku is rebuilt here, not taken from the request`() {
+        val parsed = GrantRequest.parse("com.gios.brighthotspot", listOf("start shizuku"))
+        val steps = (parsed as GrantRequest.Parsed.Ok).steps
+        assertEquals(1, steps.size)
+        assertEquals("Start Shizuku", steps[0].label)
+        assertEquals(
+            "sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh",
+            steps[0].command,
+        )
+    }
+
+    @Test
+    fun `the shizuku verb tolerates the spellings a readme would use`() {
+        listOf("start shizuku", "Start Shizuku", "adb shell start shizuku", "run shizuku")
+            .forEach { line ->
+                assertTrue(
+                    "refused: " + line,
+                    GrantRequest.parse("com.gios.brighthotspot", listOf(line))
+                        is GrantRequest.Parsed.Ok,
+                )
+            }
+    }
+
+    /**
+     * The whole safety of this verb is that a requester may only *ask*. A line carrying a path, an
+     * argument or a second command is not the verb and must not be treated as one — otherwise the
+     * one entry on the allowlist that is not package-pinned becomes a way to run anything.
+     */
+    @Test
+    fun `nothing may ride along with the shizuku verb`() {
+        listOf(
+            "start shizuku /sdcard/evil.sh",
+            "start shizuku; rm -rf /sdcard",
+            "start shizuku && id",
+            "sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh",
+            "start shizukuu",
+            "startshizuku",
+        ).forEach { line ->
+            assertTrue(
+                "accepted: " + line,
+                GrantRequest.parse("com.gios.brighthotspot", listOf(line))
+                    is GrantRequest.Parsed.Refused,
+            )
+        }
+    }
 }
