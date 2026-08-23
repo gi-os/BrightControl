@@ -57,6 +57,25 @@ class PortalActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var done = false
 
+    /**
+     * Whether a probe has ever come back *closed*.
+     *
+     * This is the difference between "you signed in" and "there was nothing to sign in to", and
+     * getting it wrong is what made this screen useless. The old rule was that any 204 meant
+     * success — so opening it on an ordinary network, one already validated, probed 204 within a
+     * moment of the WebView appearing, announced "You're online", and closed itself before the
+     * page had drawn. Tapping a login screen and having it vanish is indistinguishable from a
+     * crash, and on a portal that answers an authenticated device with its *sign-out* page, what
+     * flashes past on the way out is a sign-out page.
+     *
+     * A login flow is a gate that was shut and is now open. Without having seen it shut, this has
+     * not watched anybody through it and does not get to say so.
+     */
+    private var sawClosedGate = false
+
+    /** The probe loop only runs while this is on screen. See [onStart]. */
+    private var watching = false
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,25 +169,65 @@ class PortalActivity : ComponentActivity() {
             return
         }
 
-        val cm = getSystemService(ConnectivityManager::class.java)
-        cm.bindProcessToNetwork(net)
         status.text = "loading the network's login page…"
+        // Bound here as well as in onStart, because the first load happens before onStart runs and
+        // an unbound WebView would fetch the probe URL over whatever the system prefers -- which
+        // is the *other* network, the one that works, so the portal never sees the request and
+        // never gets a chance to redirect.
+        getSystemService(ConnectivityManager::class.java).bindProcessToNetwork(net)
+        // Unbound again in onStop: bindProcessToNetwork routes the *whole app process*, and an
+        // unvalidated portal network is one with no internet on the far side of it. Leaving this
+        // screen with Home does not destroy the activity, so binding once here left every other
+        // thing this app does -- shake-to-report, the ADB screen's own traffic -- pointed at a
+        // network that goes nowhere, for as long as the activity stayed in the back stack.
         web.loadUrl(PROBE_URL)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val net = network ?: return
+        getSystemService(ConnectivityManager::class.java).bindProcessToNetwork(net)
+        if (done) return
+        watching = true
         handler.postDelayed(probeLoop, PROBE_EVERY_MS)
     }
 
-    /** The captive Wi-Fi, when opened by hand rather than by the system's sign-in flow. */
+    override fun onStop() {
+        watching = false
+        handler.removeCallbacks(probeLoop)
+        getSystemService(ConnectivityManager::class.java).bindProcessToNetwork(null)
+        super.onStop()
+    }
+
+    /**
+     * The captive Wi-Fi, when opened by hand rather than by the system's sign-in flow.
+     *
+     * Ranked rather than "the first Wi-Fi in the list". `allNetworks` has no meaningful order and
+     * holds networks on their way down as well as up, so the first Wi-Fi entry can easily be one
+     * that is being torn down — and the process then binds to it, which is a portal page that
+     * never loads and a probe that never answers, every time, with nothing on screen to say why.
+     *
+     * The one worth binding to is the one with a gate in front of it: a network the system has
+     * flagged as captive first, then one that is connected but not validated, then any Wi-Fi at
+     * all. That is also the order of how likely the user is to be looking at the problem this
+     * screen exists for.
+     */
     private fun findWifi(): Network? {
         val cm = getSystemService(ConnectivityManager::class.java)
         @Suppress("DEPRECATION")
-        return cm.allNetworks.firstOrNull { n ->
+        val wifis = cm.allNetworks.filter { n ->
             cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         }
+        fun has(n: Network, cap: Int) =
+            cm.getNetworkCapabilities(n)?.hasCapability(cap) == true
+        return wifis.firstOrNull { has(it, NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) }
+            ?: wifis.firstOrNull { !has(it, NetworkCapabilities.NET_CAPABILITY_VALIDATED) }
+            ?: wifis.firstOrNull()
     }
 
     private val probeLoop = object : Runnable {
         override fun run() {
-            if (done) return
+            if (done || !watching) return
             probe()
             handler.postDelayed(this, PROBE_EVERY_MS)
         }
@@ -192,13 +251,28 @@ class PortalActivity : ComponentActivity() {
                 false
             }
             handler.post {
-                if (online && !done) {
+                if (done) return@post
+                if (!online) {
+                    sawClosedGate = true
+                    status.text = "sign in above — checking the connection as you go"
+                    return@post
+                }
+                // The system asked us to resolve this network, and it is resolved. Tell it either
+                // way: it is the answer to a question it asked, not a claim about what the user
+                // did in here.
+                captivePortal?.reportCaptivePortalDismissed()
+                if (sawClosedGate) {
                     done = true
                     status.text = "You're online — this network let you through."
-                    captivePortal?.reportCaptivePortalDismissed()
                     handler.postDelayed({ finish() }, 1500)
-                } else if (!done) {
-                    status.text = "sign in above — checking the connection as you go"
+                } else {
+                    // Open on arrival, so nothing was signed and nothing is being closed. Saying
+                    // so and staying put is the whole fix: a portal's page for an already-admitted
+                    // device is usually its sign-out page, and closing the screen the instant it
+                    // opened is how the feature read as broken.
+                    done = true
+                    status.text = "This network is already online — there was nothing to sign " +
+                        "in to. The page below is the network's own, if you want it."
                 }
             }
         }.start()

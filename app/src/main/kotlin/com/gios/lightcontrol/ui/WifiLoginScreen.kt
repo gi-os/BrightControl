@@ -31,8 +31,11 @@ fun WifiLoginScreen(onBack: () -> Unit) {
         onBack = onBack,
         guide = "Hotel and café Wi-Fi often wants a webpage signed before it lets you through — " +
             "and this phone has no browser to sign it with, so the network connects and then " +
-            "goes nowhere. This opens that page, watches the connection, and closes itself the " +
-            "moment the network lets you through.",
+            "goes nowhere. This opens that page and watches the connection, closing itself once " +
+            "the network lets you through.\n\nIt does not join networks. Picking a network and " +
+            "typing its password is still LightOS Settings — this is only the webpage some " +
+            "networks put in front of the internet afterwards, and on a network without one there " +
+            "is nothing here to do.",
     ) {
         SectionLabel("THIS NETWORK")
         MenuRow(
@@ -47,7 +50,16 @@ fun WifiLoginScreen(onBack: () -> Unit) {
         MenuRow(
             label = "Open the login page",
             detail = "›",
-            sub = "the network's own sign-in page, with the wheel scrolling it",
+            // The row says what opening it will get you. On an already-validated network the
+            // honest answer is "nothing", and the screen used to answer that by opening, probing
+            // 204 within a moment, and closing itself again -- which reads as a broken button, or
+            // worse, as the app signing you out, since a portal's page for a device it has already
+            // admitted is usually its sign-out page.
+            sub = if (state.first == "Online") {
+                "nothing to sign on this network — opens the network's own page anyway"
+            } else {
+                "the network's own sign-in page, with the wheel scrolling it"
+            },
             onClick = { context.startActivity(Intent(context, PortalActivity::class.java)) },
         )
         MenuRow(
