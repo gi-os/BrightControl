@@ -65,7 +65,7 @@ class SoftAp(context: Context) {
         // than returning anything — which is caught above and reads as "not known" for ever. The
         // separate app carried a HiddenApiBypass dependency to get around that; this one already
         // has a shell that can simply ask, so it asks.
-        val out = run("dumpsys wifi | grep -i -m1 'ap state\|mWifiApState'")
+        val out = run("dumpsys wifi | grep -iE -m1 'ap state|mWifiApState'")
         if (!out.ok) return AP_STATE_UNKNOWN
         val said = out.said.uppercase()
         return when {
