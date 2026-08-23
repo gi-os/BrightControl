@@ -1,5 +1,9 @@
 package com.gios.lightcontrol.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -15,11 +19,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.hotspot.BleScanner
 import com.gios.lightcontrol.hotspot.Bt
 import com.gios.lightcontrol.hotspot.Connectivity
 import com.gios.lightcontrol.hotspot.HotspotService
 import com.gios.lightcontrol.hotspot.SoftAp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,6 +61,27 @@ fun HotspotScreen(onBack: () -> Unit) {
     var note by remember { mutableStateOf<String?>(null) }
     var apWords by remember { mutableStateOf(ap.apStateWords()) }
 
+    /**
+     * **The scan needs asking for, and forgetting to ask is silent.** A BLE scan with no
+     * permission does not throw — it returns nothing, for ever, which is indistinguishable from
+     * an iPad that is not there. Android also insists on a location permission for it: a scan is
+     * a location signal as far as the platform is concerned, whatever the app means by it.
+     */
+    var scanAllowed by remember {
+        mutableStateOf(
+            context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val askScan = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        scanAllowed = granted[Manifest.permission.BLUETOOTH_SCAN] == true
+    }
+
+    // Heard in the last window, so the screen can say whether the iPad is being resolved at all.
+    var heard by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     val running by HotspotService.running.collectAsState()
     val clients by HotspotService.clients.collectAsState()
     val lastEvent by HotspotService.lastEvent.collectAsState()
@@ -63,6 +90,29 @@ fun HotspotScreen(onBack: () -> Unit) {
     // phone rather than remembering what this screen last did. A settings screen that disagreed
     // with the thing it configures is worse than no readout.
     LaunchedEffect(running, clients) { apWords = ap.apStateWords() }
+
+    /**
+     * A scan of our own while this screen is open.
+     *
+     * Separate from the service's, and running whether or not auto mode is on, because the
+     * question this screen has to answer is "can this phone even hear the iPad" — and that has to
+     * be answerable *before* you switch anything on. Stopped on the way out: a BLE scan left
+     * running behind a closed settings screen is a battery bug nobody would ever connect back to
+     * having looked at a list.
+     */
+    LaunchedEffect(scanAllowed) {
+        if (!scanAllowed) return@LaunchedEffect
+        val scanner = BleScanner(context)
+        scanner.start()
+        try {
+            while (true) {
+                heard = scanner.recentlySeen(HEARD_WINDOW_MS)
+                delay(2_000)
+            }
+        } finally {
+            scanner.stop()
+        }
+    }
 
     SectionScaffold(
         title = "Hotspot",
@@ -135,25 +185,82 @@ fun HotspotScreen(onBack: () -> Unit) {
         Rule()
 
         SectionLabel("WATCH FOR")
+        // **There is no "add" here, and there cannot be.** This list is Android's own paired-device
+        // list. A device has to be paired through LightOS's Bluetooth settings, and the pairing is
+        // not a formality: an iPad advertises under an address that rotates every few minutes
+        // precisely so it cannot be followed, and the only thing that can turn that back into "this
+        // is my iPad" is the identity key the two exchanged when they paired. No pairing, no
+        // resolution, and nothing this app can do about it from its side.
         GuideText(
             if (bonded.isEmpty()) {
-                "Nothing is paired. Pair the iPad in LightOS's Bluetooth settings first — the " +
-                    "pairing is what lets this phone recognise it later, because an iPad " +
-                    "advertises under an address that rotates every few minutes and only a " +
-                    "paired phone holds the key that resolves it back."
+                "Nothing is paired with this phone yet.\n\nDo it from the iPad: Settings → " +
+                    "Bluetooth, and leave LightOS's Bluetooth screen open so the phone is " +
+                    "discoverable. The phone appears under Other Devices — tap it, accept on " +
+                    "both. Then come back here and it will be in this list."
             } else {
                 "Devices paired with this phone. Turn on the one whose arrival should raise the " +
-                    "hotspot."
+                    "hotspot. Nothing has to be installed on it."
             },
         )
         bonded.forEach { device ->
+            val resolving = device.address in heard
             MenuRow(
                 label = device.name,
                 detail = if (device.address in triggers) "ON" else "OFF",
-                sub = device.address,
+                sub = if (resolving) {
+                    "heard just now — this phone can recognise it"
+                } else {
+                    device.address
+                },
                 onClick = {
                     prefs.toggleHotspotTrigger(device.address)
                     triggers = prefs.hotspotTriggers
+                },
+            )
+        }
+        Rule()
+
+        SectionLabel("CAN IT HEAR THE IPAD?")
+        // The one question the whole feature turns on, and the one nothing else can answer for
+        // you. Ported back from BrightHotspot's diagnostic screen, which existed for exactly this
+        // and which I dropped when the feature moved -- leaving a list you could switch things on
+        // in with no way to find out whether switching them on meant anything.
+        if (!scanAllowed) {
+            GuideText(
+                "The scan has not been allowed yet. Android counts a Bluetooth scan as a location " +
+                    "signal, so it asks for both — this app does nothing with a location, and " +
+                    "the scan only ever looks for the devices you paired above.",
+            )
+            BigButton(
+                label = "ALLOW THE SCAN",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                askScan.launch(
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                    ),
+                )
+            }
+        } else {
+            val resolved = bonded.count { it.address in heard }
+            GuideText(
+                when {
+                    bonded.isEmpty() ->
+                        "Nothing paired to listen for yet."
+                    resolved > 0 ->
+                        "Good — $resolved paired device(s) heard and recognised. The rotating " +
+                            "address is resolving, which is the part that had to work. Presence " +
+                            "triggering will do what it says."
+                    heard.isEmpty() ->
+                        "Nothing heard at all yet. Wake the iPad, unlock it, and hold it near the " +
+                            "phone for half a minute — a sleeping iPad advertises rarely."
+                    else ->
+                        "Hearing ${heard.size} device(s), but none of them are yours. If this " +
+                            "never changes with the iPad awake and close, the pairing did not " +
+                            "exchange the identity key on this phone, and presence triggering " +
+                            "cannot work as built. Worth telling me — there are two fallbacks."
                 },
             )
         }
@@ -211,3 +318,12 @@ fun HotspotScreen(onBack: () -> Unit) {
         )
     }
 }
+
+/**
+ * How long a device stays "heard" for the readout above.
+ *
+ * Longer than the service's own window on purpose: this one is a person watching a screen and
+ * waiting for a line to change, and a readout that flickered back to "nothing heard" between
+ * advertisements would be read as a fault rather than as a gap.
+ */
+private const val HEARD_WINDOW_MS = 60_000L
