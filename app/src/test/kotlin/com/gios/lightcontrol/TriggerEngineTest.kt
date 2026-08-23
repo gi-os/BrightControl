@@ -92,4 +92,54 @@ class TriggerEngineTest {
         e.evaluate(200, snap(nearby = true, ap = false, clients = 0))  // AP gone
         assertEquals(Phase.IDLE, e.phase)
     }
+
+    // ------------------------------------------------------------------ the uplink
+
+    private fun nearby(hasUplink: Boolean = true) = Snapshot(
+        triggerNearby = true,
+        onTrustedWifi = false,
+        apActive = false,
+        clientCount = 0,
+        hasUplink = hasUplink,
+    )
+
+    @Test
+    fun `an access point with nothing behind it is not raised`() {
+        val engine = TriggerEngine()
+        assertEquals(Action.NONE, engine.evaluate(0L, nearby(hasUplink = false)))
+        assertEquals(Phase.IDLE, engine.phase)
+    }
+
+    /**
+     * The point of not taking a backoff for this. Declining to guess is not a guess that failed,
+     * so a phone coming out of a lift raises the hotspot on the very next tick rather than half
+     * an hour later — which is what would happen if "nothing to share" were treated as a refusal.
+     */
+    @Test
+    fun `the moment there is something to share, it starts`() {
+        val engine = TriggerEngine()
+        assertEquals(Action.NONE, engine.evaluate(0L, nearby(hasUplink = false)))
+        assertEquals(Action.START_AP, engine.evaluate(1_000L, nearby(hasUplink = true)))
+    }
+
+    /**
+     * Checked on the way up and never on the way down. A session already serving somebody must
+     * not die because the phone went through a tunnel — the same reasoning the drain window
+     * exists for, and the client rules end it on their own if the uplink never comes back.
+     */
+    @Test
+    fun `a session already serving survives losing the uplink`() {
+        val engine = TriggerEngine()
+        assertEquals(Action.START_AP, engine.evaluate(0L, nearby()))
+        // Somebody joined.
+        engine.evaluate(1_000L, Snapshot(true, false, apActive = true, clientCount = 1))
+        assertEquals(Phase.SERVING, engine.phase)
+        // And the bars drop.
+        val out = engine.evaluate(
+            2_000L,
+            Snapshot(true, false, apActive = true, clientCount = 1, hasUplink = false),
+        )
+        assertEquals(Action.NONE, out)
+        assertEquals(Phase.SERVING, engine.phase)
+    }
 }

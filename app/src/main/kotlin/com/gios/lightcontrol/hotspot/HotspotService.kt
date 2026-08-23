@@ -76,9 +76,15 @@ class HotspotService : Service() {
                 onTrustedWifi = connectivity.onTrustedWifi(prefs.hotspotTrustedSsids),
                 apActive = ap.apEnabled(),
                 clientCount = ap.clientCount(),
+                hasUplink = connectivity.hasCellularToShare(),
             )
             clients.value = snap.clientCount
             phase.value = engine.phase
+
+            // Said out loud, because a hotspot that declines to come up looks exactly like one
+            // that did not notice the iPad, and this is the commonest honest reason for it --
+            // no data plan, no signal, or a carrier that does not allow tethering on this SIM.
+            noUplink.value = snap.triggerNearby && !snap.hasUplink && !snap.onTrustedWifi
 
             when (engine.evaluate(System.currentTimeMillis(), snap)) {
                 Action.START_AP -> {
@@ -142,6 +148,9 @@ class HotspotService : Service() {
         private const val TICK_MS = 15_000L
 
         val running = MutableStateFlow(false)
+
+        /** The iPad is here and the phone has nothing to give it. See the note at the use site. */
+        val noUplink = MutableStateFlow(false)
         val phase = MutableStateFlow(Phase.IDLE)
         val clients = MutableStateFlow(SoftAp.UNKNOWN)
         val lastEvent = MutableStateFlow("")

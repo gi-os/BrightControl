@@ -26,6 +26,13 @@ data class Snapshot(
     val apActive: Boolean,
     /** Devices joined to the access point right now. -1 means "could not read it". */
     val clientCount: Int,
+    /**
+     * The phone has an uplink worth sharing — cellular data, validated, with no Wi-Fi in the way.
+     *
+     * Defaulted to true so that every test written before this existed still describes the case it
+     * meant to. A snapshot that does not mention the uplink is a snapshot about something else.
+     */
+    val hasUplink: Boolean = true,
 )
 
 /**
@@ -77,7 +84,12 @@ class TriggerEngine(private val t: Timings = Timings()) {
 
         return when (phase) {
             Phase.IDLE -> {
+                // **Nothing to share is a reason not to guess, and not a guess that failed.**
+                // So it returns NONE without touching the backoff: a phone in a lift, or one
+                // whose data has just dropped, should raise the hotspot the moment the bars come
+                // back — not thirty minutes later because declining once looked like a refusal.
                 val shouldStart = s.triggerNearby &&
+                    s.hasUplink &&
                     !s.onTrustedWifi &&
                     !s.apActive &&
                     now >= backoffUntil
@@ -90,6 +102,11 @@ class TriggerEngine(private val t: Timings = Timings()) {
                 }
             }
 
+            // **The uplink is checked on the way up and never on the way down.** A session that
+            // is already serving somebody must not be torn down because the phone went through a
+            // tunnel — the same reasoning the drain window exists for. An access point with
+            // nothing behind it is briefly useless rather than harmful, and the client rules end
+            // it on their own if it stays that way.
             Phase.WAITING_CLIENT -> when {
                 // Someone joined -- the guess was right, this is a real session now.
                 s.clientCount > 0 -> {

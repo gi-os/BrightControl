@@ -85,6 +85,7 @@ fun HotspotScreen(onBack: () -> Unit) {
     val running by HotspotService.running.collectAsState()
     val clients by HotspotService.clients.collectAsState()
     val lastEvent by HotspotService.lastEvent.collectAsState()
+    val noUplink by HotspotService.noUplink.collectAsState()
 
     // The access point can be turned on and off from LightOS too, so the readout follows the
     // phone rather than remembering what this screen last did. A settings screen that disagreed
@@ -127,10 +128,15 @@ fun HotspotScreen(onBack: () -> Unit) {
         MenuRow(
             label = "Watch for the device",
             detail = if (auto) "ON" else "OFF",
-            sub = if (running) {
-                lastEvent.ifBlank { "watching" }
-            } else {
-                "off — the hotspot is yours to raise by hand"
+            sub = when {
+                // The refusal that would otherwise look like the scan not working. Above
+                // lastEvent on purpose: it is the answer to the question you are asking while
+                // you stare at a hotspot that has not come up.
+                running && noUplink ->
+                    "the iPad is here, but this phone has nothing to share — no data, or the " +
+                        "carrier does not allow tethering on this SIM"
+                running -> lastEvent.ifBlank { "watching" }
+                else -> "off — the hotspot is yours to raise by hand"
             },
             onClick = {
                 auto = !auto
