@@ -65,6 +65,9 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
             ColorRule.Default ->
                 prefs.colorBaselineEnabled.coerceAtLeast(0) to prefs.colorBaselineMode
         }
+        // Written down before the write, so a read-back still in flight can tell "something
+        // overwrote me" from "the next app asked for something else". See [verify].
+        wanted = enabled to mode
         // Nothing to say when nothing moved. A re-assert that finds the screen already right is
         // the overwhelmingly common case — logging it would push the interesting lines out of a
         // twelve-line ring within seconds.
@@ -112,21 +115,29 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      * says which: `want` and `got` matching means this app's state is correct and unheeded, and
      * differing names the values whoever wrote last preferred. A rule that produces no line at
      * all was never applied, because the event announcing the app never arrived.
+     *
+     * The fourth possibility is not a fault at all and used to be reported as one — the next app
+     * came forward and stated its own rule while this read-back was still pending. [ColorOutcome]
+     * separates it out.
      */
     private fun verify(pkg: String, rule: ColorRule, enabled: Int, mode: Int) {
         handler.postDelayed({
             runCatching {
                 val gotEnabled = read(ENABLED, -9)
                 val gotMode = read(MODE, -9)
-                val ok = gotEnabled == enabled && gotMode == mode
                 val at = DateFormat.format("HH:mm:ss", System.currentTimeMillis())
+                val how = ColorOutcome.of(enabled to mode, gotEnabled to gotMode, wanted)
                 prefs.appendColorLog(
                     "$at ${pkg.substringAfterLast('.')} ${rule.name.uppercase()} " +
-                        "want $enabled/$mode got $gotEnabled/$gotMode ${if (ok) "ok" else "LOST"}",
+                        "want $enabled/$mode got $gotEnabled/$gotMode $how",
                 )
             }
         }, VERIFY_MS)
     }
+
+    /** What the front app wants right now, as of the last [applyFor]. See [ColorOutcome]. */
+    @Volatile
+    private var wanted: Pair<Int, Int>? = null
 
     /**
      * Put the phone back to its captured baseline. Called when the user switches the feature

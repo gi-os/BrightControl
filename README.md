@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v2.14.** See [Version history](#version-history).
+**Current version: v3.9.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -483,6 +483,7 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v3.9 | **The color diagnostic was reporting on a phone that no longer existed.** Color → what happened read the log once, when the screen was first composed, so coming back from the app you had just tested showed "Nothing applied yet" over six applied rules — and Send log wrote its title off that same stale snapshot while the body read the log fresh. Both are re-read on resume, and the title at send. Also: a read-back that finds the *next* app's rule in place is `superseded`, not `LOST` — two apps swapping inside a second used to file two successful writes as a fault |
 | v2.15 | **Apps that own the whole wheel.** The scroll-aware rule passes an app's turns but keeps the click, and the click's default is the torch — so an app whose wheel *press* is a control of its own never saw it, with nothing it could do from its side. BrightRecorder, a tape recorder where pressing the wheel plays and stops, is now hands-off outright: every key reaches it untouched and the turn mode does not apply. Consulted before the scroll-aware list, since `com.gios.brightrecorder` sits inside `com.gios.`. The trade is that the torch and camera key do nothing of ours while it is in front; nothing changes for the rest of the family |
 | v2.14 | **The camera button works from the lock face.** It always started the camera — but at layer 31 the face is above even an app that has just come to the front, so the shutter fired, the photos were taken, and the viewfinder was never visible. Any binding that brings something forward (camera, an app, LightOS, Resume) now takes the face down with it, and it stays down until the next sleep. The torch and the volume keys deliberately do not, since they change nothing about what is on screen |
 | v2.13 | **The face holds black for half a second, then fades up.** Unlocking with your thumb already on the button opens the phone in a couple of hundred milliseconds, and painting a lock screen only to take it away again inside that window is a flicker that reads as a fault. So the panel lights black and stays black; if the phone is still locked when the wait is out, the face fades in over 320 ms. A thumb that landed first takes the window down before the fade starts and nothing is ever seen |

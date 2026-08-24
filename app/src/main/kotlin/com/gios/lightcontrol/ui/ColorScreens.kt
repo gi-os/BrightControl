@@ -16,6 +16,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -26,8 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.ColorMode
@@ -53,6 +58,33 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
     var log by remember { mutableStateOf(prefs.colorLog()) }
     var sent by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Both of these are snapshots of state that lives outside the composition, and both of them
+    // only move while this screen is *not* being looked at: the log is written by the key service
+    // as you switch apps, and the live pair by whoever wrote the daltonizer last. Read once at
+    // composition, they were correct exactly until you left the screen — and leaving the screen
+    // is the entire way this feature is exercised. The composition survives the trip, so coming
+    // back showed the screen as it was before, and "Nothing applied yet" outlived six applied
+    // rules. Re-read on every resume, which is cheap: two secure-setting reads and one preference.
+    //
+    // Lifecycle is walked out of the Context rather than read from `LocalLifecycleOwner`, for the
+    // reason spelled out in ReportOverlay.
+    val lifecycleOwner = remember(context) {
+        generateSequence(context) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<LifecycleOwner>()
+            .firstOrNull()
+    }
+    DisposableEffect(lifecycleOwner) {
+        val lifecycle = lifecycleOwner?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                live = ColorMode(context, prefs).live()
+                log = prefs.colorLog()
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
+    }
 
     SectionScaffold(
         title = "Color",
@@ -162,6 +194,13 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             },
             dim = true,
             onClick = {
+                // Read again here rather than trusting the snapshot. The evidence block always
+                // read the log fresh out of preferences while the title was written from the
+                // snapshot, so a stale screen filed an issue whose title said nothing had ever
+                // been applied above a body listing six applications — which is the report that
+                // brought this on. The two halves of a report have to describe the same phone.
+                live = ColorMode(context, prefs).live()
+                log = prefs.colorLog()
                 val report = Reports.compose(
                     context = context,
                     symptom = Symptom.Wrong,
@@ -292,8 +331,12 @@ private fun colorDescribe(rule: ColorRule): String = when (rule) {
 private fun colorHeadline(log: List<String>): String {
     if (log.isEmpty()) return "per-app color: nothing was ever applied"
     val lost = log.count { it.endsWith("LOST") }
-    val ok = log.size - lost
-    return "per-app color: $ok held, $lost overwritten"
+    val ok = log.count { it.endsWith("ok") }
+    // A line the next app's rule replaced is neither: counting it as overwritten made an ordinary
+    // walk through three apps read as a fault, and counting it as held would hide a real one.
+    val superseded = log.size - ok - lost
+    return "per-app color: $ok held, $lost overwritten" +
+        if (superseded > 0) ", $superseded superseded" else ""
 }
 
 /** Everything about the feature's state worth having in the issue, as one block. */
