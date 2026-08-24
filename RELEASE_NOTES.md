@@ -1,4 +1,4 @@
-## BrightControl v3.9 — the camera is color out of the box
+## BrightControl v3.9 — the camera is color, and a grant says whether it worked
 
 **Roll, the stock camera and BrightChat are now color without anyone setting them.** Per-app
 color shipped with an empty table, so every app on the phone resolved to the baseline, and on a
@@ -22,6 +22,38 @@ that were never touched.
 
 Nothing about the daltonizer writes changed. This is the table that was always missing under
 them.
+
+### A grant now says whether it worked
+
+**Every ADB step is read back off the phone instead of being judged by what the command printed.**
+RUN THESE and GRANT ALL both used to end on the word done regardless of what happened, and a step
+that printed nothing was called ok. Both readings are wrong, for the same reason: the adb `shell:`
+service merges stdout and stderr into one stream and carries **no exit status**, so the text is the
+only signal there is, and a command that fails quietly produces exactly the text a command that
+succeeds produces.
+
+The worse half was the run where nothing ran at all. One dropped socket makes every later call
+throw `Stream closed`, and reaching the end of a list of six failures is indistinguishable, to a
+button, from reaching the end of a list of six successes. So it said DONE, and then disabled
+itself, which meant the single thing worth doing about the failure was the one thing the screen
+would not allow.
+
+A grant is a state, not an event, so it can be read back. Each step now carries what to check —
+a permission through `PackageManager`, an app op through `appops get`, an accessibility service or
+notification listener through the secure list it belongs to — built where the package is already
+pinned, so the check cannot be aimed at an app other than the one asking. Three outcomes, and the
+middle one is the point:
+
+- **OK** — read back and confirmed.
+- **FAILED** — the command ran and the grant is still not there, with the reason on the line.
+- **UNKNOWN** — nothing on the phone records this either way. Starting Shizuku is the only one,
+  because it brings up a service that then asks the user per app in its own UI.
+
+The permission check goes through `PackageManager` and touches no shell, which means it still
+answers after the connection has died — the run that most needs an answer is the run where adb
+stopped working. When steps fail with the connection down, the screen says so once, at the bottom,
+with a route back to ADB setup, rather than leaving six identical lines to be read one at a time.
+The button reads TRY AGAIN and stays tappable.
 
 ## BrightControl v3.8 — send the log
 

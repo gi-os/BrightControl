@@ -39,6 +39,8 @@ import android.content.Intent
 import android.provider.Settings
 import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.AdbPairSession
+import com.gios.lightcontrol.adb.GrantCheckRunner
+import com.gios.lightcontrol.adb.Outcome
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
@@ -317,14 +319,45 @@ fun AdbScreen(onBack: () -> Unit) {
             ) {
                 run("grant all") {
                     val adb = AdbManager.getInstance(context)
-                    val lines = StringBuilder()
-                    SelfGrant.steps.forEach { step ->
-                        val out = runCatching { adb.runCommand(step.command) }
-                            .getOrElse { "failed: ${it.message}" }
-                        lines.append(step.label).append(" — ")
-                            .append(if (out.isBlank()) "ok" else out).append('\n')
+                    // Each grant is read back off the phone rather than judged by what the
+                    // command printed. `shell:` carries no exit status, so a command that failed
+                    // quietly used to be reported as ok, and a run where the socket died on the
+                    // first line still ended with the word "done" on the last.
+                    val results = SelfGrant.steps.map { step ->
+                        GrantCheckRunner.runAndVerify(
+                            context = context,
+                            adb = adb,
+                            label = step.label,
+                            command = step.command,
+                            check = step.check,
+                        )
                     }
-                    lines.append("done — reopen the app so the new grants are read")
+                    val lines = StringBuilder()
+                    results.forEach { r ->
+                        val state = when (r.outcome) {
+                            Outcome.Held -> "OK"
+                            Outcome.Failed -> "FAILED"
+                            Outcome.Unknown -> "UNKNOWN"
+                        }
+                        lines.append(r.label).append(" — ").append(state)
+                            .append(" · ").append(r.detail).append('\n')
+                    }
+                    val failed = results.count { it.outcome == Outcome.Failed }
+                    val unknown = results.count { it.outcome == Outcome.Unknown }
+                    lines.append(
+                        when {
+                            failed > 0 && !adb.connected() ->
+                                "$failed did not run — the connection dropped. The debugging " +
+                                    "port changes every time wireless debugging is switched off " +
+                                    "and on. Set it up again and run this once more."
+                            failed > 0 ->
+                                "$failed ran and did not take. The reason is on each line above."
+                            unknown > 0 ->
+                                "$unknown could not be confirmed either way."
+                            else ->
+                                "all granted and read back — reopen the app so they are picked up"
+                        },
+                    )
                     lines.toString().trim()
                 }
             }

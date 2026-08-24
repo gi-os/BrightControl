@@ -11,7 +11,7 @@ object SelfGrant {
 
     private const val PKG = "com.gios.lightcontrol"
 
-    data class Step(val label: String, val command: String)
+    data class Step(val label: String, val command: String, val check: GrantCheck)
 
     /**
      * Ordered so the accessibility service — the one grant everything else leans on — goes last,
@@ -26,26 +26,38 @@ object SelfGrant {
         Step(
             "Brightness (WRITE_SETTINGS)",
             "appops set $PKG WRITE_SETTINGS allow",
+            GrantCheck.AppOp(PKG, "WRITE_SETTINGS", "allow"),
         ),
         Step(
             "Overlay (SYSTEM_ALERT_WINDOW)",
             "appops set $PKG SYSTEM_ALERT_WINDOW allow",
+            GrantCheck.AppOp(PKG, "SYSTEM_ALERT_WINDOW", "allow"),
         ),
         Step(
             "Color (WRITE_SECURE_SETTINGS)",
             "pm grant $PKG android.permission.WRITE_SECURE_SETTINGS",
+            GrantCheck.Permission(PKG, "android.permission.WRITE_SECURE_SETTINGS"),
         ),
         Step(
             "Signal bars (READ_PHONE_STATE)",
             "pm grant $PKG android.permission.READ_PHONE_STATE",
+            GrantCheck.Permission(PKG, "android.permission.READ_PHONE_STATE"),
         ),
         Step(
             "Lock-screen notifications",
             "cmd notification allow_listener $PKG/.lock.LockNotifications",
+            GrantCheck.SecureListHas(
+                "enabled_notification_listeners",
+                "$PKG/$PKG.lock.LockNotifications",
+            ),
         ),
         Step(
             "Key service (accessibility)",
             enableServiceCommand(),
+            GrantCheck.SecureListHas(
+                "enabled_accessibility_services",
+                "$PKG/$PKG.keys.ControlService",
+            ),
         ),
     )
 

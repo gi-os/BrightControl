@@ -26,7 +26,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.adb.AdbManager
+import com.gios.lightcontrol.adb.GrantCheckRunner
 import com.gios.lightcontrol.adb.GrantRequest
+import com.gios.lightcontrol.adb.Outcome
+import com.gios.lightcontrol.adb.StepResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,8 +62,12 @@ fun GrantRequestScreen(
     val parsed = remember(pkg, lines) { GrantRequest.parse(pkg, lines) }
     var connected by remember { mutableStateOf(AdbManager.getInstance(context).connected()) }
     var busy by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf(listOf<String>()) }
-    var done by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf(listOf<StepResult>()) }
+    var ran by remember { mutableStateOf(false) }
+    // Success is every step read back and confirmed. Nothing weaker: reaching the end of the list
+    // is what the old DONE meant, and a run where the socket died on the first command reached
+    // the end of the list too.
+    val allHeld = ran && results.isNotEmpty() && results.all { it.outcome == Outcome.Held }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -130,11 +137,15 @@ fun GrantRequestScreen(
                         BigButton(
                             label = when {
                                 busy -> "RUNNING…"
-                                done -> "DONE"
+                                allHeld -> "DONE"
+                                ran -> "TRY AGAIN"
                                 else -> "RUN THESE ${parsed.steps.size}"
                             },
                             filled = true,
-                            enabled = !busy && !done,
+                            // Still tappable after a failed run. The old screen disabled itself
+                            // on DONE, so the one thing to do about a failure was the one thing
+                            // the screen would not let you do.
+                            enabled = !busy && !allHeld,
                             modifier = Modifier.fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                         ) {
@@ -143,12 +154,13 @@ fun GrantRequestScreen(
                                 val out = withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.map { step ->
-                                        val r = runCatching { adb.runCommand(step.command) }
-                                            .getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
-                                        // A grant that works prints nothing, which is the one
-                                        // case worth translating into words.
-                                        val note = if (r.isBlank()) "ok" else r.take(120)
-                                        "${step.label} — $note"
+                                        GrantCheckRunner.runAndVerify(
+                                            context = context,
+                                            adb = adb,
+                                            label = step.label,
+                                            command = step.command,
+                                            check = step.check,
+                                        )
                                     }
                                 }
                                 results = out
@@ -156,18 +168,69 @@ fun GrantRequestScreen(
                                     AdbManager.getInstance(context).connected()
                                 }.getOrDefault(false)
                                 busy = false
-                                done = true
+                                ran = true
                             }
                         }
                     }
 
                     if (results.isNotEmpty()) {
-                        SectionLabel("RESULT")
-                        results.forEach { GuideText(it) }
-                        GuideText(
-                            "Some grants only take effect once the app is reopened. If $appLabel " +
-                                "still says something is missing, close and reopen it.",
+                        val failed = results.count { it.outcome == Outcome.Failed }
+                        val unknown = results.count { it.outcome == Outcome.Unknown }
+                        SectionLabel(
+                            when {
+                                failed > 0 -> "DID NOT WORK"
+                                unknown > 0 -> "PARTLY CONFIRMED"
+                                else -> "RESULT"
+                            },
                         )
+                        // Every line says which of the three things it is, so a run can be read
+                        // at a glance instead of inferred from whether a command printed
+                        // anything. The state came from the phone, not from the output.
+                        results.forEach { r ->
+                            MenuRow(
+                                label = r.label,
+                                detail = when (r.outcome) {
+                                    Outcome.Held -> "OK"
+                                    Outcome.Failed -> "FAILED"
+                                    Outcome.Unknown -> "UNKNOWN"
+                                },
+                                sub = r.detail,
+                            )
+                            Rule()
+                        }
+                        if (failed > 0 && !connected) {
+                            // One dead socket produces a whole list of failures, and reading that
+                            // list step by step is how an evening goes missing. Say it once.
+                            GuideText(
+                                "The connection dropped, so these did not run. The debugging port " +
+                                    "changes every time wireless debugging is switched off and " +
+                                    "on — set it up again and run this once more.",
+                            )
+                            BigButton(
+                                label = "GO TO ADB SETUP",
+                                filled = true,
+                                enabled = true,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                onClick = onAdb,
+                            )
+                        } else if (failed > 0) {
+                            GuideText(
+                                "The connection is still up, so these ran and did not take. The " +
+                                    "reason is on each line above.",
+                            )
+                        } else if (unknown > 0) {
+                            GuideText(
+                                "Nothing on this phone records whether the unknown ones worked, so " +
+                                    "they are not being called done. Open $appLabel and see.",
+                            )
+                        } else {
+                            GuideText(
+                                "All of them read back as granted. Some are only picked up when " +
+                                    "the app starts, so if $appLabel still says something is " +
+                                    "missing, close and reopen it.",
+                            )
+                        }
                     }
                 }
             }

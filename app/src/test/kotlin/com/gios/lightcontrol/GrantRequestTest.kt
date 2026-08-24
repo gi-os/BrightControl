@@ -1,5 +1,6 @@
 package com.gios.lightcontrol
 
+import com.gios.lightcontrol.adb.GrantCheck
 import com.gios.lightcontrol.adb.GrantRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -180,5 +181,56 @@ class GrantRequestTest {
                     is GrantRequest.Parsed.Refused,
             )
         }
+    }
+
+    // ---------------------------------------------------------------- read-back checks
+
+    /**
+     * Every step carries the state to read back afterwards, and that state names the requesting
+     * package. This is the same pinning the command itself gets: a check that could be pointed at
+     * another package would let a refused request be reported as somebody else's granted one.
+     */
+    @Test
+    fun `each kind of step carries a check pinned to the requester`() {
+        assertEquals(
+            GrantCheck.Permission(roll, "android.permission.WRITE_SECURE_SETTINGS"),
+            ok(roll, "pm grant $roll android.permission.WRITE_SECURE_SETTINGS")
+                .steps.single().check,
+        )
+        assertEquals(
+            GrantCheck.AppOp(roll, "SYSTEM_ALERT_WINDOW", "allow"),
+            ok(roll, "appops set $roll SYSTEM_ALERT_WINDOW allow").steps.single().check,
+        )
+        assertEquals(
+            GrantCheck.SecureListHas("enabled_notification_listeners", "$roll/.Listener"),
+            ok(roll, "cmd notification allow_listener $roll/.Listener").steps.single().check,
+        )
+        assertEquals(
+            GrantCheck.SecureListHas("enabled_accessibility_services", "$roll/.KeyService"),
+            ok(roll, "accessibility $roll/.KeyService").steps.single().check,
+        )
+    }
+
+    /**
+     * Starting Shizuku is the one step with nothing to read back, and it says so rather than
+     * borrowing a check that would always pass. An unverifiable step reported as granted is worse
+     * than one reported as unknown, because it is the version nobody goes back to look at.
+     */
+    @Test
+    fun `starting Shizuku is honestly unverifiable`() {
+        assertEquals(GrantCheck.None, ok(roll, "start shizuku").steps.single().check)
+    }
+
+    /**
+     * `appops set` accepts modes that are not "allow", and the check has to read back the mode
+     * that was actually asked for. A deny that reads back as allow is a failure reported as a
+     * success, in the direction that matters.
+     */
+    @Test
+    fun `an appop check reads back the mode that was asked for`() {
+        assertEquals(
+            GrantCheck.AppOp(roll, "SYSTEM_ALERT_WINDOW", "deny"),
+            ok(roll, "appops set $roll SYSTEM_ALERT_WINDOW deny").steps.single().check,
+        )
     }
 }

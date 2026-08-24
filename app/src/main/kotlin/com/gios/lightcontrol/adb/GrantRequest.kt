@@ -28,8 +28,13 @@ package com.gios.lightcontrol.adb
  */
 object GrantRequest {
 
-    /** One thing that will be run, with the words to show the user before it is. */
-    data class Step(val label: String, val command: String)
+    /**
+     * One thing that will be run, with the words to show the user before it is and the state to
+     * read back after it. [check] is built here rather than derived from [command] later, because
+     * here is where the package is already pinned — a check inferred from the string afterwards
+     * would be a second parser of the same untrusted line, and the two could disagree.
+     */
+    data class Step(val label: String, val command: String, val check: GrantCheck)
 
     sealed interface Parsed {
         data class Ok(val steps: List<Step>) : Parsed
@@ -94,6 +99,7 @@ object GrantRequest {
             return Step(
                 label = "Permission · ${permission.substringAfterLast('.')}",
                 command = "pm grant $pkg $permission",
+                check = GrantCheck.Permission(pkg, permission),
             )
         }
         APPOPS.matchEntire(line)?.let { m ->
@@ -103,6 +109,7 @@ object GrantRequest {
             return Step(
                 label = "App op · $op",
                 command = "appops set $pkg $op ${mode.lowercase()}",
+                check = GrantCheck.AppOp(pkg, op, mode.lowercase()),
             )
         }
         NOTIFICATION_LISTENER.matchEntire(line)?.let { m ->
@@ -111,6 +118,7 @@ object GrantRequest {
             return Step(
                 label = "Read notifications",
                 command = "cmd notification allow_listener $pkg/$cls",
+                check = GrantCheck.SecureListHas("enabled_notification_listeners", "$pkg/$cls"),
             )
         }
         ACCESSIBILITY.matchEntire(line)?.let { m ->
@@ -119,10 +127,13 @@ object GrantRequest {
             return Step(
                 label = "Accessibility service",
                 command = enableAccessibility("$pkg/$cls"),
+                check = GrantCheck.SecureListHas("enabled_accessibility_services", "$pkg/$cls"),
             )
         }
         if (SHIZUKU.matches(line)) {
-            return Step(label = "Start Shizuku", command = START_SHIZUKU)
+            // Nothing to read back: Shizuku asks the user per app in its own UI, so the phone
+            // holds no state that says this worked. Reported as unknown, never as done.
+            return Step(label = "Start Shizuku", command = START_SHIZUKU, check = GrantCheck.None)
         }
         return null
     }
