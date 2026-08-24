@@ -300,6 +300,28 @@ class Prefs(context: Context) {
 
     fun clearLog() = sp.edit().remove("key_log").apply()
 
+    /**
+     * What the color feature did, and what the phone looked like a moment later.
+     *
+     * Its own ring rather than a share of the key log, because the two are written at completely
+     * different rates — a key log is a dozen presses' worth of the last minute, and colour changes
+     * a handful of times an hour. Mixed, the interesting one is always already gone.
+     *
+     * Each line carries the state that was *wanted* and the state read back afterwards, which is
+     * the only question worth asking here: same values means the write landed and the system is
+     * not acting on it; different values means something else is writing after this app; no line
+     * at all means the rule was never applied, because the event never arrived.
+     */
+    fun colorLog(): List<String> =
+        sp.getString("color_log", null)?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+
+    fun appendColorLog(line: String) {
+        val kept = (listOf(line) + colorLog()).take(LOG_LINES)
+        sp.edit().putString("color_log", kept.joinToString("\n")).apply()
+    }
+
+    fun clearColorLog() = sp.edit().remove("color_log").apply()
+
     /** Whether to keep the log at all. On, because the cost is one small write per press. */
     var logKeys: Boolean
         get() = sp.getBoolean("log_keys", true)

@@ -1,7 +1,10 @@
 package com.gios.lightcontrol.keys
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.text.format.DateFormat
 import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Prefs
 
@@ -50,16 +53,79 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
     fun applyFor(pkg: String?) {
         if (!prefs.colorAutoSwitch) return
         if (pkg.isNullOrBlank()) return
+        // A nudge deliberately writes a value it is about to take back, and the service's settings
+        // observer cannot tell that from LightOS interfering. Without this it re-asserts into the
+        // middle of the nudge, sees a difference, writes, and nudges again — forever.
+        if (nudging) return
         captureBaseline()
         val rule = prefs.colorRuleFor(pkg)
-        when (rule) {
-            ColorRule.Color -> set(enabled = 0, mode = MODE_OFF)
-            ColorRule.Mono -> set(enabled = 1, mode = 0)
-            ColorRule.Default -> set(
-                enabled = prefs.colorBaselineEnabled.coerceAtLeast(0),
-                mode = prefs.colorBaselineMode,
-            )
+        val (enabled, mode) = when (rule) {
+            ColorRule.Color -> 0 to MODE_OFF
+            ColorRule.Mono -> 1 to 0
+            ColorRule.Default ->
+                prefs.colorBaselineEnabled.coerceAtLeast(0) to prefs.colorBaselineMode
         }
+        // Nothing to say when nothing moved. A re-assert that finds the screen already right is
+        // the overwhelmingly common case — logging it would push the interesting lines out of a
+        // twelve-line ring within seconds.
+        if (!set(enabled, mode)) return
+        if (mode == MODE_OFF) nudge()
+        verify(pkg, rule, enabled, mode)
+    }
+
+    /**
+     * Make the "off" write look like a real change, invisibly.
+     *
+     * The settings provider drops a write of the value already stored, and a value that never
+     * changes notifies nobody. That matters here because this app does not paint the screen — it
+     * states a setting and something else acts on the notification. If that reader missed the
+     * original transition and is now sitting on a stale idea of the filter, re-writing the same
+     * ints will never tell it otherwise, which is the shape of a screen that stays grey while
+     * every value reads correct.
+     *
+     * With [MODE] at [MODE_OFF] there is no filter at either end, so the enable flag can be taken
+     * up and put back down and nothing on screen moves — a genuine change notification with no
+     * visible cost. Only done for off, because the same trick around mono would flash the phone
+     * out of monochrome to say so.
+     */
+    private fun nudge() {
+        nudging = true
+        runCatching {
+            Settings.Secure.putInt(context.contentResolver, ENABLED, 1)
+        }
+        handler.postDelayed({
+            runCatching { Settings.Secure.putInt(context.contentResolver, ENABLED, 0) }
+            nudging = false
+        }, NUDGE_MS)
+    }
+
+    /** True between the two halves of a [nudge]. See [applyFor]. */
+    @Volatile
+    private var nudging = false
+
+    /**
+     * Read the pair back a moment later and write down what happened.
+     *
+     * This exists because the failure has three possible causes that look identical from the
+     * outside — the write not landing, the write landing on a system that ignores it, and
+     * something else writing afterwards — and no way to tell them apart from the phone. The line
+     * says which: `want` and `got` matching means this app's state is correct and unheeded, and
+     * differing names the values whoever wrote last preferred. A rule that produces no line at
+     * all was never applied, because the event announcing the app never arrived.
+     */
+    private fun verify(pkg: String, rule: ColorRule, enabled: Int, mode: Int) {
+        handler.postDelayed({
+            runCatching {
+                val gotEnabled = read(ENABLED, -9)
+                val gotMode = read(MODE, -9)
+                val ok = gotEnabled == enabled && gotMode == mode
+                val at = DateFormat.format("HH:mm:ss", System.currentTimeMillis())
+                prefs.appendColorLog(
+                    "$at ${pkg.substringAfterLast('.')} ${rule.name.uppercase()} " +
+                        "want $enabled/$mode got $gotEnabled/$gotMode ${if (ok) "ok" else "LOST"}",
+                )
+            }
+        }, VERIFY_MS)
     }
 
     /**
@@ -101,12 +167,19 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      * That is also what makes [ControlService]'s settings observer safe — this app's own write
      * wakes it, the re-assert finds both values already right, and the loop stops there.
      */
-    private fun set(enabled: Int, mode: Int) {
+    private fun set(enabled: Int, mode: Int): Boolean {
+        var wrote = false
         runCatching {
-            val writeMode = { if (read(MODE, mode) != mode) Settings.Secure.putInt(context.contentResolver, MODE, mode) }
+            val writeMode = {
+                if (read(MODE, mode) != mode) {
+                    Settings.Secure.putInt(context.contentResolver, MODE, mode)
+                    wrote = true
+                }
+            }
             val writeEnabled = {
                 if (read(ENABLED, enabled) != enabled) {
                     Settings.Secure.putInt(context.contentResolver, ENABLED, enabled)
+                    wrote = true
                 }
             }
             if (enabled == 1) {
@@ -117,7 +190,10 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
                 writeMode()
             }
         }
+        return wrote
     }
+
+    private val handler = Handler(Looper.getMainLooper())
 
     /** The live pair, for the diagnostic on the Color screen. Null when they cannot be read. */
     fun live(): Pair<Int, Int>? = runCatching {
@@ -135,6 +211,12 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
          * why off is written as this and not as `0`.
          */
         const val MODE_OFF = -1
+
+        /** How long the invisible enable flag stays up. Long enough to be a change, not a state. */
+        const val NUDGE_MS = 60L
+
+        /** How long to wait before reading back. Past the nudge, and past a late overwrite. */
+        const val VERIFY_MS = 900L
 
         const val ENABLED = "accessibility_display_daltonizer_enabled"
         const val MODE = "accessibility_display_daltonizer"

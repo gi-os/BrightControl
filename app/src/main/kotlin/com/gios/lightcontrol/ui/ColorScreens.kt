@@ -45,6 +45,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
 
     var auto by remember { mutableStateOf(prefs.colorAutoSwitch) }
     var live by remember { mutableStateOf(ColorMode(context, prefs).live()) }
+    var log by remember { mutableStateOf(prefs.colorLog()) }
 
     SectionScaffold(
         title = "Color",
@@ -107,7 +108,10 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
                     "enabled 0, which is why off is written as -1"
             },
             dim = true,
-            onClick = { live = ColorMode(context, prefs).live() },
+            onClick = {
+                live = ColorMode(context, prefs).live()
+                log = prefs.colorLog()
+            },
         )
         MenuRow(
             label = "Per-app rules",
@@ -115,6 +119,23 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             sub = "which apps are color, which are mono",
             onClick = onPerApp,
         )
+        // Every rule this app applied, and what the phone read back a second later. `ok` means
+        // the write landed and stayed — so a screen that is still the wrong color is a phone
+        // ignoring a setting it agrees with. `LOST` names the values something else preferred.
+        // An app that produces no line here never had its rule applied at all.
+        if (log.isNotEmpty()) {
+            SectionLabel("WHAT HAPPENED")
+            log.forEach { line -> MenuRow(label = line, dim = true) }
+            MenuRow(
+                label = "Clear",
+                sub = "start the log again from the next app you open",
+                dim = true,
+                onClick = {
+                    prefs.clearColorLog()
+                    log = emptyList()
+                },
+            )
+        }
     }
 }
 
