@@ -1,41 +1,35 @@
-## BrightControl v3.12 — the connection reconnects itself
+## BrightControl v3.13 — the two apps you would try first were the two you could not change
 
-**"I set it up, I came back, and I get Stream closed."** Nothing was wrong with the setup. It had
-simply ended while the user was in transit.
+**"Unable to toggle filter options for BrightChat or Roll."** Tapping either row in Color →
+Per-app rules did nothing at all. Not a wrong value, not a value that failed to stick — the row
+redrew exactly as it was, every time, while every other app on the list cycled normally.
 
-The daemon's TLS listener does not survive leaving the Wireless-debugging screen on this phone,
-and it comes back on a new port. So the connection made at step 3 is dead by the time anyone has
-walked back to the app that needed it — which is every single time, because walking back is how
-you get to the button. Every screen here then offered that button anyway, on the strength of a
-flag that says "a socket was opened and not deliberately closed", and fired a list of commands
-into a socket the daemon had dropped. Six grants, six identical `Stream closed`.
+Both of them ship as PASS. That is deliberate: Roll and BrightChat hold `WRITE_SECURE_SETTINGS`
+and drive the daltonizer themselves, so a rule set here would be a second writer fighting the
+first, and PASS is BrightControl declining to join the argument.
 
-v3.10 made that visible instead of calling it done. This makes it not happen.
+### Two correct rules that cancel each other out
 
-### Reconnecting is not a thing to ask a user about
+The list stores nothing when a tap lands back on the app's preset, so that changing the preset
+table later still reaches an app someone once tapped through. And AUTO — a stored nothing —
+resolves *through* that same preset table rather than flatly meaning mono.
 
-The part that needs a human is the pairing, and it is already done and kept: the key pair and
-certificate live in `filesDir`, so the daemon recognises this client for as long as the phone
-remembers the pairing. Everything after that is discovery. `_adb-tls-connect._tcp` is advertised
-by the daemon whenever wireless debugging is on, and it names the current port by definition —
-this app has been able to find it since the day it learned to pair, and was asking anyway.
+For an app whose preset is PASS, those two meet head on. The step after PASS is AUTO. AUTO clears
+the override. Clearing the override resolves back through the table to PASS. The preference was
+written, the state map was updated, the row recomposed — and landed on the value it started from.
+From the phone that is a dead row, and the only two apps it could happen to are the two the
+feature exists for.
 
-`AdbManager.ensureAlive()` drops the dead socket, discovers the port again, reconnects, and proves
-it by sending a command. RUN THESE and GRANT ALL both call it in front of the batch, and the grant
-request screen calls it when it opens, so the connection is normally back before the screen has
-been read. A second on the failure path, one round trip on the success path.
+### The step is now chosen by where it lands
 
-**So: no, you do not need to go back to the ADB screen, and you do not need to keep it open.** Pair
-once. After that the port being stale is the app's problem, not yours.
+`Policy.nextColorRule` works out what to store from the resolved state and the preset together,
+and skips any candidate whose outcome is the state the row is already showing. Roll and BrightChat
+now cycle PASS → COLOR → MONO → PASS: three states rather than four, because for them AUTO and
+PASS are the same phone. Apps with a Color preset and apps with no preset are untouched — for
+those, AUTO and the preset look different, so nothing gets skipped.
 
-### The buttons stopped refusing to do the thing that would have fixed it
+It lives in `Policy` with the rest of the resolution rules rather than in the screen, so the
+property that matters — every tap changes what the row resolves to, for every preset — is a unit
+test instead of something to be checked by hand on a 3.92" panel.
 
-GRANT ALL was disabled unless the flag said connected, and the flag reads false after any trip
-through Settings. So the one action that would have re-established the connection was the one
-action the screen would not offer, and the advice on screen was to go and set up a pairing that
-was already there. It is enabled now and reconnects when tapped.
-
-The grant request screen no longer opens on GO TO ADB SETUP either. It tries first, and only says
-it cannot reach the phone when reconnecting has actually failed — which means wireless debugging
-is switched off, or the pairing has been forgotten. Both are real, and both are worth a screen.
-Neither was what was happening.
+Fixes [light-reports#40] — unable to toggle filter options for BrightChat or Roll.

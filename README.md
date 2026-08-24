@@ -14,7 +14,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[gi-os.github.io/brightmarket-index/browse.html](https://gi-os.github.io/brightmarket-index/browse.html)**.
 
-**Current version: v3.11.** See [Version history](#version-history).
+**Current version: v3.13.** See [Version history](#version-history).
 
 | Gesture | Out of the box |
 |---|---|
@@ -483,6 +483,8 @@ Real tags, oldest to newest:
 
 | Version | What changed |
 | --- | --- |
+| v3.13 | **The apps that ship on PASS could not be tapped off it.** Roll and BrightChat both hold the daltonizer grant and set their own colour, so both ship as PASS in Color → Per-app rules — and both rows sat there unchanged however often they were tapped. The step after PASS is AUTO, AUTO stores nothing, and storing nothing resolves back through the preset table to PASS: two correct rules that cancelled out, on exactly the two apps the feature is for. The step is now picked by what it resolves to, so those rows cycle PASS → COLOR → MONO |
+| v3.12 | **The ADB connection reconnects itself.** The daemon's TLS listener does not survive leaving the Wireless-debugging screen and comes back on a new port, so the connection made during setup was dead by the time anyone walked back to the button that needed it — six grants, six `Stream closed`. The pairing is what needs a human; the port is discovery. Every batch now reconnects in front of itself, and GRANT ALL is no longer disabled by the stale flag that made it look impossible |
 | v3.11 | **The colour log names the app in full.** Package ids in Color → what happened were cut to their last segment, so the line that mattered — the one naming whatever overwrote a rule — read as a bare word like `edgegestures`: nothing you can look up, grant a rule to, or find in the per-app list, which only offers apps with a launcher icon. Written whole now, outcome still last so the screen's counts still add up |
 | v3.10 | **PASS, presets, and grants that say whether they worked.** A fourth colour rule that writes nothing at all, for apps like Roll and BrightChat that hold `WRITE_SECURE_SETTINGS` and set their own colour — AUTO was never "no opinion", it was "put the phone back to mono". AUTO now resolves through a built-in table instead of flatly meaning the baseline. And every ADB grant is read back off the phone rather than judged by what the command printed, since the adb shell service carries no exit status: OK, FAILED with a reason, or UNKNOWN — plus a probe of the connection before a batch is fired into a socket the daemon already dropped |
 | v3.9 | **The color diagnostic was reporting on a phone that no longer existed.** Color → what happened read the log once, when the screen was first composed, so coming back from the app you had just tested showed "Nothing applied yet" over six applied rules — and Send log wrote its title off that same stale snapshot while the body read the log fresh. Both are re-read on resume, and the title at send. Also: a read-back that finds the *next* app's rule in place is `superseded`, not `LOST` — two apps swapping inside a second used to file two successful writes as a fault |

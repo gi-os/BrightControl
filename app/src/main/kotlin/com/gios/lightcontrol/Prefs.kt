@@ -792,6 +792,43 @@ object Policy {
     fun builtInColorRuleFor(pkg: String): ColorRule =
         colorPresets[pkg] ?: ColorRule.Default
 
+    /** The order a tap walks the colour states in, on the per-app list. */
+    private fun colorCycleOrder(rule: ColorRule): ColorRule = when (rule) {
+        ColorRule.Default -> ColorRule.Color
+        ColorRule.Color -> ColorRule.Mono
+        ColorRule.Mono -> ColorRule.Passthrough
+        ColorRule.Passthrough -> ColorRule.Default
+    }
+
+    /**
+     * What tapping a row on the per-app colour list should store, given what the app resolves to
+     * now and what the preset table says.
+     *
+     * Two rules are being juggled and they collide. Landing back on the preset stores nothing, so
+     * a later change to [colorPresets] still reaches the app. And AUTO — a stored nothing —
+     * resolves *through* the preset table. For an app whose preset is [ColorRule.Passthrough],
+     * those two meet: the step after PASS is AUTO, AUTO clears the override, and clearing the
+     * override resolves straight back to PASS. The row redrew identical, so Roll and BrightChat
+     * could not be moved off PASS however many times they were tapped — the whole list looked
+     * frozen on exactly the two apps a person would want to try first.
+     *
+     * So the step is chosen by its outcome rather than by its name: any candidate that resolves
+     * back to where the row already is gets skipped. Presets that are not Passthrough are
+     * unaffected, because for them AUTO and the preset are different-looking states.
+     *
+     * Returns the value to store, where [ColorRule.Default] means "clear the override".
+     */
+    fun nextColorRule(resolved: ColorRule, builtIn: ColorRule): ColorRule {
+        var candidate = colorCycleOrder(resolved)
+        repeat(ColorRule.values().size) {
+            val store = if (candidate == builtIn) ColorRule.Default else candidate
+            val outcome = if (store == ColorRule.Default) builtIn else store
+            if (outcome != resolved) return store
+            candidate = colorCycleOrder(candidate)
+        }
+        return ColorRule.Default
+    }
+
     fun ruleFor(prefs: Prefs, pkg: String): AppRule {
         val explicit = prefs.ruleFor(pkg)
         if (explicit != AppRule.Default) return explicit

@@ -293,11 +293,12 @@ fun ColorAppListScreen(onBack: () -> Unit) {
                             colorDescribe(resolved)
                         },
                         onClick = {
-                            val next = colorCycle(resolved)
                             // Landing back on the preset stores nothing, so a later change to the
                             // table still reaches this app. Storing Color over a Color preset
-                            // would freeze it at today's answer forever.
-                            val store = if (next == builtIn) ColorRule.Default else next
+                            // would freeze it at today's answer forever. Which step that is —
+                            // and which step has to be skipped because it would redraw the row
+                            // unchanged — is [Policy.nextColorRule], where it can be tested.
+                            val store = Policy.nextColorRule(resolved, builtIn)
                             if (store == ColorRule.Default) rules.remove(pkg) else rules[pkg] = store
                             prefs.setColorRule(pkg, store)
                         },
@@ -320,13 +321,6 @@ fun ColorAppListScreen(onBack: () -> Unit) {
             }
         }
     }
-}
-
-private fun colorCycle(rule: ColorRule): ColorRule = when (rule) {
-    ColorRule.Default -> ColorRule.Color
-    ColorRule.Color -> ColorRule.Mono
-    ColorRule.Mono -> ColorRule.Passthrough
-    ColorRule.Passthrough -> ColorRule.Default
 }
 
 private fun colorDetail(rule: ColorRule): String = when (rule) {
