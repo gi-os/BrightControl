@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.content.pm.PackageManager
 import com.gios.lightcontrol.ColorRule
+import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.ColorMode
 import com.gios.lightcontrol.keys.Grants
@@ -237,15 +238,29 @@ fun ColorAppListScreen(onBack: () -> Unit) {
         Column(Modifier.padding(pad).fillMaxSize()) {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 items(apps, key = { it.second }) { (label, pkg) ->
-                    val rule = rules[pkg] ?: ColorRule.Default
+                    // Explicit and resolved are separate on purpose. The row has to show what the
+                    // app will actually do — which for a preset is COLOR with nothing stored —
+                    // while the tap has to know whether anything is stored, so that cycling back
+                    // to the preset clears the override instead of pinning the same value by hand.
+                    val explicit = rules[pkg]
+                    val builtIn = Policy.builtInColorRuleFor(pkg)
+                    val resolved = explicit ?: builtIn
                     MenuRow(
                         label = label,
-                        detail = colorDetail(rule),
-                        sub = colorDescribe(rule),
+                        detail = colorDetail(resolved),
+                        sub = if (explicit == null && builtIn != ColorRule.Default) {
+                            "built in — ${colorDescribe(builtIn)}. Tap to override"
+                        } else {
+                            colorDescribe(resolved)
+                        },
                         onClick = {
-                            val next = colorCycle(rule)
-                            if (next == ColorRule.Default) rules.remove(pkg) else rules[pkg] = next
-                            prefs.setColorRule(pkg, next)
+                            val next = colorCycle(resolved)
+                            // Landing back on the preset stores nothing, so a later change to the
+                            // table still reaches this app. Storing Color over a Color preset
+                            // would freeze it at today's answer forever.
+                            val store = if (next == builtIn) ColorRule.Default else next
+                            if (store == ColorRule.Default) rules.remove(pkg) else rules[pkg] = store
+                            prefs.setColorRule(pkg, store)
                         },
                     )
                     Rule()
@@ -253,7 +268,10 @@ fun ColorAppListScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "AUTO leaves an app at the baseline — mono, on a stock LightOS phone. " +
-                            "Set the apps you want in color to COLOR and leave the rest.",
+                            "Set the apps you want in color to COLOR and leave the rest. A few " +
+                            "apps are color out of the box: Roll, the camera and BrightChat, " +
+                            "because a grey viewfinder or a grey photo is wrong rather than " +
+                            "calm. Tapping one overrides it like any other.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Dim,
                         modifier = Modifier.padding(16.dp),

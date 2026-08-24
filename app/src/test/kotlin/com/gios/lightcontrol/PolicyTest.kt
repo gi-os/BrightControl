@@ -50,4 +50,20 @@ class PolicyTest {
     fun `anything unknown falls through to the default`() {
         assertEquals(AppRule.Default, Policy.builtInRuleFor("com.example.whatever"))
     }
+
+    @Test
+    fun `the color presets are color out of the box`() {
+        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightcamera"))
+        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightchat"))
+        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.android.camera2"))
+    }
+
+    @Test
+    fun `everything else stays mono, including the rest of our own apps`() {
+        // The whole point of the table being ids rather than the com.gios. prefix. A notebook
+        // going color because it shares a package prefix with a camera would undo the phone.
+        assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.lightnotebook"))
+        assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.brightrecorder"))
+        assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.example.whatever"))
+    }
 }

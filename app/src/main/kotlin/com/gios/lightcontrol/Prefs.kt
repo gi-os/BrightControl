@@ -560,10 +560,21 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("color_auto", false)
         set(v) = sp.edit().putBoolean("color_auto", v).apply()
 
-    fun colorRuleFor(pkg: String): ColorRule =
-        runCatching {
-            ColorRule.valueOf(sp.getString(colorKey(pkg), null) ?: return ColorRule.Default)
-        }.getOrDefault(ColorRule.Default)
+    /**
+     * The rule for [pkg]: what the user set, or the built-in preset when they have set nothing.
+     *
+     * The same shape as [Policy.ruleFor] for the wheel, and for the same reason — an explicit
+     * choice wins, and AUTO resolves through a table rather than flatly meaning "mono". Without
+     * the table every app on the phone shipped monochrome until somebody found this screen, and
+     * for the apps in [Policy.colorPresets] that is not a default, it is the app not working:
+     * Roll's entire output is color and it was framing and shooting through a grey filter.
+     */
+    fun colorRuleFor(pkg: String): ColorRule {
+        val stored = runCatching {
+            sp.getString(colorKey(pkg), null)?.let { ColorRule.valueOf(it) }
+        }.getOrNull()
+        return stored ?: Policy.builtInColorRuleFor(pkg)
+    }
 
     fun setColorRule(pkg: String, rule: ColorRule) {
         sp.edit().apply {
@@ -728,6 +739,38 @@ object Policy {
         // caught by the hands-off list below and lose its button bindings for no reason.
         "com.lightphone.spotify",
     )
+
+    /**
+     * Apps that are color unless the user says otherwise.
+     *
+     * Kept as whole package ids, not prefixes. `com.gios.` covers every Light tool including the
+     * ones that are deliberately mono — a notebook has nothing to show in color and the point of
+     * this phone is that it does not — so claiming the prefix would quietly undo the feature it
+     * is meant to serve. Each entry earns its place:
+     *
+     * - **Roll** and the stock camera. A viewfinder in greyscale misrepresents the photo being
+     *   taken, and the photo comes out color regardless, so the filter is lying about the result.
+     * - **BrightChat.** Images arrive in messages, and a shared photo rendered grey is
+     *   indistinguishable from one that was sent grey.
+     *
+     * To add one, put the id here rather than telling people to set it by hand — a preset that
+     * ships is a preset that works on a phone nobody has configured.
+     */
+    val colorPresets = listOf(
+        // Roll.
+        "com.gios.lightcamera",
+        // The stock LightOS camera, for phones that still have it.
+        "com.android.camera2",
+        // BrightChat.
+        "com.gios.lightchat",
+    )
+
+    /**
+     * The color rule for a package with no stored preference. [ColorRule.Default] for everything
+     * not in [colorPresets] — that is what keeps the phone mono by default.
+     */
+    fun builtInColorRuleFor(pkg: String): ColorRule =
+        if (pkg in colorPresets) ColorRule.Color else ColorRule.Default
 
     fun ruleFor(prefs: Prefs, pkg: String): AppRule {
         val explicit = prefs.ruleFor(pkg)

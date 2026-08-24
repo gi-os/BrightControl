@@ -1,3 +1,28 @@
+## BrightControl v3.9 — the camera is color out of the box
+
+**Roll, the stock camera and BrightChat are now color without anyone setting them.** Per-app
+color shipped with an empty table, so every app on the phone resolved to the baseline, and on a
+LightOS phone the baseline is monochrome. That is the right default for almost everything and
+the wrong one for a camera: Roll's output is color no matter what the panel is doing, so a grey
+viewfinder was not a calm framing of the photo, it was a misrepresentation of it. The same
+applies to a photo arriving in BrightChat, where grey-on-arrival and grey-when-sent look
+identical.
+
+The table is `Policy.colorPresets`, and it holds whole package ids rather than the `com.gios.`
+prefix on purpose. The prefix would sweep in LightNotebook and BrightRecorder, which have
+nothing to show in color and are monochrome because that is the phone working rather than the
+phone failing.
+
+**AUTO now resolves through the table instead of flatly meaning mono**, which is the same shape
+the wheel's per-app list has had since it grew defaults. A row with nothing stored shows what
+the app will actually do and says where that came from; tapping it still cycles COLOR → MONO →
+AUTO and still wins. Cycling back onto the preset clears the override rather than pinning
+today's answer, so an app that is added to or removed from the table later still reaches phones
+that were never touched.
+
+Nothing about the daltonizer writes changed. This is the table that was always missing under
+them.
+
 ## BrightControl v3.8 — send the log
 
 **Color → Send log** files the whole colour diagnostic as an issue on `light-reports`, from the
