@@ -220,6 +220,54 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             }
 
         /**
+         * A connection that can carry a command right now, reconnecting if that takes one.
+         *
+         * ## Why the user was being asked to do this by hand
+         *
+         * The daemon's TLS listener does not survive leaving the Wireless-debugging screen on
+         * this phone, and the connect port it comes back on is a new one. So a connection made at
+         * step 3 is dead by the time the user has walked back to the app that needed it, and
+         * every screen here then offered a button that fired commands into it. That is the whole
+         * of "I set it up, I came back, and I get Stream closed" — nothing was wrong with the
+         * setup, it had simply ended while the user was in transit.
+         *
+         * Asking the user to go and read the new port is the wrong repair twice over: the port is
+         * discoverable, and it will be stale again by the next time it is needed.
+         *
+         * ## What this does instead
+         *
+         * The pairing is the part that needs a human, and it is already done and kept — the key
+         * pair and certificate live in `filesDir`, so the daemon recognises this client for as
+         * long as the phone remembers the pairing. Everything after that is discovery, which is
+         * [AdbMdns]'s job: `_adb-tls-connect._tcp` is advertised by the daemon whenever wireless
+         * debugging is on, and it names the current port by definition.
+         *
+         * So a dead connection is not a state the user has to be told about. Drop it, discover the
+         * port again, reconnect, prove it with [alive]. It costs a second on the failure path and
+         * one round trip on the success path, and it turns a setup you repeat into a setup you did.
+         *
+         * Returns false only when the phone really cannot be reached — wireless debugging switched
+         * off, or a pairing this phone has forgotten. That is a thing worth showing a screen for.
+         */
+        fun ensureAlive(context: Context, timeoutMs: Long = RECONNECT_MS): Boolean {
+            if (runCatching { getInstance(context).alive() }.getOrDefault(false)) return true
+            // Reset rather than reconnect in place: a half-open socket is exactly what got us
+            // here, and the manager would otherwise keep reusing it.
+            reset()
+            return runCatching {
+                val fresh = getInstance(context)
+                fresh.connectAuto(context, timeoutMs) && fresh.alive()
+            }.getOrDefault(false)
+        }
+
+        /**
+         * How long to let mDNS look for the daemon. Long enough for a service that is already
+         * being advertised to be found, short enough that a phone with wireless debugging off
+         * says so rather than appearing to hang.
+         */
+        const val RECONNECT_MS = 3_000L
+
+        /**
          * Drop the connection and the cached manager. A failed connect can leave the manager
          * holding a half-open socket that every later call then reuses and fails on; resetting
          * makes the next attempt start clean. The key pair on disk is untouched, so no re-pair.

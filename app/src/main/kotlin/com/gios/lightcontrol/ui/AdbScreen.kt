@@ -309,24 +309,33 @@ fun AdbScreen(onBack: () -> Unit) {
             Step("7", "With the status at the top reading Connected, tap GRANT ALL. It enables the " +
                 "key service and every permission, then reopen the app so they're picked up.")
             if (!connected) {
-                MenuRow(label = "Connect first", sub = "GRANT ALL unlocks once connected", dim = true)
+                MenuRow(
+                    label = "Not showing as connected",
+                    sub = "GRANT ALL will try to reconnect on its own — the pairing is kept, and " +
+                        "only the port goes stale. Tap it and see before setting anything up again",
+                    dim = true,
+                )
             }
             BigButton(
                 label = "GRANT ALL",
                 filled = true,
-                enabled = !busy && connected,
+                // Deliberately not gated on `connected`. That flag reads false after any trip
+                // through Settings, and disabling the button on it meant the one action that
+                // would have fixed the connection was the one the screen refused to offer.
+                enabled = !busy,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 run("grant all") {
-                    val adb = AdbManager.getInstance(context)
-                    // One probe in front of the batch. Without it a dropped socket is discovered
-                    // six times, once per grant, and the six answers say the same thing.
-                    if (!adb.alive()) {
-                        AdbManager.reset()
-                        return@run "not connected — nothing was run. The debugging port changes " +
-                            "every time wireless debugging is switched off and on, so read it " +
-                            "again on the Wireless debugging screen and reconnect at step 3."
+                    // Reconnect in front of the batch. The listener does not survive leaving
+                    // the Wireless-debugging screen, so by the time anyone presses this the
+                    // connection from step 3 is usually gone — and the port that replaced it is
+                    // discoverable, so there is nothing here to ask the user.
+                    if (!AdbManager.ensureAlive(context)) {
+                        return@run "could not reach the phone's debugging service, so nothing " +
+                            "was run. Check that wireless debugging is still switched on, then " +
+                            "pair again at step 2 if this keeps saying it."
                     }
+                    val adb = AdbManager.getInstance(context)
                     // Each grant is read back off the phone rather than judged by what the
                     // command printed. `shell:` carries no exit status, so a command that failed
                     // quietly used to be reported as ok, and a run where the socket died on the

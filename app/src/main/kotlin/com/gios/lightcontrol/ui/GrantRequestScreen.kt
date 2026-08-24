@@ -16,6 +16,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,16 @@ fun GrantRequestScreen(
     // is what the old DONE meant, and a run where the socket died on the first command reached
     // the end of the list too.
     val allHeld = ran && results.isNotEmpty() && results.all { it.outcome == Outcome.Held }
+
+    // Try to be connected before the user reads the screen, rather than showing them the last
+    // socket's obituary. `connected` is initialised from the flag, which says "no" after any trip
+    // through Settings — and answering that with GO TO ADB SETUP sends the user to redo a setup
+    // that is already done. The pairing is kept; only the port is stale, and that is discoverable.
+    LaunchedEffect(Unit) {
+        if (!connected) {
+            connected = withContext(Dispatchers.IO) { AdbManager.ensureAlive(context) }
+        }
+    }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -123,9 +134,10 @@ fun GrantRequestScreen(
                         GuideText(
                             "BrightControl talks to the phone's own debugging service to do this, " +
                                 "and it is not connected right now. Set that up once, then come " +
-                                "back — this request will still be here. The debugging port " +
-                                "changes every time wireless debugging is switched off and on, " +
-                                "so a setup that worked yesterday needs the port read again.",
+                                "back — this request will still be here. Pair once and it is " +
+                                "kept: the port is found again on its own every time after " +
+                                "that, so there is no need to stay on the ADB screen or to " +
+                                "read a port off Settings.",
                         )
                         BigButton(
                             label = "GO TO ADB SETUP",
@@ -153,12 +165,14 @@ fun GrantRequestScreen(
                         ) {
                             busy = true
                             scope.launch {
-                                // Probe before running rather than trusting the flag the button
-                                // was enabled on. A socket the daemon dropped still reads as
-                                // connected, and firing the whole list into it produces a page of
-                                // identical Stream closed lines that all mean one thing.
+                                // Reconnect rather than probe. The daemon's listener does not
+                                // survive leaving the Wireless-debugging screen, so a connection
+                                // made during setup is normally dead by the time the user has
+                                // walked back to the app that needed it — which is every time
+                                // this button is pressed. The port is discoverable and the
+                                // pairing is kept, so this is a second of work, not a question.
                                 val live = withContext(Dispatchers.IO) {
-                                    AdbManager.getInstance(context).alive()
+                                    AdbManager.ensureAlive(context)
                                 }
                                 if (!live) {
                                     AdbManager.reset()
@@ -219,9 +233,10 @@ fun GrantRequestScreen(
                             // One dead socket produces a whole list of failures, and reading that
                             // list step by step is how an evening goes missing. Say it once.
                             GuideText(
-                                "The connection dropped, so these did not run. The debugging port " +
-                                    "changes every time wireless debugging is switched off and " +
-                                    "on — set it up again and run this once more.",
+                                "The connection dropped mid-run and could not be picked back up. " +
+                                    "That normally means wireless debugging is switched off, or " +
+                                    "the phone has forgotten the pairing — both are set up in " +
+                                    "one pass on the ADB screen.",
                             )
                             BigButton(
                                 label = "GO TO ADB SETUP",
