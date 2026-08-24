@@ -190,7 +190,27 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
     /** Whether a live connection is up. Wraps the Java isConnected() so the screen can gate on it. */
     fun connected(): Boolean = runCatching { isConnected }.getOrDefault(false)
 
+    /**
+     * Whether the connection can actually carry a command, asked by sending one.
+     *
+     * [connected] reads a flag that is set when the socket is opened and cleared when it is
+     * closed deliberately. A socket the daemon dropped underneath us is neither, so the flag
+     * keeps saying yes long after nothing works — which is how a screen offers a RUN button,
+     * fires six commands into a dead socket, and gets six identical `Stream closed` back. The
+     * flag was never lying about what it tracks; it was being asked the wrong question.
+     *
+     * So this asks the only question that has a real answer: send something trivial and see if
+     * it comes back. One round trip on a working connection, and on a broken one it fails here,
+     * once, instead of once per grant.
+     */
+    fun alive(): Boolean = runCatching {
+        connected() && runCommand("echo $PROBE").contains(PROBE)
+    }.getOrDefault(false)
+
     companion object {
+        /** Distinctive enough that a shell banner or a stray line cannot be mistaken for it. */
+        private const val PROBE = "lc-alive"
+
         @Volatile
         private var instance: AdbManager? = null
 

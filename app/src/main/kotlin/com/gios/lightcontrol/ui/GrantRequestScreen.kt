@@ -123,7 +123,9 @@ fun GrantRequestScreen(
                         GuideText(
                             "BrightControl talks to the phone's own debugging service to do this, " +
                                 "and it is not connected right now. Set that up once, then come " +
-                                "back — this request will still be here.",
+                                "back — this request will still be here. The debugging port " +
+                                "changes every time wireless debugging is switched off and on, " +
+                                "so a setup that worked yesterday needs the port read again.",
                         )
                         BigButton(
                             label = "GO TO ADB SETUP",
@@ -151,6 +153,21 @@ fun GrantRequestScreen(
                         ) {
                             busy = true
                             scope.launch {
+                                // Probe before running rather than trusting the flag the button
+                                // was enabled on. A socket the daemon dropped still reads as
+                                // connected, and firing the whole list into it produces a page of
+                                // identical Stream closed lines that all mean one thing.
+                                val live = withContext(Dispatchers.IO) {
+                                    AdbManager.getInstance(context).alive()
+                                }
+                                if (!live) {
+                                    AdbManager.reset()
+                                    connected = false
+                                    results = emptyList()
+                                    ran = false
+                                    busy = false
+                                    return@launch
+                                }
                                 val out = withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.map { step ->

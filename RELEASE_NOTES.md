@@ -55,6 +55,21 @@ stopped working. When steps fail with the connection down, the screen says so on
 with a route back to ADB setup, rather than leaving six identical lines to be read one at a time.
 The button reads TRY AGAIN and stays tappable.
 
+### And the connection is probed before anything is fired into it
+
+`connected()` reads a flag that is set when the socket opens and cleared when it is closed on
+purpose. A socket the daemon dropped underneath us is neither, so the flag went on saying yes long
+after nothing worked — which is how a screen offers a RUN button, sends six commands into a dead
+socket, and gets six identical failures back. The flag was never wrong about what it tracks. It
+was being asked the wrong question.
+
+`AdbManager.alive()` asks the question that has a real answer: send something trivial and see if
+it comes back. RUN THESE and GRANT ALL both probe first, and a dead connection is now found once,
+before anything runs, instead of once per grant. The manager is reset so the next attempt starts
+on a clean socket rather than reusing the half-open one, and the screen says the thing that is
+almost always true — the debugging port changes every time wireless debugging is switched off and
+on, so a setup that worked yesterday needs the port read again.
+
 ## BrightControl v3.8 — send the log
 
 **Color → Send log** files the whole colour diagnostic as an issue on `light-reports`, from the

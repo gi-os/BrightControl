@@ -319,6 +319,14 @@ fun AdbScreen(onBack: () -> Unit) {
             ) {
                 run("grant all") {
                     val adb = AdbManager.getInstance(context)
+                    // One probe in front of the batch. Without it a dropped socket is discovered
+                    // six times, once per grant, and the six answers say the same thing.
+                    if (!adb.alive()) {
+                        AdbManager.reset()
+                        return@run "not connected — nothing was run. The debugging port changes " +
+                            "every time wireless debugging is switched off and on, so read it " +
+                            "again on the Wireless debugging screen and reconnect at step 3."
+                    }
                     // Each grant is read back off the phone rather than judged by what the
                     // command printed. `shell:` carries no exit status, so a command that failed
                     // quietly used to be reported as ok, and a run where the socket died on the
