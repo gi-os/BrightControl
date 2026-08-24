@@ -180,10 +180,9 @@ class LockOverlay(private val context: Context) {
         // USER_PRESENT), and re-running this mid-hold would snap the progress line back to zero.
         if (enterArmed) return
         enterArmed = true
-        handler.post {
-            enterHint?.visibility = View.VISIBLE
-            resetProgress()
-        }
+        // No text furniture. The clock, the notifications and nothing else -- the hold's feedback
+        // is the progress line filling, not a caption. enterHint is kept GONE.
+        handler.post { resetProgress() }
     }
 
     private fun startHold() {
