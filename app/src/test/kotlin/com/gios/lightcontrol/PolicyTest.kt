@@ -51,10 +51,20 @@ class PolicyTest {
         assertEquals(AppRule.Default, Policy.builtInRuleFor("com.example.whatever"))
     }
 
+    /**
+     * The two apps that hold WRITE_SECURE_SETTINGS themselves are left alone rather than forced
+     * to colour. Forcing them would be correct about the colour and wrong about who decides — and
+     * two writers on one setting is what a flickering screen is.
+     */
     @Test
-    fun `the color presets are color out of the box`() {
-        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightcamera"))
-        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightchat"))
+    fun `apps that drive the filter themselves are passed through`() {
+        assertEquals(ColorRule.Passthrough, Policy.builtInColorRuleFor("com.gios.lightcamera"))
+        assertEquals(ColorRule.Passthrough, Policy.builtInColorRuleFor("com.gios.lightchat"))
+    }
+
+    /** The stock camera holds no grant and cannot ask, so this app asks on its behalf. */
+    @Test
+    fun `the stock camera is color out of the box`() {
         assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.android.camera2"))
     }
 

@@ -68,6 +68,22 @@ enum class ColorRule {
 
     /** Force monochrome while this app is in front, even if the baseline is color. */
     Mono,
+
+    /**
+     * Do not touch the daltonizer for this app at all.
+     *
+     * Distinct from [Default], and the difference is the whole reason it exists: Default is an
+     * opinion — put the phone back to the baseline — and writing the baseline over an app that
+     * drives the filter itself is this app winning an argument it should not have been in. Roll
+     * and BrightChat both hold `WRITE_SECURE_SETTINGS` and set their own colour, so anything
+     * stated here is a second writer fighting the first, and the visible result is a screen that
+     * flickers or lands wherever the last write happened to be.
+     *
+     * Passthrough states nothing. The setting keeps whatever the app in front put there, and the
+     * next app with a real rule takes it back — [ColorMode.applyFor] is written as state rather
+     * than as transitions, so nothing is stranded by a rule that declines to write.
+     */
+    Passthrough,
 }
 
 /** The resolved behavior for the app that is currently in front. */
@@ -748,21 +764,25 @@ object Policy {
      * this phone is that it does not — so claiming the prefix would quietly undo the feature it
      * is meant to serve. Each entry earns its place:
      *
-     * - **Roll** and the stock camera. A viewfinder in greyscale misrepresents the photo being
-     *   taken, and the photo comes out color regardless, so the filter is lying about the result.
-     * - **BrightChat.** Images arrive in messages, and a shared photo rendered grey is
-     *   indistinguishable from one that was sent grey.
+     * - **Roll** and **BrightChat** are [ColorRule.Passthrough], not Color. Both grant themselves
+     *   `WRITE_SECURE_SETTINGS` and drive the daltonizer directly, so a rule here is a second
+     *   writer fighting the first — and the app that knows whether this particular screen wants
+     *   colour is the app, not this one. Passthrough is how they end up in colour: by not being
+     *   interfered with.
+     * - **The stock camera** is [ColorRule.Color], because it has no such grant and cannot ask.
+     *   A viewfinder in greyscale misrepresents a photo that comes out colour regardless.
      *
      * To add one, put the id here rather than telling people to set it by hand — a preset that
-     * ships is a preset that works on a phone nobody has configured.
+     * ships is a preset that works on a phone nobody has configured. Prefer Passthrough for
+     * anything that holds the grant itself.
      */
-    val colorPresets = listOf(
-        // Roll.
-        "com.gios.lightcamera",
-        // The stock LightOS camera, for phones that still have it.
-        "com.android.camera2",
-        // BrightChat.
-        "com.gios.lightchat",
+    val colorPresets: Map<String, ColorRule> = mapOf(
+        // Roll: grants itself WRITE_SECURE_SETTINGS and sets its own colour.
+        "com.gios.lightcamera" to ColorRule.Passthrough,
+        // BrightChat: same, and it wants mono on some of its own screens.
+        "com.gios.lightchat" to ColorRule.Passthrough,
+        // The stock LightOS camera, which holds no grant and cannot speak for itself.
+        "com.android.camera2" to ColorRule.Color,
     )
 
     /**
@@ -770,7 +790,7 @@ object Policy {
      * not in [colorPresets] — that is what keeps the phone mono by default.
      */
     fun builtInColorRuleFor(pkg: String): ColorRule =
-        if (pkg in colorPresets) ColorRule.Color else ColorRule.Default
+        colorPresets[pkg] ?: ColorRule.Default
 
     fun ruleFor(prefs: Prefs, pkg: String): AppRule {
         val explicit = prefs.ruleFor(pkg)

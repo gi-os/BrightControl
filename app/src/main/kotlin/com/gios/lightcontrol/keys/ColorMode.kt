@@ -42,6 +42,10 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      * turning the feature off leaves the phone exactly as the user last set it rather than
      * forcing a baseline.
      *
+     * An app on [ColorRule.Passthrough] leaves the screen alone for the same reason a null does:
+     * declining to have an opinion is not the same as having the opinion "baseline". See that
+     * rule for why apps that hold the secure-settings grant themselves are on it.
+     *
      * **An unknown front app leaves the screen alone.** It used to be treated as [ColorRule
      * .Default], which forces the baseline — mono, on a stock phone. That is the wrong guess in
      * the one situation it actually arose: the service has just rebound after an app update and
@@ -57,13 +61,19 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         // observer cannot tell that from LightOS interfering. Without this it re-asserts into the
         // middle of the nudge, sees a difference, writes, and nudges again — forever.
         if (nudging) return
-        captureBaseline()
         val rule = prefs.colorRuleFor(pkg)
+        // Passthrough leaves before the baseline is captured, not just before the write. Capturing
+        // here would record whatever the app in front had set for itself as this phone's idea of
+        // normal, and every app with no rule would inherit it from then on.
+        if (rule == ColorRule.Passthrough) return
+        captureBaseline()
         val (enabled, mode) = when (rule) {
             ColorRule.Color -> 0 to MODE_OFF
             ColorRule.Mono -> 1 to 0
             ColorRule.Default ->
                 prefs.colorBaselineEnabled.coerceAtLeast(0) to prefs.colorBaselineMode
+            // Returned above. Listed so a rule added later cannot silently fall through to a write.
+            ColorRule.Passthrough -> return
         }
         // Nothing to say when nothing moved. A re-assert that finds the screen already right is
         // the overwhelmingly common case — logging it would push the interesting lines out of a

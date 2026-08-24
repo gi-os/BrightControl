@@ -1,4 +1,4 @@
-## BrightControl v3.9 — the camera is color, and a grant says whether it worked
+## BrightControl v3.9 — stop fighting over colour, and say whether a grant worked
 
 **Roll, the stock camera and BrightChat are now color without anyone setting them.** Per-app
 color shipped with an empty table, so every app on the phone resolved to the baseline, and on a
@@ -19,6 +19,23 @@ the app will actually do and says where that came from; tapping it still cycles 
 AUTO and still wins. Cycling back onto the preset clears the override rather than pinning
 today's answer, so an app that is added to or removed from the table later still reaches phones
 that were never touched.
+
+### PASS — for apps that set their own colour
+
+**A fourth rule that writes nothing at all.** AUTO was the only way to say "no opinion" and it is
+not one — it is the opinion *put the phone back to the baseline*, which on this phone means mono.
+Stated over an app that drives the daltonizer itself, that is BrightControl winning an argument it
+should not have been in, and two writers on one setting is exactly what a screen that flickers or
+lands on the wrong colour looks like.
+
+Roll and BrightChat both grant themselves `WRITE_SECURE_SETTINGS` and set their own colour, so
+both ship on **PASS** rather than COLOR. They still come up in colour — by not being interfered
+with, and by the app that actually knows whether this particular screen wants it. The stock camera
+holds no such grant and cannot ask, so it ships on COLOR and this app asks on its behalf.
+
+PASS declines before the baseline is captured, not just before the write. Capturing there would
+record whatever the app in front had set for itself as this phone's idea of normal, and every app
+with no rule would inherit it from then on. Rows cycle AUTO → COLOR → MONO → PASS.
 
 Nothing about the daltonizer writes changed. This is the table that was always missing under
 them.

@@ -268,10 +268,11 @@ fun ColorAppListScreen(onBack: () -> Unit) {
                 item {
                     Text(
                         "AUTO leaves an app at the baseline — mono, on a stock LightOS phone. " +
-                            "Set the apps you want in color to COLOR and leave the rest. A few " +
-                            "apps are color out of the box: Roll, the camera and BrightChat, " +
-                            "because a grey viewfinder or a grey photo is wrong rather than " +
-                            "calm. Tapping one overrides it like any other.",
+                            "Set the apps you want in color to COLOR and leave the rest. PASS " +
+                            "means this app writes nothing at all, for apps that drive the " +
+                            "filter themselves — Roll and BrightChat both do, and two writers " +
+                            "fighting is what a flickering screen looks like. The stock camera " +
+                            "cannot ask, so it ships on COLOR. Tapping any of them overrides it.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Dim,
                         modifier = Modifier.padding(16.dp),
@@ -285,19 +286,22 @@ fun ColorAppListScreen(onBack: () -> Unit) {
 private fun colorCycle(rule: ColorRule): ColorRule = when (rule) {
     ColorRule.Default -> ColorRule.Color
     ColorRule.Color -> ColorRule.Mono
-    ColorRule.Mono -> ColorRule.Default
+    ColorRule.Mono -> ColorRule.Passthrough
+    ColorRule.Passthrough -> ColorRule.Default
 }
 
 private fun colorDetail(rule: ColorRule): String = when (rule) {
     ColorRule.Default -> "AUTO"
     ColorRule.Color -> "COLOR"
     ColorRule.Mono -> "MONO"
+    ColorRule.Passthrough -> "PASS"
 }
 
 private fun colorDescribe(rule: ColorRule): String = when (rule) {
     ColorRule.Default -> "baseline — mono on a stock phone"
     ColorRule.Color -> "full color while this app is in front"
     ColorRule.Mono -> "monochrome while this app is in front"
+    ColorRule.Passthrough -> "left alone — this app sets its own"
 }
 
 /**
