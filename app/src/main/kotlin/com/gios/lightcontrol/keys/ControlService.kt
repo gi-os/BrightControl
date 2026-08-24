@@ -202,7 +202,7 @@ class ControlService : AccessibilityService() {
         lockFace = LockOverlay(this)
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
-        lockFace.onEnter = { runCatching { enterFromLock() } }
+        lockFace.onEnter = { runCatching { homeFromLock() } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
@@ -403,6 +403,39 @@ class ControlService : AccessibilityService() {
         val target = runCatching { resumeFromLock() }.getOrNull()
         // Nothing was launched, or the face was already gone: no transition left to cover.
         if (target == null || !lockFace.showing) {
+            dropCover()
+            return
+        }
+        coverTarget = target
+        handler.removeCallbacks(coverTimeout)
+        handler.postDelayed(coverTimeout, LOCK_COVER_MAX_MS)
+    }
+
+    /**
+     * A deliberate "go in" from the armed face -- the touch hold, or the home button.
+     *
+     * Different from [enterFromLock]/[resumeFromLock] in what it falls back to. The auto-resume
+     * path is list-gated on purpose: it fires on the unlock itself, so its safe default is
+     * LightOS. But a hold or a home press is the user asking to *leave* the face on purpose, and
+     * their home is their launcher (Luma) or the app they were in -- never LightOS's dashboard,
+     * which is all `goHome()` can resolve to while LightOS holds the HOME role.
+     *
+     * So the destination is: the app you slept in (returned to even when it is not on the resume
+     * list, which is what makes going back to Luma work), then the configured "Otherwise open"
+     * launcher, then the home button's own tap target, and LightOS only when nothing else is set.
+     */
+    private fun homeFromLock() {
+        val was = Lock.pending
+        val sleptPkg = was?.takeUnless { it == foreground || it.startsWith(LIGHTOS) }
+        val fallbackPkg = (prefs.resumeFallback as? Action.Launch)?.pkg
+        val tapPkg = (prefs.action(Button.Home, Gesture.Tap) as? Action.Launch)?.pkg
+        val target = sleptPkg ?: fallbackPkg ?: tapPkg
+        Lock.pending = null
+        if (sleptPkg != null) slept = null
+        val ok = if (target != null) launch(target) else goHome()
+        log("lock home → " + (target?.substringAfterLast('.') ?: "lightos") +
+            if (ok) "" else " · FAILED")
+        if (!ok || target == null || !lockFace.showing) {
             dropCover()
             return
         }
@@ -698,7 +731,7 @@ class ControlService : AccessibilityService() {
         if (button == Button.Home && lockFace.showing && lockFace.armed) {
             if (isFreshDown(event)) {
                 log("HOME · enter from armed lock")
-                enterFromLock()
+                homeFromLock()
             }
             return true
         }
