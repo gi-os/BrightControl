@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,6 +32,10 @@ import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.ColorMode
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.report.Failure
+import com.gios.lightcontrol.report.Reports
+import com.gios.lightcontrol.report.Symptom
+import kotlinx.coroutines.launch
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -46,6 +51,8 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
     var auto by remember { mutableStateOf(prefs.colorAutoSwitch) }
     var live by remember { mutableStateOf(ColorMode(context, prefs).live()) }
     var log by remember { mutableStateOf(prefs.colorLog()) }
+    var sent by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     SectionScaffold(
         title = "Color",
@@ -123,19 +130,65 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
         // the write landed and stayed — so a screen that is still the wrong color is a phone
         // ignoring a setting it agrees with. `LOST` names the values something else preferred.
         // An app that produces no line here never had its rule applied at all.
-        if (log.isNotEmpty()) {
-            SectionLabel("WHAT HAPPENED")
-            log.forEach { line -> MenuRow(label = line, dim = true) }
+        SectionLabel("WHAT HAPPENED")
+        if (log.isEmpty()) {
+            // Not an empty state — a finding. The log is written when a rule is applied, so
+            // nothing here means no rule was ever applied, which is a different bug entirely
+            // from one that gets applied and does not hold.
             MenuRow(
-                label = "Clear",
-                sub = "start the log again from the next app you open",
+                label = "Nothing applied yet",
+                sub = "open an app with a Color or Mono rule and come back. Still empty means " +
+                    "the rule never ran, not that it ran and failed.",
                 dim = true,
-                onClick = {
-                    prefs.clearColorLog()
-                    log = emptyList()
-                },
             )
+        } else {
+            log.forEach { line -> MenuRow(label = line, dim = true) }
         }
+        // Reading a dozen lines of `want 0/-1 got 1/0` off a 3.92" screen and retyping them into
+        // a message is the step where a diagnostic log stops being worth having. This sends the
+        // whole thing — log, live pair, every rule set, both grants — as an issue on the same
+        // queue shake-to-report uses, so it survives having no signal and needs no computer.
+        MenuRow(
+            label = if (sent) "Log sent" else "Send log",
+            detail = when {
+                sent -> "✓"
+                Reports.canSend() -> "›"
+                else -> "QUEUED"
+            },
+            sub = when {
+                sent -> "filed on light-reports, and queued if there was no signal"
+                Reports.canSend() -> "file this log as an issue — no typing, no computer"
+                else -> "this build has no report token, so it will wait on disk"
+            },
+            dim = true,
+            onClick = {
+                val report = Reports.compose(
+                    context = context,
+                    symptom = Symptom.Wrong,
+                    note = colorHeadline(log),
+                    screen = "color",
+                    crash = prefs.lastCrash(),
+                    failure = Failure(
+                        what = "hold per-app color",
+                        detail = colorEvidence(prefs, live, auto, canWriteSecure),
+                    ),
+                )
+                // Marked sent before the send, as the sheet does: submit() queues to disk first,
+                // so there is nothing here left to fail in a way this row could report.
+                sent = true
+                scope.launch { runCatching { Reports.submit(context, report) } }
+            },
+        )
+        MenuRow(
+            label = "Clear",
+            sub = "start the log again from the next app you open",
+            dim = true,
+            onClick = {
+                prefs.clearColorLog()
+                log = emptyList()
+                sent = false
+            },
+        )
     }
 }
 
@@ -227,4 +280,43 @@ private fun colorDescribe(rule: ColorRule): String = when (rule) {
     ColorRule.Default -> "baseline — mono on a stock phone"
     ColorRule.Color -> "full color while this app is in front"
     ColorRule.Mono -> "monochrome while this app is in front"
+}
+
+/**
+ * The issue title, from the log itself.
+ *
+ * A title reading "Something looks wrong" is worth nothing in a list of them weeks later, and the
+ * one fact that decides which bug this is — whether the writes are being lost or ignored — is
+ * already in the log. Put it in the title.
+ */
+private fun colorHeadline(log: List<String>): String {
+    if (log.isEmpty()) return "per-app color: nothing was ever applied"
+    val lost = log.count { it.endsWith("LOST") }
+    val ok = log.size - lost
+    return "per-app color: $ok held, $lost overwritten"
+}
+
+/** Everything about the feature's state worth having in the issue, as one block. */
+private fun colorEvidence(
+    prefs: Prefs,
+    live: Pair<Int, Int>?,
+    auto: Boolean,
+    canWriteSecure: Boolean,
+): String = buildString {
+    appendLine("master switch: ${if (auto) "on" else "OFF"}")
+    appendLine("WRITE_SECURE_SETTINGS: ${if (canWriteSecure) "granted" else "NOT GRANTED"}")
+    appendLine("live: " + (live?.let { "enabled=${it.first} mode=${it.second}" } ?: "unreadable"))
+    appendLine(
+        "baseline: enabled=${prefs.colorBaselineEnabled} mode=${prefs.colorBaselineMode}",
+    )
+    appendLine()
+    appendLine("rules:")
+    val rules = prefs.colorOverrides()
+    if (rules.isEmpty()) appendLine("  none") else rules.forEach { (pkg, rule) ->
+        appendLine("  $pkg = ${rule.name}")
+    }
+    appendLine()
+    appendLine("log (newest first):")
+    val lines = prefs.colorLog()
+    if (lines.isEmpty()) appendLine("  empty") else lines.forEach { appendLine("  $it") }
 }

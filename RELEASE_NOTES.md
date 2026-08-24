@@ -1,3 +1,21 @@
+## BrightControl v3.8 — send the log
+
+**Color → Send log** files the whole colour diagnostic as an issue on `light-reports`, from the
+phone, with no typing and no computer. It carries the log, the live pair, the captured baseline,
+every per-app rule, and whether the secure-settings grant is actually present — the last of which
+has been assumed rather than checked in every round of this bug so far.
+
+The title is written from the log rather than from a symptom chip, because the one fact that
+decides which bug this is is already in there: *"per-app color: 3 held, 1 overwritten"* says
+something is writing after this app, and *"0 held, 0 overwritten"* says the rule never ran.
+
+It rides the queue shake-to-report already uses, so it is written to disk before anything touches
+a socket and survives being sent underground.
+
+**WHAT HAPPENED now says something when it is empty**, too. An empty log is not an empty state —
+lines are written when a rule is applied, so nothing there means no rule was ever applied, which
+is a different bug from one that applies and does not hold.
+
 ## BrightControl v3.6 — make the phone say which one it is
 
 v3.3 fixed two real bugs in per-app color and the symptom did not move: an app with a Color
