@@ -40,4 +40,23 @@ class ColorOutcomeTest {
     fun `nothing wanted yet cannot supersede`() {
         assertEquals("LOST", ColorOutcome.of(0 to -1, 1 to 0, null))
     }
+
+    @Test
+    fun `the line names the whole package`() {
+        // The bare last segment is what light-reports#38 arrived with: three rules lost to
+        // something called `edgegestures`, which is not a package id and cannot be looked up.
+        assertEquals(
+            "16:04:13 com.gios.lightchat COLOR want 0/-1 got 1/0 superseded",
+            ColorOutcome.line("16:04:13", "com.gios.lightchat", "Color", 0 to -1, 1 to 0, 1 to 0),
+        )
+    }
+
+    @Test
+    fun `the outcome stays at the end of the line`() {
+        // The Color screen's headline counts held, overwritten and superseded by the line's
+        // ending, so anything appended after the outcome would silently zero those counts.
+        val line =
+            ColorOutcome.line("09:00:00", "com.gios.lightcamera", "Default", 1 to 0, 1 to 0, null)
+        assertEquals(true, line.endsWith("ok"))
+    }
 }
