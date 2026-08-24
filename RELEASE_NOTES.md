@@ -1,3 +1,42 @@
+## BrightControl v3.3 — the color that would not stick
+
+**Per-app color now survives coming back from LightOS.** Two bugs, one visible symptom: an app
+with a Color rule opened in black and white, and the only way to get its color was to leave for
+the Android layer and come back to it.
+
+### Off was being written as monochrome
+
+The daltonizer is two secure settings, and they are not independent. `accessibility_display_
+daltonizer_enabled` is the switch; `accessibility_display_daltonizer` is *which* filter, where
+`0` means monochromacy. Turning an app to color wrote `enabled = 0` and left the mode at the
+captured baseline — which on this phone is `0`. So the state on disk still read "monochrome,
+currently off", and anything that re-read the pair reconstituted grey from it. Off is now
+written as mode `-1`, the one value no reader can interpret as a filter.
+
+### Only this app's writes were ever the last word by accident
+
+Color was applied when an app came to the front and never again. Whatever wrote those settings
+after that owned the screen until the next app switch — and LightOS writes them, because
+monochrome is how the whole phone is meant to look. Coming from LightOS, LightOS wrote last.
+Coming back from Android settings, this app wrote last. One path worked, the other did not, and
+from the outside it looked like the grant or the write failing.
+
+Two things close it. A **content observer** on both settings re-states the front app's rule
+whenever anything else moves them, from any direction — the rule is now a fact that gets
+repaired, not an event that can be missed. And an app arriving re-states its rule again at
+250 ms, 800 ms and 2 s, which covers a launcher that repaints after its own animation is over.
+Neither can loop or thrash: the writer only writes on a difference, so a re-assert that finds
+the screen already right costs two reads and writes nothing.
+
+### Also
+
+- **Color → Live filter** shows the two ints and what they add up to, and re-reads on tap. This
+  bug was guessed at three times from the outside; being able to read the state settles it.
+- Not this app: the night-light **sunrise/sunset** toggle is `night_display_auto_mode`, a
+  different service entirely, and nothing here writes it. `settings put secure
+  night_display_auto_mode 2` sets it, and twilight needs a location fix to have a sunset to work
+  from.
+
 ## BrightControl v3.1 — Wi-Fi login
 
 **The phone can now sign in to hotel and café Wi-Fi — the networks that want a webpage

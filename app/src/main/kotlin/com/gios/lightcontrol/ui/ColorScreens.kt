@@ -44,6 +44,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
     val canWriteSecure = Grants.canWriteSecureSettings(context)
 
     var auto by remember { mutableStateOf(prefs.colorAutoSwitch) }
+    var live by remember { mutableStateOf(ColorMode(context, prefs).live()) }
 
     SectionScaffold(
         title = "Color",
@@ -87,6 +88,27 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
                 onClick = onAdb,
             )
         }
+        // The state the feature actually runs on, in plain sight. This bug was diagnosed three
+        // times from the outside — grant? write? LightOS fighting back? — and every guess would
+        // have been settled in a second by being able to read the two ints.
+        val shown = live
+        MenuRow(
+            label = "Live filter",
+            detail = when {
+                shown == null -> "?"
+                shown.first == 0 || shown.second < 0 -> "COLOR"
+                shown.second == 0 -> "MONO"
+                else -> "FILTER ${shown.second}"
+            },
+            sub = if (shown == null) {
+                "the daltonizer settings cannot be read"
+            } else {
+                "enabled=${shown.first}, mode=${shown.second} — mode 0 is monochrome even with " +
+                    "enabled 0, which is why off is written as -1"
+            },
+            dim = true,
+            onClick = { live = ColorMode(context, prefs).live() },
+        )
         MenuRow(
             label = "Per-app rules",
             detail = "${prefs.colorOverrides().size}",

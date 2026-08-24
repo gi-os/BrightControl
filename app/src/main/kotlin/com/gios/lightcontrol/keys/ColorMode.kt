@@ -53,7 +53,7 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         captureBaseline()
         val rule = prefs.colorRuleFor(pkg)
         when (rule) {
-            ColorRule.Color -> set(enabled = 0, mode = prefs.colorBaselineMode)
+            ColorRule.Color -> set(enabled = 0, mode = MODE_OFF)
             ColorRule.Mono -> set(enabled = 1, mode = 0)
             ColorRule.Default -> set(
                 enabled = prefs.colorBaselineEnabled.coerceAtLeast(0),
@@ -79,23 +79,63 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         set(enabled = prefs.colorBaselineEnabled.coerceAtLeast(0), mode = prefs.colorBaselineMode)
     }
 
+    /**
+     * State both settings, in the order that never shows the wrong screen in between.
+     *
+     * The two settings are not independent, and [MODE] alone is enough to keep the panel grey:
+     * `0` *is* monochromacy. So switching an app to color by writing only `ENABLED = 0` leaves a
+     * mode int that still says "grey", and any part of the pipeline that re-reads the pair —
+     * LightOS does, whenever its own shell comes forward — reconstitutes monochrome from it. That
+     * is the whole of the bug where color survived until you went back to LightOS and then never
+     * came back: nothing was overriding this app, this app was writing a state that read as mono.
+     * Off is now written as [MODE_OFF], which no reader can interpret as a filter.
+     *
+     * Order follows direction. Turning a filter **on**, the mode goes first, so the frame that
+     * lands is never the previous filter. Turning one **off**, the enable flag goes first, for the
+     * same reason in reverse. Writing them the other way round is a visible flash of the wrong
+     * screen, and on a phone whose whole point is a calm display, that flash is the feature
+     * failing.
+     *
+     * Only writes on a difference: these settings notify observers, and LightOS's own color
+     * pipeline is one of them, so a redundant write is a redundant repaint of the whole panel.
+     * That is also what makes [ControlService]'s settings observer safe — this app's own write
+     * wakes it, the re-assert finds both values already right, and the loop stops there.
+     */
     private fun set(enabled: Int, mode: Int) {
-        // Only write on a difference: these settings notify observers, and LightOS's own color
-        // pipeline is one of them, so a redundant write is a redundant repaint of the whole panel.
         runCatching {
-            if (read(MODE, mode) != mode) {
-                Settings.Secure.putInt(context.contentResolver, MODE, mode)
+            val writeMode = { if (read(MODE, mode) != mode) Settings.Secure.putInt(context.contentResolver, MODE, mode) }
+            val writeEnabled = {
+                if (read(ENABLED, enabled) != enabled) {
+                    Settings.Secure.putInt(context.contentResolver, ENABLED, enabled)
+                }
             }
-            if (read(ENABLED, enabled) != enabled) {
-                Settings.Secure.putInt(context.contentResolver, ENABLED, enabled)
+            if (enabled == 1) {
+                writeMode()
+                writeEnabled()
+            } else {
+                writeEnabled()
+                writeMode()
             }
         }
     }
 
+    /** The live pair, for the diagnostic on the Color screen. Null when they cannot be read. */
+    fun live(): Pair<Int, Int>? = runCatching {
+        Settings.Secure.getInt(context.contentResolver, ENABLED) to
+            Settings.Secure.getInt(context.contentResolver, MODE)
+    }.getOrNull()
+
     private fun read(key: String, fallback: Int): Int =
         runCatching { Settings.Secure.getInt(context.contentResolver, key) }.getOrDefault(fallback)
 
-    private companion object {
+    companion object {
+        /**
+         * The mode int that means "no filter at all". `0` is monochromacy, `11`/`12`/`13` are the
+         * color-blindness corrections, and `-1` is the only value that is not a filter — which is
+         * why off is written as this and not as `0`.
+         */
+        const val MODE_OFF = -1
+
         const val ENABLED = "accessibility_display_daltonizer_enabled"
         const val MODE = "accessibility_display_daltonizer"
     }

@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.ContentObserver
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.content.ComponentName
@@ -19,6 +20,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.AlarmClock
 import android.provider.MediaStore
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import com.gios.lightcontrol.Action
@@ -206,6 +208,7 @@ class ControlService : AccessibilityService() {
         // settings grant is present. See keys/ColorMode.kt.
         colorMode = ColorMode(this, prefs)
         runCatching { colorMode.applyFor(foreground) }
+        registerColorObserver()
         // The first-class version of "is the phone open", on the versions that have it. A listener
         // rather than only a broadcast, because ACTION_USER_PRESENT is the one signal in this
         // feature that has already been observed not to arrive, and a lock face that outlives the
@@ -269,6 +272,14 @@ class ControlService : AccessibilityService() {
         // strands it. Before, color was strictly edge-triggered, so a single missed edge lasted
         // until you switched apps and back, and there was no way for the app to notice.
         runCatching { colorMode.applyFor(pkg) }
+        // ...and again, shortly. A window-state event is raised when the app's window arrives,
+        // which is *before* whatever LightOS does about color on the way out of its own shell.
+        // Whoever writes last wins, and on the LightOS -> app path that was not this app: the
+        // rule was applied and then painted over within the same second, which is exactly the
+        // shape of "it only works if I come back to the app from somewhere else". These
+        // re-asserts write nothing when nothing moved, so the cost of being wrong about the race
+        // is two reads of a secure setting.
+        scheduleColorReasserts()
         // The offer to go back only stands while you are still sitting on LightOS's lock screen
         // or dashboard, which is where a wake leaves you. Reach any other app under your own
         // steam and the offer is withdrawn — otherwise home would yank you out of the thing you
@@ -329,6 +340,7 @@ class ControlService : AccessibilityService() {
      */
     private fun onScreenOn() {
         runCatching { colorMode.applyFor(foreground) }
+        scheduleColorReasserts()
         if (!prefs.lockScreen) return
         // Not if a tap put it away. Re-raising a face the user just dismissed to reach the keypad
         // would make the keypad unreachable, which is the one bug this feature must never have.
@@ -1012,8 +1024,62 @@ class ControlService : AccessibilityService() {
         return declared
     }
 
+    // ------------------------------------------------------------------- color, held
+
+    /** Held only so it can be unregistered. See [registerColorObserver]. */
+    private var colorObserver: ContentObserver? = null
+
+    /** Re-assert the front app's color rule. Posted, so it can be cancelled and coalesced. */
+    private val colorReassert = Runnable { runCatching { colorMode.applyFor(foreground) } }
+
+    /**
+     * Watch the two daltonizer settings and put the front app's rule back whenever anything else
+     * moves them.
+     *
+     * The feature was previously driven by window-state events alone, so this app only ever got
+     * to state the color at the instant an app came forward. Anything that wrote the settings
+     * afterwards owned the screen until the next app switch — and LightOS writes them, every time
+     * its own shell comes forward, because monochrome is how the whole phone is meant to look. Go
+     * LightOS -> app and the last writer was LightOS; go app -> Android settings -> app and the
+     * last writer was this service. One path worked and the other did not, and it looked like the
+     * grant, or the write, or the rule.
+     *
+     * An observer closes it: the rule is re-stated whenever the state it describes stops being
+     * true, from whatever direction. It cannot loop on this app's own writes, because
+     * `ColorMode.set` writes only on a difference — the write wakes the observer once, the
+     * re-assert finds both values already correct, and nothing further is written.
+     */
+    private fun registerColorObserver() {
+        runCatching {
+            val observer = object : ContentObserver(handler) {
+                override fun onChange(selfChange: Boolean) {
+                    // Coalesced: a mode/enabled pair arrives as two changes a millisecond apart,
+                    // and re-asserting between them would fight a half-written state.
+                    handler.removeCallbacks(colorReassert)
+                    handler.postDelayed(colorReassert, COLOR_SETTLE_MS)
+                }
+            }
+            contentResolver.registerContentObserver(
+                Settings.Secure.getUriFor(ColorMode.ENABLED), false, observer,
+            )
+            contentResolver.registerContentObserver(
+                Settings.Secure.getUriFor(ColorMode.MODE), false, observer,
+            )
+            colorObserver = observer
+        }
+    }
+
+    /** Re-state the rule a few times over the second after an app arrives. See the call site. */
+    private fun scheduleColorReasserts() {
+        for (delay in COLOR_REASSERT_MS) handler.postDelayed(colorReassert, delay)
+    }
+
     override fun onUnbind(intent: Intent?): Boolean {
         runCatching { unregisterReceiver(screenOff) }
+        colorObserver?.let { observer ->
+            colorObserver = null
+            runCatching { contentResolver.unregisterContentObserver(observer) }
+        }
         Lock.pending = null
         handler.removeCallbacks(lockWatch)
         handler.removeCallbacks(coverTimeout)
@@ -1589,6 +1655,15 @@ class ControlService : AccessibilityService() {
 
         /** LightOS itself: its dashboard, its lock screen, its launcher entry. */
         const val LIGHTOS = "com.lightos"
+
+        /** How long to let a settings change settle before re-stating the rule. */
+        const val COLOR_SETTLE_MS = 120L
+
+        /**
+         * When to re-state an app's color rule after it comes forward. The first is the window
+         * itself; the rest cover a launcher that repaints once its own animation is over.
+         */
+        val COLOR_REASSERT_MS = longArrayOf(250L, 800L, 2000L)
 
         /** How recently LightOS must have come forward to be read as its lock screen arriving. */
         const val LOCK_GRACE_MS = 2_000L
