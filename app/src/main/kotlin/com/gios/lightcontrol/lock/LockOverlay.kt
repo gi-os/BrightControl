@@ -100,6 +100,9 @@ class LockOverlay(private val context: Context) {
 
     /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
     private var enterArmed = false
+
+    /** True once unlocked and holding open for a read — the window a home press means "go in". */
+    val armed: Boolean get() = enterArmed
     private var holdAnimator: android.animation.ValueAnimator? = null
 
     /**

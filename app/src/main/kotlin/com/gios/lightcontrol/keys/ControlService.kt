@@ -690,6 +690,19 @@ class ControlService : AccessibilityService() {
 
         val button = LightKeys.buttonOf(key) ?: return false
 
+        // The lock face is up and armed -- the phone is already unlocked and the face is being
+        // held open to be read. A home press there means "go in now", exactly like finishing the
+        // touch hold. Take the whole press (down and the release) so LightOS does not get a lone
+        // home release and pull its dashboard up behind our cover. Only Home; the wheel and camera
+        // button are left alone.
+        if (button == Button.Home && lockFace.showing && lockFace.armed) {
+            if (isFreshDown(event)) {
+                log("HOME · enter from armed lock")
+                enterFromLock()
+            }
+            return true
+        }
+
         // A press already taken is a press owned to the end.
         //
         // Every check below asks about the app in front, and the app in front changes *because of
