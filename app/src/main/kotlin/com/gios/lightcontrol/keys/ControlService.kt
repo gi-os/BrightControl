@@ -153,6 +153,16 @@ class ControlService : AccessibilityService() {
 
     /** What the face is being held up over, while an unlock's launch lands. See [onUserPresent]. */
     private var coverTarget: String? = null
+    /**
+     * A home press claimed by the armed lock face, held until its release.
+     *
+     * The launch on the DOWN brings the app forward, which hides the face and clears `armed`
+     * before the UP arrives -- and a home UP that then falls through to [onHome] is a lone home
+     * release, which LightOS reads as a home press of its own and answers with its dashboard. So
+     * once the DOWN is claimed, every event of that press is swallowed here through the UP,
+     * whatever the face is doing by then.
+     */
+    private var armedHomeConsuming = false
 
     /** Held only so it can be unregistered. See [onUnbind]. */
     private var keyguardListener: KeyguardManager.KeyguardLockedStateListener? = null
@@ -316,6 +326,7 @@ class ControlService : AccessibilityService() {
         }
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
+        armedHomeConsuming = false
         handler.removeCallbacks(lockWatch)
         handler.removeCallbacks(coverTimeout)
         coverTarget = null
@@ -728,11 +739,16 @@ class ControlService : AccessibilityService() {
         // touch hold. Take the whole press (down and the release) so LightOS does not get a lone
         // home release and pull its dashboard up behind our cover. Only Home; the wheel and camera
         // button are left alone.
-        if (button == Button.Home && lockFace.showing && lockFace.armed) {
-            if (isFreshDown(event)) {
+        if (button == Button.Home && (armedHomeConsuming || (lockFace.showing && lockFace.armed))) {
+            if (isFreshDown(event) && !armedHomeConsuming) {
                 log("HOME · enter from armed lock")
+                armedHomeConsuming = true
                 homeFromLock()
             }
+            // Claimed to the end: the release is swallowed too, even though the app that just
+            // opened has already taken the face down and cleared `armed`. An unconsumed home UP
+            // here is the lone release that sends LightOS to its dashboard right after the app.
+            if (event.action == KeyEvent.ACTION_UP) armedHomeConsuming = false
             return true
         }
 
