@@ -86,8 +86,16 @@ object GrantCheckRunner {
         command: String,
         check: GrantCheck,
     ): StepResult {
-        val output = runCatching { adb.runCommand(command) }
+        var output = runCatching { adb.runCommand(command) }
             .getOrElse { e -> "!${e.message ?: e.javaClass.simpleName}" }
+        // A stream that dies on the first command of a batch is the shape of a connection that
+        // was reported up before the daemon had finished settling, and the fix for it is the
+        // same as for a connection that died in the user's pocket: get another one. Once, so a
+        // command that genuinely fails does not run twice.
+        if (output.startsWith("!") && AdbManager.ensureAlive(context)) {
+            output = runCatching { AdbManager.getInstance(context).runCommand(command) }
+                .getOrElse { e -> "!${e.message ?: e.javaClass.simpleName}" }
+        }
         val threw = output.startsWith("!")
         val said = output.removePrefix("!").trim()
 
@@ -95,10 +103,14 @@ object GrantCheckRunner {
         // are invalidated asynchronously, and a check that runs in the same millisecond as the
         // write occasionally reads the old value. One retry costs a quarter second on the
         // failure path and nothing on the success path.
-        var held = holds(context, adb, check)
+        // Fetched again rather than reusing the parameter: a reconnect above replaces the cached
+        // manager, and checking through the one that was handed in would put the question to the
+        // socket we just gave up on.
+        val live = AdbManager.getInstance(context)
+        var held = holds(context, live, check)
         if (held == false) {
             Thread.sleep(RECHECK_MS)
-            held = holds(context, adb, check)
+            held = holds(context, AdbManager.getInstance(context), check)
         }
 
         return when (held) {
@@ -133,12 +145,18 @@ object GrantCheckRunner {
                 PackageManager.PERMISSION_GRANTED
         }.getOrNull()
 
-        is GrantCheck.AppOp -> runCatching {
-            val out = adb.runCommand("appops get ${check.pkg} ${check.op}")
-            // `appops get` prints `OP: mode; time=...`, and an op that was never set prints
-            // nothing at all. Match the mode word rather than the whole line.
-            out.substringAfter(':', out).contains(check.mode, ignoreCase = true)
-        }.getOrNull()
+        // Our own two app ops have framework answers, and a framework answer cannot be lost to a
+        // dropped stream. This is the whole reason Brightness and Overlay came back UNKNOWN while
+        // the four grants after them read OK: those four are checked through PackageManager and
+        // Settings.Secure and never touch adb, and these two were the only checks still asking the
+        // shell a question the shell had already stopped answering.
+        is GrantCheck.AppOp -> ownAppOp(context, check)
+            ?: runCatching {
+                val out = adb.runCommand("appops get ${check.pkg} ${check.op}")
+                // `appops get` prints `OP: mode; time=...`, and an op that was never set prints
+                // nothing at all. Match the mode word rather than the whole line.
+                out.substringAfter(':', out).contains(check.mode, ignoreCase = true)
+            }.getOrNull()
 
         is GrantCheck.SecureListHas -> runCatching {
             val cur = Settings.Secure.getString(context.contentResolver, check.key).orEmpty()
@@ -147,6 +165,28 @@ object GrantCheckRunner {
         }.getOrNull()
 
         GrantCheck.None -> null
+    }
+
+    /**
+     * The two app ops this app grants itself, answered by the framework instead of by adb.
+     *
+     * `Settings.System.canWrite` and `Settings.canDrawOverlays` are the same question `appops get`
+     * asks, put to the system directly — no shell, no stream, and no way for the answer to be
+     * lost because the connection went away between the write and the read. Only valid for our
+     * own package and only for `allow`: both APIs answer "can this app do it", which is not the
+     * same question as "is the op set to deny rather than ignore".
+     *
+     * Null for anything else, which sends the caller back to `appops get` — the right route for
+     * another app's ops, because there is no framework call that asks on someone else's behalf.
+     */
+    private fun ownAppOp(context: Context, check: GrantCheck.AppOp): Boolean? {
+        if (check.pkg != context.packageName) return null
+        if (!check.mode.equals("allow", ignoreCase = true)) return null
+        return when (check.op) {
+            "WRITE_SETTINGS" -> runCatching { Settings.System.canWrite(context) }.getOrNull()
+            "SYSTEM_ALERT_WINDOW" -> runCatching { Settings.canDrawOverlays(context) }.getOrNull()
+            else -> null
+        }
     }
 
     /**
