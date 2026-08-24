@@ -1,4 +1,4 @@
-## BrightControl v3.11 — the connection reconnects itself
+## BrightControl v3.12 — the connection reconnects itself
 
 **"I set it up, I came back, and I get Stream closed."** Nothing was wrong with the setup. It had
 simply ended while the user was in transit.

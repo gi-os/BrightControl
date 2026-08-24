@@ -135,11 +135,16 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
             runCatching {
                 val gotEnabled = read(ENABLED, -9)
                 val gotMode = read(MODE, -9)
-                val at = DateFormat.format("HH:mm:ss", System.currentTimeMillis())
-                val how = ColorOutcome.of(enabled to mode, gotEnabled to gotMode, wanted)
+                val at = DateFormat.format("HH:mm:ss", System.currentTimeMillis()).toString()
                 prefs.appendColorLog(
-                    "$at ${pkg.substringAfterLast('.')} ${rule.name.uppercase()} " +
-                        "want $enabled/$mode got $gotEnabled/$gotMode $how",
+                    ColorOutcome.line(
+                        at = at,
+                        pkg = pkg,
+                        rule = rule.name,
+                        want = enabled to mode,
+                        got = gotEnabled to gotMode,
+                        wantedNow = wanted,
+                    ),
                 )
             }
         }, VERIFY_MS)

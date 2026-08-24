@@ -30,4 +30,30 @@ object ColorOutcome {
         wantedNow != null && wantedNow != want && got == wantedNow -> "superseded"
         else -> "LOST"
     }
+
+    /**
+     * The whole log line, built in one place so the log's shape can be tested on the JVM.
+     *
+     * The package is written **in full**. It used to be cut to its last segment, which reads
+     * nicely for the apps you set the rules on — `lightchat`, `lightcamera` — and hides the one
+     * line that matters. A rule is lost to whatever wrote after it, so the interesting package
+     * in a report is nearly always one nobody chose: a system window that raised a window-state
+     * event, stated the baseline over the front app's colour, and appeared in the log under a
+     * bare word like `edgegestures` that cannot be looked up, granted a rule, or even searched
+     * for. A package id you can spell is the difference between a log that names the culprit and
+     * one that only proves there was one.
+     *
+     * The outcome stays last: the Color screen's headline counts the lines by their ending.
+     */
+    fun line(
+        at: String,
+        pkg: String,
+        rule: String,
+        want: Pair<Int, Int>,
+        got: Pair<Int, Int>,
+        wantedNow: Pair<Int, Int>?,
+    ): String =
+        "$at $pkg ${rule.uppercase()} " +
+            "want ${want.first}/${want.second} got ${got.first}/${got.second} " +
+            of(want, got, wantedNow)
 }
