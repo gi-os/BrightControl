@@ -95,6 +95,20 @@ class LockOverlay(private val context: Context) {
     private var batteryIcon: BatteryIcon? = null
     private var alarm: TextView? = null
     private var notes: LinearLayout? = null
+    private var enterHint: TextView? = null
+    private var progressLine: View? = null
+
+    /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
+    private var enterArmed = false
+    private var holdAnimator: android.animation.ValueAnimator? = null
+
+    /**
+     * Told when a completed hold means "go in", set by the service.
+     *
+     * The face has no idea where to resume to -- that is the service's list and snapshot -- so the
+     * hold gesture only reports that it happened and the service decides where it lands.
+     */
+    var onEnter: (() -> Unit)? = null
 
     /** Hidden by a tap, and left hidden until the next sleep. */
     private var dismissedByTouch = false
@@ -144,6 +158,69 @@ class LockOverlay(private val context: Context) {
         face?.animate()?.alpha(1f)?.setDuration(FADE_MS)?.start()
     }
 
+    private val holdEnter = Runnable {
+        // Fires a full second in, while the finger is still down. The service launches and takes
+        // the window down; nothing here needs to.
+        runCatching { onEnter?.invoke() }
+    }
+
+    /**
+     * The phone is open -- now wait for a deliberate hold rather than launching on the unlock.
+     *
+     * This reverses the old contract. Before this, the poll that saw the keyguard unlock also
+     * opened the resume app in the same instant, so the notifications on this face were never read.
+     * Now the face stays up and readable, says how to go in, and enters only when [holdEnter]
+     * completes. Called by the service the moment it sees the phone unlock.
+     */
+    fun armEnter() {
+        // Idempotent: the unlock arrives on three signals at once (poll, keyguard listener,
+        // USER_PRESENT), and re-running this mid-hold would snap the progress line back to zero.
+        if (enterArmed) return
+        enterArmed = true
+        handler.post {
+            enterHint?.visibility = View.VISIBLE
+            resetProgress()
+        }
+    }
+
+    private fun startHold() {
+        handler.removeCallbacks(holdEnter)
+        handler.postDelayed(holdEnter, HOLD_ENTER_MS)
+        val line = progressLine ?: return
+        holdAnimator?.cancel()
+        val full = type.gridPx(10f)
+        holdAnimator = android.animation.ValueAnimator.ofInt(0, full).apply {
+            duration = HOLD_ENTER_MS
+            addUpdateListener { anim ->
+                line.layoutParams = line.layoutParams.apply { width = anim.animatedValue as Int }
+                line.requestLayout()
+            }
+            start()
+        }
+    }
+
+    private fun cancelHold() {
+        handler.removeCallbacks(holdEnter)
+        resetProgress()
+    }
+
+    private fun resetProgress() {
+        holdAnimator?.cancel()
+        holdAnimator = null
+        progressLine?.let {
+            it.layoutParams = it.layoutParams.apply { width = 0 }
+            it.requestLayout()
+        }
+    }
+
+    /** Back to a fresh, un-armed face. Called at the start of every lock cycle and on teardown. */
+    private fun resetEnter() {
+        enterArmed = false
+        handler.removeCallbacks(holdEnter)
+        enterHint?.visibility = View.GONE
+        resetProgress()
+    }
+
     /**
      * Put the face up.
      *
@@ -158,6 +235,7 @@ class LockOverlay(private val context: Context) {
             handler.removeCallbacks(fadeIn)
             face?.animate()?.cancel()
             face?.alpha = 0f
+            resetEnter()
             refresh()
             return
         }
@@ -198,6 +276,10 @@ class LockOverlay(private val context: Context) {
     fun hide(): Boolean {
         stopTicking()
         handler.removeCallbacks(fadeIn)
+        handler.removeCallbacks(holdEnter)
+        holdAnimator?.cancel()
+        holdAnimator = null
+        enterArmed = false
         face?.animate()?.cancel()
         val view = root ?: return true
         val wm = context.getSystemService(WindowManager::class.java) ?: return false
@@ -206,6 +288,8 @@ class LockOverlay(private val context: Context) {
         if (!gone) return false
         root = null
         face = null
+        enterHint = null
+        progressLine = null
         clock = null
         date = null
         bars = null
@@ -349,6 +433,29 @@ class LockOverlay(private val context: Context) {
             column.addView(hintSub)
         }
 
+        // Shown only after the phone unlocks (armEnter). Tells the user the face is now theirs to
+        // read, and that going in takes a deliberate hold -- not the pocket-proof swipe, a hold.
+        val enter = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(Color.WHITE)
+            textSize = type.detail
+            letterSpacing = type.buttonTracking
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, type.gridPx(0.6f), 0, type.gridPx(0.4f))
+            text = "HOLD TO ENTER  ·  SWIPE UP FOR KEYPAD"
+        }
+        // The hold's progress, drawn as a line that fills over the second. Width 0 at rest; the
+        // hold animator grows it, a lift or a swipe snaps it back. Feedback the sensor never gave.
+        val progress = View(context).apply {
+            setBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, maxOf(2, type.gridPx(0.12f))).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+        }
+        column.addView(enter)
+        column.addView(progress)
+
         content.addView(column)
 
         // **A tap does nothing.** This window covers the whole panel, and a phone in a pocket
@@ -364,8 +471,19 @@ class LockOverlay(private val context: Context) {
                 MotionEvent.ACTION_DOWN -> {
                     downY = event.rawY
                     downX = event.rawX
+                    // Only after the phone is unlocked does a hold mean anything. Before that the
+                    // keyguard behind us is what a press has to reach.
+                    if (enterArmed) startHold()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (enterArmed) {
+                        val moved = abs(event.rawY - downY) + abs(event.rawX - downX)
+                        // This is turning into a swipe, not a hold -- let the swipe win.
+                        if (moved > swipeThreshold) cancelHold()
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
+                    cancelHold()
                     val up = downY - event.rawY
                     val sideways = abs(event.rawX - downX)
                     // Up, far enough to be meant, and more up than across.
@@ -377,11 +495,14 @@ class LockOverlay(private val context: Context) {
                         hide()
                     }
                 }
+                MotionEvent.ACTION_CANCEL -> cancelHold()
             }
             true
         }
 
         face = content
+        enterHint = enter
+        progressLine = progress
         clock = time
         date = day
         bars = signal
@@ -611,6 +732,9 @@ class LockOverlay(private val context: Context) {
         const val FADE_MS = 320L
 
         const val MAX_NOTES = 4
+
+        /** How long a press-and-hold on the unlocked face must last to go in. */
+        const val HOLD_ENTER_MS = 1000L
 
         /**
          * Below this, a reported RSSI is not a reading.

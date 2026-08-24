@@ -28,6 +28,7 @@ fun LockScreenScreen(
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var lockPrompt by remember { mutableStateOf(prefs.lockPrompt) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
+    var lockHold by remember { mutableStateOf(prefs.lockHoldToEnter) }
     val notesGranted = LockNotes.granted(context)
     val hasBackground = LockBackground.has(context)
     val phoneState = context.checkSelfPermission(
@@ -93,6 +94,20 @@ fun LockScreenScreen(
                 onClick = {
                     lockPrompt = !lockPrompt
                     prefs.lockPrompt = lockPrompt
+                },
+            )
+            MenuRow(
+                label = "Hold to enter",
+                detail = if (lockHold) "ON" else "OFF",
+                sub = if (lockHold) {
+                    "unlocking holds the face open so you can read it. Press and hold anywhere " +
+                        "for a second to go in; swipe up for the keypad."
+                } else {
+                    "unlocking opens your app straight away, the instant the sensor reads you."
+                },
+                onClick = {
+                    lockHold = !lockHold
+                    prefs.lockHoldToEnter = lockHold
                 },
             )
             val chosen = prefs.resumeApps().size

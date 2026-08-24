@@ -198,6 +198,9 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
+        // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
+        // (its resume list and snapshot), so the face only tells it the hold completed.
+        lockFace.onEnter = { runCatching { enterFromLock() } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
@@ -363,6 +366,28 @@ class ControlService : AccessibilityService() {
         val wasUp = lockFace.showing || lockFace.dismissed()
         handler.removeCallbacks(lockWatch)
         if (!wasUp) return
+        // Unlocked -- but do not rip the face away. The keyguard authenticated in the background
+        // and the phone is open, yet the notifications on the face are the reason it exists, and an
+        // unlock that launches an app in the same instant is an unlock nobody got to read. So hold
+        // the face up, armed, and go in only on a deliberate press-and-hold (see [LockOverlay]).
+        // The app cannot see the fingerprint sensor itself, so the hold is on the glass, not the
+        // button. Off -> the old behavior, launch the moment the phone opens.
+        if (prefs.lockHoldToEnter && lockFace.showing) {
+            runCatching { lockFace.armEnter() }
+            return
+        }
+        enterFromLock()
+    }
+
+    /**
+     * Leave the face and go where Resume would have gone.
+     *
+     * Was the tail of [onUserPresent]; split out so the deliberate hold-to-enter gesture and the
+     * old launch-on-unlock both land in the same place. Launch first and keep the face up until the
+     * app is in front -- taking the cover down first uncovers whatever the system put forward (on
+     * this phone, LightOS), which is the flash this ordering exists to hide. See [dropCover].
+     */
+    private fun enterFromLock() {
         val target = runCatching { resumeFromLock() }.getOrNull()
         // Nothing was launched, or the face was already gone: no transition left to cover.
         if (target == null || !lockFace.showing) {
