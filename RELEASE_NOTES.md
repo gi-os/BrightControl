@@ -1,24 +1,39 @@
-## BrightControl v3.13 — the two grants that could not answer for themselves
+## BrightControl v3.14 — two features that were pretending to be finished
 
-**GRANT ALL ran clean and still reported "2 could not be confirmed either way."** Brightness
-(`WRITE_SETTINGS`) and Overlay (`SYSTEM_ALERT_WINDOW`) came back UNKNOWN with `Stream closed`,
-while the four grants after them read OK. Both of those are real grants that had in fact been
-applied, and the app said it could not tell.
+**Wi-Fi login and Hotspot now say they are unfinished, on the screen itself and in the README.**
+Both of them sat in the SYSTEM section looking exactly like Colour and Lock screen look — a row,
+a subtitle, a guide paragraph written in the same confident voice as everything else. Neither is
+in that state, and the app was the last place you would have found that out.
 
-The pattern in that log is the answer. The four that read OK are checked through `PackageManager`
-and `Settings.Secure` — framework calls that touch no shell. The two that came back UNKNOWN were
-the only checks still putting a question to adb, and adb had stopped answering by the time they
-asked. The grants landed; the read-back is what was lost.
+The honest description of each is short.
 
-So they stop asking. `Settings.System.canWrite` and `Settings.canDrawOverlays` are the same
-question `appops get` asks, put to the system directly, and an answer that never crosses a socket
-cannot be dropped by one. Only for this app's own ops and only for `allow` — both APIs answer "can
-this app do it", which is not the same question as "is this op set to deny rather than ignore" —
-so another app's ops still go through `appops get`, where there is no framework call that asks on
-someone else's behalf.
+**Wi-Fi login needs a system WebView, and whether this phone has one is unconfirmed.** The whole
+feature is a WebView pinned to the captive network; on a build without one there is no page, no
+error worth reading, and nothing the screen can do from its side. It was written against the
+assumption that LightOS carries the standard component, which has never been checked on a device.
 
-**And a command that dies on its first attempt now gets a second one.** A stream that fails at the
-top of a batch is the shape of a connection reported up before the daemon had finished settling,
-and the repair is the one v3.12 already carries: get another connection and try again. Once, so a
-command that genuinely fails does not run twice. The check that follows is put to the reconnected
-manager rather than to the socket it just gave up on.
+**The hotspot has three separate ways to quietly do nothing.** The Bluetooth pairing has to have
+exchanged an identity key, or the iPad's rotating address never resolves and presence triggering
+cannot work at all. The adb shell has to have survived the reboot, or `SoftAp` has nothing
+privileged to call. And the iPad has to choose to join, which it only does for a network it
+already knows — so the documented step 2, joining by hand once, is load-bearing and is the step
+everybody skips. Any one of those leaves a feature that looks like it is running and is not.
+
+Neither is being removed. They work when their preconditions hold, and the preconditions are
+listed now rather than discovered. The rows read `IN DEVELOPMENT ·` before their subtitles, and
+each screen opens with a paragraph naming what specifically can leave it dead.
+
+**And the README was rewritten around what this app has become.** It still opened with "the
+brightness wheel, camera button, and home button" and a Quick start whose first instruction was to
+find a computer and whose sample command named `LightControl-v1.0.11.apk`. Since then the app has
+grown per-app colour, a lock face, a volume HUD, a captive-portal browser, a hotspot, and the ADB
+self-grant that means no computer is needed for any of it — and the `Layout` block still listed
+`ui/SettingsScreen.kt`, which was split into a hub and eight section screens two minor versions
+ago, and named none of `lock/`, `hotspot/`, `portal/`, `adb/` or `report/`.
+
+It is now organised the way the app is: Controls, The screen, System, then the safety rules. Quick
+start leads with the phone granting itself everything, because that is what actually happens, and
+keeps the adb commands for the one grant that cannot be self-applied and for people who prefer a
+cable.
+
+No behaviour changed in this release outside those two guide strings and two subtitles.

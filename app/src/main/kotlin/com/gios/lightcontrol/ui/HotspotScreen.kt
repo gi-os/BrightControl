@@ -118,7 +118,8 @@ fun HotspotScreen(onBack: () -> Unit) {
     SectionScaffold(
         title = "Hotspot",
         onBack = onBack,
-        guide = "Watches for a device you have paired in Bluetooth settings — an iPad, a laptop — " +
+        guide = "IN DEVELOPMENT. This is unfinished and may not work. It depends on Bluetooth pairing having exchanged an identity key, on the shell surviving a reboot, and on the iPad choosing to join — any of which can leave the hotspot never coming up, or coming up and being ignored.\n\n" +
+            "Watches for a device you have paired in Bluetooth settings — an iPad, a laptop — " +
             "and raises this phone's hotspot when it is near and you are not on a network you " +
             "trust. It joins a network it already knows, so there is nothing to tap on the iPad " +
             "and nothing installed on it.\n\nThe access point is raised over this app's own adb " +

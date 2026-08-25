@@ -168,14 +168,14 @@ fun HomeScreen(
             SectionLabel("SYSTEM")
             MenuRow(
                 label = "Wi-Fi login",
-                sub = "sign in to hotel and café Wi-Fi that wants a webpage first",
+                sub = "IN DEVELOPMENT · sign in to hotel and café Wi-Fi that wants a webpage first",
                 detail = "›",
                 onClick = onWifiLogin,
             )
             MenuRow(
                 label = "Hotspot",
                 detail = "›",
-                sub = "raise it when a paired iPad is near, over this app's own shell",
+                sub = "IN DEVELOPMENT · raise it when a paired iPad is near, over this app's own shell",
                 onClick = onHotspot,
             )
             MenuRow(

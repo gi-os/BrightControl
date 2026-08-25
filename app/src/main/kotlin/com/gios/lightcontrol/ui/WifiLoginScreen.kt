@@ -29,7 +29,8 @@ fun WifiLoginScreen(onBack: () -> Unit) {
     SectionScaffold(
         title = "Wi-Fi login",
         onBack = onBack,
-        guide = "Hotel and café Wi-Fi often wants a webpage signed before it lets you through — " +
+        guide = "IN DEVELOPMENT. This is unfinished and may not work. It needs a system WebView to draw the login page in, and whether LightOS ships one is still unconfirmed — on a phone without one the page will not render and there is nothing this screen can do about it.\n\n" +
+            "Hotel and café Wi-Fi often wants a webpage signed before it lets you through — " +
             "and this phone has no browser to sign it with, so the network connects and then " +
             "goes nowhere. This opens that page and watches the connection, closing itself once " +
             "the network lets you through.\n\nIt does not join networks. Picking a network and " +
