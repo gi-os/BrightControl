@@ -78,3 +78,51 @@ class TransientWindowTest {
         )
     }
 }
+
+/**
+ * The general rule under the named list: a package with no way in is not an app you switched to.
+ *
+ * Both of the bugs the list was patched for were this — an overlay app and then MediaProvider's
+ * delete confirmation, each read as a new front app, each firing Default, each putting a colour
+ * screen back to monochrome under the user.
+ */
+class FrontDoorTest {
+
+    @Test
+    fun `a system dialog with no launcher entry is not the app in front`() {
+        assertTrue(
+            Policy.isTransientWindow(
+                pkg = "com.android.providers.media.module",
+                isInputMethodPackage = false,
+                classIsActivity = true,
+                hasFrontDoor = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `an ordinary app with a launcher entry is the app in front`() {
+        assertFalse(
+            Policy.isTransientWindow(
+                pkg = "com.gios.roll",
+                isInputMethodPackage = false,
+                classIsActivity = true,
+                hasFrontDoor = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a launcher counts as having a front door`() {
+        // LightOS declares CATEGORY_HOME and no CATEGORY_LAUNCHER. Reading that as "no front door"
+        // would stop this service tracking the phone's own shell, which every key rule needs.
+        assertFalse(
+            Policy.isTransientWindow(
+                pkg = "com.lightos",
+                isInputMethodPackage = false,
+                classIsActivity = true,
+                hasFrontDoor = true,
+            ),
+        )
+    }
+}

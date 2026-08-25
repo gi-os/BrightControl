@@ -808,6 +808,15 @@ object Policy {
     private val transientPackages = setOf(
         "com.gios.lightcontrol",
         "com.android.systemui",
+        // MediaProvider's own dialogs. The album's *delete* confirmation is one of them, and it
+        // raises a window-state event with this package on it — so deleting a photograph inside a
+        // colour tool read as "a new app is in front", fired Default, and put the album back to
+        // mono until it was closed and reopened. It has no launcher entry either, so the general
+        // rule below catches it too; named as well, because a name costs nothing and the log line
+        // is easier to read for it.
+        "com.android.providers.media.module",
+        "com.android.permissioncontroller",
+        "com.google.android.permissioncontroller",
         // Edge Gestures floats invisible swipe zones over every app. Its window-state
         // events were being read as a real app arriving, and with no color rule that
         // fired Default — dropping the panel back to monochrome under the app the user
@@ -834,7 +843,23 @@ object Policy {
         pkg: String,
         isInputMethodPackage: Boolean,
         classIsActivity: Boolean,
-    ): Boolean = pkg in transientPackages || (isInputMethodPackage && !classIsActivity)
+        /**
+         * Whether the package can be opened from a launcher — a launcher entry, or a home one.
+         *
+         * The general form of the two bugs the named list above was patched for. A package with no
+         * front door is not an app you switched to: it is a dialog, a permission prompt, a system
+         * provider putting a confirmation over whatever you were already in. Treating one as the
+         * front app applies *its* rules — and its rule is Default, which restores a baseline that
+         * on this phone is monochrome.
+         *
+         * Home counts, and has to: LightOS declares `CATEGORY_HOME` and no `CATEGORY_LAUNCHER`, so
+         * a test that only asked about launcher entries would call the phone's own shell transient
+         * and stop tracking the one package every key rule here depends on.
+         */
+        hasFrontDoor: Boolean = true,
+    ): Boolean = pkg in transientPackages ||
+        (isInputMethodPackage && !classIsActivity) ||
+        !hasFrontDoor
 
     /**
      * Light's own software. Left strictly alone: the wheel and the flashlight already work

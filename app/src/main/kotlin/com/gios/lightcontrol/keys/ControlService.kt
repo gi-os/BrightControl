@@ -206,6 +206,9 @@ class ControlService : AccessibilityService() {
     /** Which packages are clocks, memoised for the same reason. */
     private val alarmPackages = HashMap<String, Boolean>()
 
+    /** Which packages can be opened at all, memoised. See [hasFrontDoor]. */
+    private val frontDoors = HashMap<String, Boolean>()
+
     /**
      * Which packages ship a keyboard. Held as a whole set rather than per package, because the
      * system answers the whole question in one call, and re-read every [IME_CACHE_MS] so a
@@ -333,7 +336,16 @@ class ControlService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         val activityWindow = classIsActivity(event, pkg)
-        if (Policy.isTransientWindow(pkg, isInputMethodPackage(pkg), activityWindow)) return
+        if (
+            Policy.isTransientWindow(
+                pkg = pkg,
+                isInputMethodPackage = isInputMethodPackage(pkg),
+                classIsActivity = activityWindow,
+                hasFrontDoor = hasFrontDoor(pkg),
+            )
+        ) {
+            return
+        }
         if (pkg != foreground) {
             previous = foreground
             foreground = pkg
@@ -1300,6 +1312,35 @@ class ControlService : AccessibilityService() {
         return isActivity
     }
 
+    /**
+     * Whether this package can be opened from a launcher, memoised.
+     *
+     * "Can be opened" rather than "is installed", because that is the question that separates an
+     * app from a dialog. MediaProvider, the permission controller and every other system component
+     * that puts a confirmation over what you are doing have no front door — and the album's delete
+     * prompt being read as a new app in front is what put a colour album back to monochrome
+     * mid-delete.
+     *
+     * Home counts as a front door, which is load-bearing rather than thorough: LightOS declares
+     * `CATEGORY_HOME` and no `CATEGORY_LAUNCHER`, and calling the phone's own shell transient would
+     * stop this service tracking the package every one of its key rules is written against.
+     *
+     * Asked once per package and remembered, like the camera and clock answers, because it runs on
+     * the window-state event.
+     */
+    private fun hasFrontDoor(pkg: String): Boolean {
+        frontDoors[pkg]?.let { return it }
+        val open = runCatching {
+            if (packageManager.getLaunchIntentForPackage(pkg) != null) return@runCatching true
+            val home = Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .setPackage(pkg)
+            packageManager.resolveActivity(home, 0) != null
+        }.getOrDefault(true) // Unreadable is not a reason to stop tracking an app.
+        frontDoors[pkg] = open
+        return open
+    }
+
     private fun ownsAlarmKeys(pkg: String?): Boolean {
         if (pkg == null) return false
         if (pkg == packageName) return false
@@ -1436,6 +1477,7 @@ class ControlService : AccessibilityService() {
         pendingTap = null
         presses.clear()
         cameraPackages.clear()
+        frontDoors.clear()
         alarmPackages.clear()
         activityClasses.clear()
         imePackages = null

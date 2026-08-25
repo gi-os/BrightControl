@@ -1,3 +1,26 @@
+## BrightControl v3.30 — a dialog is not an app you switched to
+
+**Deleting a photograph in the album no longer turns the album monochrome.** Reported from outside,
+and the log named it exactly: `com.android.providers.media.module DEFAULT want 1/0`. The album's
+delete confirmation is MediaProvider's own dialog, it raises a window-state event with its own
+package on it, it has no colour rule — and `Default` means restore the baseline, which on this phone
+is mono. So the confirmation you tapped repainted the tool you were standing in, and closing and
+reopening the album fixed it because that produced an event for a package that *does* have a rule.
+
+**The general rule: a package with no front door is not the front app.** No launcher entry and no
+home entry means it cannot be opened at all — it is a dialog, a permission prompt, a system
+component putting a confirmation over whatever you were already doing. Three bugs in three days have
+been that same shape: Edge Gestures, then the baseline write from a floating window, now this. Named
+lists caught them one at a time; this catches the next one.
+
+Home counts as a front door, and that is load-bearing rather than thorough. LightOS declares
+`CATEGORY_HOME` and no `CATEGORY_LAUNCHER`, so a test that asked only about launcher entries would
+call the phone's own shell transient and stop this service tracking the one package every key rule
+it has is written against.
+
+`com.android.providers.media.module` and the two permission controllers are named as well. A name
+costs nothing, skips a `PackageManager` round trip, and makes the key log readable.
+
 ## BrightControl v3.29 — LightOS drives its own colour
 
 **This app no longer has an opinion about the Light layer.** `com.lightos` joins Roll and BrightChat
