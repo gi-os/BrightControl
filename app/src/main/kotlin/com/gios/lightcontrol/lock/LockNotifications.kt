@@ -3,9 +3,13 @@ package com.gios.lightcontrol.lock
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Person
 import android.content.ComponentName
 import android.content.Context
+import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
+import android.telecom.TelecomManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +41,16 @@ data class LockCallNote(
     val incoming: Boolean,
     val answer: PendingIntent?,
     val decline: PendingIntent?,
+    /**
+     * The dialer's own call screen, as the dialer itself would raise it.
+     *
+     * A ringing call notification carries a full-screen intent -- that is how a dialer takes over a
+     * sleeping phone -- and the ongoing one carries a content intent to the same screen. Holding
+     * both is what lets the face hand the call back to LightOS the instant it is answered instead
+     * of hoping the activity underneath is still where it was left. See `LockCall.openCallScreen`.
+     */
+    val fullScreen: PendingIntent?,
+    val content: PendingIntent?,
     val postedAt: Long,
 )
 
@@ -158,8 +172,12 @@ class LockNotifications : NotificationListenerService() {
         val scratch = Ranking()
         val pm = packageManager
 
+        val dialer = defaultDialer()
+        val calls = active.filter { isCall(it, dialer) }
+        val callKeys = calls.map { it.key }.toSet()
+
         val notes = active
-            .filter { keep(it, ranking, scratch) }
+            .filter { keep(it, ranking, scratch) && it.key !in callKeys }
             .sortedByDescending { it.postTime }
             .map { sbn ->
                 val extras = sbn.notification.extras
@@ -176,23 +194,65 @@ class LockNotifications : NotificationListenerService() {
                 )
             }
         LockNotes.publish(notes)
-        LockCalls.publish(readCall(active))
+        LockCalls.publish(readCall(calls.maxByOrNull { it.postTime }))
     }
+
+    /**
+     * Whether this notification is the phone ringing.
+     *
+     * `CATEGORY_CALL` was the whole test and it was not enough. It is what the platform's own
+     * `CallStyle` sets and what a well-behaved dialer sets, and a dialer that sets neither still
+     * rings the phone -- at which point the card had no name, no buttons and no idea a call was
+     * happening, and fell back to the audio mode and the words "Incoming call". Four tests now,
+     * any one of which is enough:
+     *
+     * 1. The category, which remains the common case.
+     * 2. The `CallStyle` template, set by the style even where the category has been overwritten.
+     * 3. `android.callType`, the extra that only a call notification carries.
+     * 4. A notification from the **default dialer** with a button that answers or declines.
+     *    Nothing else on the phone offers to answer anything.
+     */
+    private fun isCall(sbn: StatusBarNotification, dialer: String?): Boolean {
+        val n = sbn.notification ?: return false
+        if (n.category == Notification.CATEGORY_CALL) return true
+        val extras = n.extras ?: return false
+        val template = runCatching { extras.getString(Notification.EXTRA_TEMPLATE) }.getOrNull()
+        if (template?.endsWith("CallStyle") == true) return true
+        if (runCatching { extras.containsKey("android.callType") }.getOrDefault(false)) return true
+        if (dialer != null && sbn.packageName == dialer) {
+            val actions = n.actions?.filterNotNull().orEmpty()
+            return actions.any { CallWords.isAnswer(it.title) || CallWords.isDecline(it.title) }
+        }
+        return false
+    }
+
+    /** Who the phone would ring through, asked once per rebuild rather than per notification. */
+    private fun defaultDialer(): String? = runCatching {
+        getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+    }.getOrNull()
 
     /**
      * The call notification, flattened to what a lock face can draw and press.
      *
      * Newest wins, because a second call arriving during a first is the one you are being asked
-     * about. `CATEGORY_CALL` is the whole test: it is what a dialer sets, it is what the platform's
-     * own `CallStyle` sets, and it is set on the ongoing call as well as the ringing one -- which
-     * is why these are pulled out *before* the ongoing flag drops them from the list.
+     * about.
+     *
+     * ### Who is calling
+     *
+     * `EXTRA_TITLE` was the only thing read here, and on this phone it is empty. A `CallStyle`
+     * notification does not put the caller in the title: it carries a [Person] under
+     * `android.callPerson` and the platform builds the title from it at *draw* time, inside
+     * SystemUI, which is a step a notification listener never sees. So the card asked the one
+     * question the dialer had not answered, got nothing, and drew "Incoming call" over a phone
+     * that knew perfectly well who it was.
+     *
+     * Six places are read now, best first, and the number is the last of them because a name is
+     * what somebody wants at arm's length -- but a number beats a phrase every phone shows.
      */
-    private fun readCall(active: Array<StatusBarNotification>): LockCallNote? {
-        val sbn = active
-            .filter { it.notification?.category == Notification.CATEGORY_CALL }
-            .maxByOrNull { it.postTime } ?: return null
-        val n = sbn.notification
-        val extras = n.extras
+    private fun readCall(sbn: StatusBarNotification?): LockCallNote? {
+        sbn ?: return null
+        val n = sbn.notification ?: return null
+        val extras = n.extras ?: return null
         val actions = n.actions?.filterNotNull().orEmpty()
         val answer = actions.firstOrNull { CallWords.isAnswer(it.title) }?.actionIntent
         val decline = actions.firstOrNull { CallWords.isDecline(it.title) }?.actionIntent
@@ -205,16 +265,54 @@ class LockNotifications : NotificationListenerService() {
             type >= 2 -> false
             else -> answer != null
         }
+        val person = person(extras, "android.callPerson") ?: people(extras).firstOrNull()
+        val who = CallWho.pick(
+            listOf(
+                person?.name?.toString(),
+                extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+                extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString(),
+                extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(),
+                n.tickerText?.toString(),
+                CallWho.fromUri(person?.uri),
+            ),
+        )
         return LockCallNote(
             pkg = sbn.packageName,
-            who = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty(),
-            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty(),
+            who = who,
+            // Not repeated under the name. A CallStyle's text is very often the same phrase the
+            // card's own label already says, and "Sarah / Incoming call / INCOMING CALL" is the
+            // same word twice on a screen with room for three lines.
+            text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
+                .orEmpty()
+                .takeIf { it.isNotBlank() && !CallWho.isPlaceholder(it) && it != who }
+                .orEmpty(),
             incoming = incoming,
             answer = answer,
             decline = decline,
+            fullScreen = n.fullScreenIntent,
+            content = n.contentIntent,
             postedAt = sbn.postTime,
         )
     }
+
+    /** One [Person] out of the extras, across the two ways the platform hands them over. */
+    private fun person(extras: Bundle, key: String): Person? = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            extras.getParcelable(key, Person::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            extras.getParcelable(key) as? Person
+        }
+    }.getOrNull()
+
+    private fun people(extras: Bundle): List<Person> = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, Person::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            extras.getParcelableArrayList<Person>(Notification.EXTRA_PEOPLE_LIST)
+        }
+    }.getOrNull().orEmpty()
 
     private fun keep(sbn: StatusBarNotification, ranking: RankingMap?, scratch: Ranking): Boolean {
         val n = sbn.notification ?: return false
@@ -240,6 +338,80 @@ class LockNotifications : NotificationListenerService() {
 }
 
 /**
+ * Who is calling, out of everything a call notification might have written it in.
+ *
+ * The card read `EXTRA_TITLE` and nothing else, and on this phone that is empty: a `CallStyle`
+ * notification carries a `Person` and lets SystemUI build the title from it at draw time, which is
+ * a step a notification listener never sees. So the ordering of candidates lives at the call site
+ * and the *choosing* lives here, where it can be tested without a phone.
+ */
+object CallWho {
+
+    /**
+     * Phrases that are not a caller.
+     *
+     * Every one of these is something a dialer writes when it has nothing better, and each one is
+     * worth *less* than the next candidate down the list -- a phone number under "Unknown" is the
+     * one the card should draw. They are only skipped while something else is left to try: a call
+     * that really is anonymous still says so, because "Private number" is a fact and an empty line
+     * is a bug.
+     */
+    private val PLACEHOLDERS = listOf(
+        "unknown",
+        "unknown caller",
+        "unknown number",
+        "private",
+        "private number",
+        "no caller id",
+        "restricted",
+        "incoming call",
+        "ongoing call",
+        "call in progress",
+        "calling",
+        "null",
+        "-",
+    )
+
+    fun isPlaceholder(text: String?): Boolean {
+        val t = text?.trim()?.lowercase() ?: return true
+        return t.isEmpty() || t in PLACEHOLDERS
+    }
+
+    /**
+     * The best of what the notification offered, or "" for a notification that offered nothing.
+     *
+     * Two passes on purpose. The first takes the first real name or number; only if every
+     * candidate is a placeholder does the second pass take the first of those, so an anonymous
+     * call reads as the dialer described it rather than as a blank line. The caller supplies the
+     * order; this decides nothing about which source is better.
+     */
+    fun pick(candidates: List<String?>): String {
+        val cleaned = candidates.mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+        return cleaned.firstOrNull { !isPlaceholder(it) } ?: cleaned.firstOrNull().orEmpty()
+    }
+
+    /**
+     * A number out of a `Person` URI.
+     *
+     * `tel:+15551234567` is what a dialer attaches when the contacts lookup came up empty, which
+     * is exactly the call the card most needs to say something about. `sip:` gets the same
+     * treatment; a `content://contacts` URI is a row id and is dropped -- an id on a lock screen
+     * is worse than nothing.
+     */
+    fun fromUri(uri: String?): String? {
+        val raw = uri?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        val body = when {
+            raw.startsWith("tel:", ignoreCase = true) -> raw.substring(4)
+            raw.startsWith("sip:", ignoreCase = true) -> raw.substring(4).substringBefore('@')
+            else -> return null
+        }
+        val decoded = runCatching { java.net.URLDecoder.decode(body, "UTF-8") }.getOrDefault(body)
+        return decoded.trim().takeIf { it.isNotEmpty() }
+    }
+}
+
+/**
  * Which of a call notification's buttons answers, and which hangs up.
  *
  * By the words on them, because there is no semantic action for "answer" and the order of a
@@ -248,7 +420,10 @@ class LockNotifications : NotificationListenerService() {
  * hangs up a call somebody meant to take. `TelecomManager` is the fallback underneath it and needs
  * no words at all; see [LockCall].
  *
- * Its own object so it can be tested without a phone. This is the only guess in the call path.
+ * It also decides, in [LockNotifications.isCall], whether a notification from the default dialer
+ * is a call at all when nothing else on it says so.
+ *
+ * Its own object so it can be tested without a phone.
  */
 object CallWords {
 

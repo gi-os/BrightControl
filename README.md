@@ -362,6 +362,23 @@ Answering presses the dialer's own notification buttons, which needs no grant be
 notification listener the face already uses. A dialer whose buttons cannot be identified by their
 labels falls back to `TelecomManager`, which needs `ANSWER_PHONE_CALLS`. The card draws either way.
 
+**Who is calling comes from the `Person` on the notification, not the title.** A `CallStyle`
+notification leaves the title empty and lets SystemUI build it at draw time, which is a step a
+listener never sees, so the card read the one field the dialer had not filled in. It now takes the
+first real answer out of the call `Person`, the people list, the title, the big title, the
+conversation title, the ticker and the number on the `Person` URI, in that order. Placeholders lose
+to anything real behind them; a genuinely anonymous call still reads as the dialer described it.
+Whether a notification is a call at all is four tests, not one: the category, the `CallStyle`
+template, the `android.callType` extra, or the default dialer carrying a button that answers.
+
+**ANSWER takes the face down on the press, and raises the dialer's own screen as it goes.** Waiting
+for the audio mode to move and come back round through the poll is a second of clock and a dead
+button after a thumb has landed. And uncovering the screen is not the same as raising it — the
+dialer's full-screen intent fired while a window at layer 31 was over the top, so the activity
+underneath may have been stopped or replaced by the keyguard, and the call would connect with
+nothing on screen to mute or hang it up. The full-screen intent, then the content intent, then
+`TelecomManager.showInCallScreen`, once per call.
+
 Once the call is answered, **the face stands down for the length of the call**. LightOS shows mute,
 speaker, the keypad and hang up on its own in-call screen, and all of it sits under layer 31. The
 face comes back by itself when the call ends. Switch the card off and the face stands down for the
@@ -667,6 +684,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.38 | **The call card says who is calling, and the call screen comes up when you answer.** The card read `EXTRA_TITLE`, which a CallStyle notification leaves empty — the caller is a `Person` the platform renders at draw time — so every call was "Incoming call". It now reads the person, the people list, four text fields and the number, in that order, and treats a notification as a call on four tests rather than one. ANSWER takes the face down on the press instead of a poll tick later, and asks the dialer for its own screen on the way out rather than merely uncovering whatever was behind |
 | v3.37 | **The lock face knows what it is playing.** One control set for three kinds of thing was wrong twice: previous and next on an hour-long podcast mean lose the hour, and on a live stream they are two dead buttons. Podcasts get back 15 and forward 15, as a real `seekTo` from an extrapolated position rather than the platform's whatever-the-player-decided `fastForward`. Streams get a stop. The kind comes off what the session declares — a queue, a position, a step, a length — so it works for any player and needs no list of package names |
 | v3.17 | **What is playing, on the lock face.** Cover, track and skip controls under the notifications. A player cannot draw this itself. An app window sits at layer 11 and the face sits at 31, so BrightMusic's own controls were painted underneath it. The row reads the platform media session, so it works for any player and needs no new grant |
 | v3.14 | **Wi-Fi login and Hotspot are labelled unfinished, in the app and here.** Both shipped looking like finished features and neither one is. The portal needs a system WebView this phone may not have. The hotspot depends on a BLE identity key, a shell that survives a reboot, and an iPad that chooses to join. A feature that might not work is fine. One that does not say so is not. Also a README rewritten around what the app now is, six subsystems rather than the wheel and two buttons, with a Quick start that no longer opens by telling you to find a computer |

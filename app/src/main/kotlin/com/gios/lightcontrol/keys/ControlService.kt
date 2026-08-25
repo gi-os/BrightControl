@@ -190,6 +190,14 @@ class ControlService : AccessibilityService() {
     private var lockStoodDownForCall = false
 
     /**
+     * Whether the dialer's own call screen has already been asked for on this call.
+     *
+     * See [openCallScreen]. Cleared when the call ends, which is the only thing that makes the
+     * next raise a different call rather than the same one twice.
+     */
+    private var callScreenOpened = false
+
+    /**
      * Which apps you have been in, built from the window-state events this service already gets.
      * The only source of a recents order an unprivileged app has on this phone. See [Recents].
      */
@@ -1573,6 +1581,7 @@ class ControlService : AccessibilityService() {
         runCatching { lockFace.hide() }
         runCatching { lockCall.stop() }
         lockStoodDownForCall = false
+        callScreenOpened = false
         // Both windows this service owns come down with it. One left behind is a black screen
         // with nothing bound to the keys that would have closed it.
         runCatching { switcher.hide() }
@@ -1967,11 +1976,13 @@ class ControlService : AccessibilityService() {
             // ringing phone. It gets out of the way for the whole call instead, and comes back the
             // same way it does after an answered one.
             if (state != null && lockFace.showing) {
-                lockStoodDownForCall = true
-                runCatching { lockFace.hide() }
-                log("call · face stood down (card off)")
+                standDownForCall("card off")
+                // With no card there is nothing on this screen that can answer the call, so the
+                // dialer's screen is not a hand-off, it is the only way to take it.
+                openCallScreen("card off")
             } else if (state == null && lockStoodDownForCall) {
                 lockStoodDownForCall = false
+                callScreenOpened = false
                 if (locked() && interactive() && !lockFace.dismissed()) showLockFace()
             }
             return
@@ -1987,14 +1998,16 @@ class ControlService : AccessibilityService() {
             }
             LockCallState.Stage.Active -> {
                 runCatching { lockFace.setCall(state) }
-                if (lockFace.showing) {
-                    lockStoodDownForCall = true
-                    val gone = runCatching { lockFace.hide() }.getOrDefault(false)
-                    log("call answered · face " + if (gone) "stood down" else "WOULD NOT GO")
-                }
+                // Answered somewhere else -- a headset button, the dialer's own screen, a car. The
+                // face was still the top window, so getting out of the way is not enough on its
+                // own: whatever is under it is not the call.
+                val wasUp = lockFace.showing
+                standDownForCall("answered")
+                if (wasUp) openCallScreen("answered")
             }
             else -> {
                 runCatching { lockFace.setCall(null) }
+                callScreenOpened = false
                 if (!lockStoodDownForCall) return
                 lockStoodDownForCall = false
                 if (locked() && interactive() && !lockFace.dismissed()) {
@@ -2006,14 +2019,51 @@ class ControlService : AccessibilityService() {
         }
     }
 
+    /**
+     * ANSWER, pressed on the card.
+     *
+     * The face comes down **on the press**, not when something else notices the call was answered.
+     * It used to wait for the audio mode to move and the change to come back round through
+     * [LockCall], which is a second on a good day and a poll tick on a bad one — a second of a
+     * clock and a dead ANSWER button after a thumb has already landed, which reads exactly like a
+     * button that did not work. The mode still arrives and still agrees; this is only earlier.
+     *
+     * Optimistic in the right direction, too: nothing here is undone if the answer does not take,
+     * because [LockCall] publishes no call in that case and the face comes straight back up.
+     */
     private fun answerCall() {
         val ok = lockCall.answer()
         log("call answer" + if (ok) "" else " · NO ROUTE")
+        if (!ok) return
+        standDownForCall("answered")
+        openCallScreen("answered")
     }
 
     private fun declineCall() {
         val ok = lockCall.decline()
         log("call decline" + if (ok) "" else " · NO ROUTE")
+    }
+
+    /** Take the face off a live call, once, and remember to bring it back. */
+    private fun standDownForCall(why: String) {
+        if (!lockFace.showing) return
+        lockStoodDownForCall = true
+        val gone = runCatching { lockFace.hide() }.getOrDefault(false)
+        log("call $why · face " + if (gone) "stood down" else "WOULD NOT GO")
+    }
+
+    /**
+     * Hand the call back to LightOS, once per call.
+     *
+     * Once, because the routes underneath it start an activity and a call that re-raised the
+     * dialer every second would be a phone you could not leave. The latch clears when the call
+     * does, in [onCallChanged].
+     */
+    private fun openCallScreen(why: String) {
+        if (callScreenOpened) return
+        callScreenOpened = true
+        val ok = runCatching { lockCall.openCallScreen() }.getOrDefault(false)
+        log("call $why · in-call screen " + if (ok) "raised" else "NO ROUTE")
     }
 
     /** Whether the keyguard is up. Not [KeyguardManager.isDeviceLocked] — that answers credentials. */

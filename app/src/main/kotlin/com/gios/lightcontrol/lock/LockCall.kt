@@ -149,6 +149,34 @@ class LockCall(private val context: Context) {
         }.getOrDefault(false)
     }
 
+    /**
+     * Put the dialer's own call screen in front, now.
+     *
+     * The missing half of standing down. Hiding the face uncovers whatever is behind it, and what
+     * is behind it is not reliably the call: the dialer fired its full-screen intent while a window
+     * at layer 31 was over the top, and by the time the call is answered that activity may have
+     * been stopped, or never resumed, or replaced by the keyguard. Uncovering nothing and calling it
+     * a hand-off is how a call ends up connected with no screen for it -- no mute, no keypad, no
+     * hang up, on a phone that looks idle.
+     *
+     * Three routes, in the order of how much they know. The **full-screen intent** is the one the
+     * dialer built for exactly this -- a call taking over a phone that was not being looked at --
+     * and it is the only one that comes up over a keyguard by right. The **content intent** is the
+     * same screen reached the ordinary way, which is what an ongoing call carries once the ring is
+     * over. `TelecomManager.showInCallScreen` is the platform asking the dialer directly, and it
+     * needs no notification at all, which is what makes it the floor: a call answered on a headset
+     * with no listener grant still gets a screen.
+     */
+    fun openCallScreen(): Boolean {
+        val note = LockCalls.current
+        if (send(note?.fullScreen)) return true
+        if (send(note?.content)) return true
+        return runCatching {
+            context.getSystemService(TelecomManager::class.java)?.showInCallScreen(false)
+            true
+        }.getOrDefault(false)
+    }
+
     private fun send(intent: android.app.PendingIntent?): Boolean =
         intent != null && runCatching { intent.send(); true }.getOrDefault(false)
 

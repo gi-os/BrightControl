@@ -1,3 +1,44 @@
+## BrightControl v3.38 — the call card says who, and hands the call back at once
+
+**The card did not know who was calling.** It read `EXTRA_TITLE` off the call notification, and on
+this phone that is empty. A `CallStyle` notification does not put the caller in the title — it
+carries a `Person` under `android.callPerson` and lets SystemUI build the title from it at draw
+time, inside a process a notification listener never sees. So the card asked the one question the
+dialer had not answered, got nothing back, and printed "Incoming call" over a phone that knew
+perfectly well who it was.
+
+Six places are read now, best first: the call `Person`, the people list, the title, the big title,
+the conversation title, the ticker, and last the number off the `Person` URI. A name is what you
+want at arm's length, and a number beats a phrase every phone shows. Placeholders — "Unknown",
+"Private number", "Incoming call" — lose to anything real behind them, but an anonymous call still
+says what the dialer said, because "Private number" is a fact and a blank line is a bug.
+
+**A dialer that sets no category is still a ringing phone.** `CATEGORY_CALL` was the whole test for
+whether a notification was a call, which meant a dialer that sets neither the category nor a
+`CallStyle` rang with no name, no buttons and nothing on the face that knew a call was happening.
+Four tests now, any one of which is enough: the category, the `CallStyle` template, the
+`android.callType` extra, or a notification from **the default dialer** carrying a button that
+answers or declines. Nothing else on the phone offers to answer anything.
+
+**ANSWER now works on the press.** The face used to come down when something else noticed the call
+had been answered — the audio mode moving, then the change coming back round through the poll. That
+is a second on a good day: a second of clock, and a dead ANSWER button, after a thumb has already
+landed. It reads exactly like a button that did not work. The face comes down on the press now. The
+mode still arrives and still agrees; this is only earlier.
+
+**And the call screen comes up rather than being uncovered.** Standing the face down uncovers
+whatever is behind it, and what is behind it is not reliably the call: the dialer fired its
+full-screen intent while a window at layer 31 was over the top, and by the time the call is answered
+that activity may have been stopped, never resumed, or replaced by the keyguard. A call connected
+with no screen for it — no mute, no keypad, no hang up, on a phone that looks idle — was the result.
+The face now asks for the dialer's own screen as it goes: the notification's full-screen intent
+first, its content intent next, and `TelecomManager.showInCallScreen` under both, which needs no
+notification at all and so covers a call answered on a headset with no listener grant. Once per
+call, latched, because a phone that re-raises the dialer every second is one you cannot leave.
+
+**With the card switched off, the same hand-off runs on the ring.** There is nothing on that face
+that can answer a call, so the dialer's screen is not a courtesy, it is the only way to take it.
+
 ## BrightControl v3.37 — the lock face knows what it is playing
 
 **A podcast gets fifteen seconds, not a skip.** The now-playing row shipped with one control set:
