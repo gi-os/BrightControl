@@ -9,6 +9,12 @@ look at. It is now at rest on the first frame it exists.
 That is the last of the entrance effects: the dithered background went in v3.18 and the list's own
 fade goes here.
 
+**And the page no longer scrolls under your finger.** It could be dragged a little, and on a screen
+whose only job is "the selection is here" a draggable page means the selection can be pulled out
+from under itself — the row you were about to click is somewhere else by the time you click it.
+Touch scrolling is refused outright rather than damped; the wheel still brings the selection into
+view, because that path is programmatic and never went through touch.
+
 ## BrightControl v3.21 — three things about the new controls that did not work
 
 **The wheel click now opens the highlighted row.** It was doing nothing, and the reason was two

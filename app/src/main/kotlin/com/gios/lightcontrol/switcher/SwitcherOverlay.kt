@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -180,8 +181,18 @@ class SwitcherOverlay(private val context: Context) {
             isClickable = true
             setOnClickListener { hide() }
         }
-        val scroll = ScrollView(context).apply {
+        // Scrollable by the wheel and by nothing else. A finger could drag this list a little,
+        // which on a screen whose only job is "the selection is here" means the selection can be
+        // dragged out from under itself — and the row you were about to click is somewhere else
+        // by the time you click it. Touch is refused outright rather than damped: there is no
+        // amount of finger scrolling this screen wants. `smoothScrollTo` is unaffected, which is
+        // how the selection still brings itself into view.
+        val scroll = object : ScrollView(context) {
+            override fun onTouchEvent(ev: MotionEvent): Boolean = false
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
+        }.apply {
             isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
