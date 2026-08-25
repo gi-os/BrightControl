@@ -1,3 +1,26 @@
+## BrightControl v3.19 — the lock face reads the Wi-Fi, not the tower
+
+**On Wi-Fi, the bars are the Wi-Fi's.** They were meant to be already, and in the common case they
+were — but the question was asked of `activeNetwork`, which is the *default route* rather than
+"what is this phone on". Those are the same thing right up until they are not: a captive portal
+nobody has signed into yet, a router with no upstream, the seconds inside a handover. In every one
+of those the phone is on Wi-Fi, plainly, and the default route is cellular — so the glyph switched
+to reporting the tower.
+
+**Which usually meant no bars at all.** Cellular strength needs `READ_PHONE_STATE`, a runtime
+permission LightOS has no screen to grant, and the face deliberately draws "not known" as four
+empty outlines rather than as zero. So the symptom was an empty signal glyph on a phone with full
+Wi-Fi, and nothing on screen to suggest which of the two things had gone wrong.
+
+**Wi-Fi is now asked of Wi-Fi**, across every network the phone holds rather than only the default
+one, with three sources in falling order of trust: the network's own `signalStrength`, then
+`WifiManager`'s RSSI for builds that leave that unspecified, then full bars when the phone is
+associated but nothing will say how strongly — a working Wi-Fi connection has, for every purpose
+this glyph serves, signal. Cellular is unchanged and still what you get with no Wi-Fi.
+
+Nothing new is granted for this. `ACCESS_NETWORK_STATE` and `ACCESS_WIFI_STATE` are both normal
+permissions the app already held.
+
 ## BrightControl v3.18 — the dither is gone, the list is bigger
 
 **The switcher's animated dither is removed.** v3.16 filled its background with an 8x8 Bayer

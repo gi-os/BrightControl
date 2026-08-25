@@ -835,23 +835,18 @@ class LockOverlay(private val context: Context) {
      */
     private fun signalLevel(): Int = runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)
+
+        // Wi-Fi first, and asked of Wi-Fi itself rather than of whichever network happens to be
+        // carrying traffic. `activeNetwork` is the *default route*, and it is cellular in every
+        // situation where a Wi-Fi network is joined but not carrying the internet: a captive
+        // portal that has not been signed into, a router with no upstream, the seconds during a
+        // handover. In all of those the phone is on Wi-Fi, the user can see it is on Wi-Fi, and
+        // the bars were quietly reporting the cell tower — which is the wrong number *and*
+        // needs a permission this phone may not have granted, so the usual symptom was four
+        // empty outlines on a phone with full Wi-Fi.
+        wifiBars(cm)?.let { return it }
+
         val caps = cm?.getNetworkCapabilities(cm.activeNetwork) ?: return 0
-
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-            val rssi = caps.signalStrength
-            if (rssi > MIN_SANE_RSSI && rssi < 0) {
-                val wifi = context.getSystemService(WifiManager::class.java)
-                return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wifi != null) {
-                    val max = wifi.maxSignalLevel.coerceAtLeast(1)
-                    (wifi.calculateSignalLevel(rssi) * SignalBars.BARS / max)
-                        .coerceIn(1, SignalBars.BARS)
-                } else {
-                    SignalBars.BARS
-                }
-            }
-            return SignalBars.BARS
-        }
-
         if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return 0
 
         val granted = context.checkSelfPermission(
@@ -864,6 +859,52 @@ class LockOverlay(private val context: Context) {
         // status bar draws, so the bars agree with the ones above the notification shade.
         tm.signalStrength?.level ?: -1
     }.getOrDefault(-1)
+
+    /**
+     * Bars for the Wi-Fi network, or null when there is no Wi-Fi to speak of.
+     *
+     * Three sources, in falling order of how much they can be trusted, because each one is
+     * unavailable on some build or in some state and none of them announces that it is:
+     *
+     *  1. **`NetworkCapabilities.signalStrength`** of the Wi-Fi network, found across every
+     *     network the phone holds rather than only the default one.
+     *  2. **`WifiManager`'s own RSSI**, for builds that leave the capability unspecified.
+     *  3. **Connected, strength unknown** — which is drawn as full bars. A phone with a working
+     *     Wi-Fi connection has, for every purpose this glyph serves, signal; the alternative
+     *     is empty outlines that read as "no signal" while pages are loading.
+     *
+     * Nothing here needs a permission the app does not already hold: `ACCESS_NETWORK_STATE` and
+     * `ACCESS_WIFI_STATE` are both normal permissions, granted at install.
+     */
+    @Suppress("DEPRECATION")
+    private fun wifiBars(cm: ConnectivityManager?): Int? = runCatching {
+        val caps = cm?.allNetworks
+            ?.asSequence()
+            ?.mapNotNull { cm.getNetworkCapabilities(it) }
+            ?.firstOrNull { it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) }
+        val wifi = context.getSystemService(WifiManager::class.java)
+
+        val capsRssi = caps?.signalStrength?.takeIf { it > MIN_SANE_RSSI && it < 0 }
+        // `connectionInfo` is deprecated and still the only way to ask this on a build that
+        // leaves the capability unspecified. Its SSID is redacted without location; the RSSI,
+        // which is all this wants, is not.
+        val wifiRssi = wifi?.connectionInfo?.rssi?.takeIf { it > MIN_SANE_RSSI && it < 0 }
+        val rssi = capsRssi ?: wifiRssi
+
+        // Is there a Wi-Fi network at all? A capability for one, or an RSSI, or the radio saying
+        // it is associated. Any of the three is enough to stop reporting the cell tower.
+        val associated =
+            caps != null || rssi != null || (wifi?.connectionInfo?.networkId ?: -1) != -1
+        if (!associated) return@runCatching null
+
+        if (rssi == null) return@runCatching SignalBars.BARS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wifi != null) {
+            val max = wifi.maxSignalLevel.coerceAtLeast(1)
+            (wifi.calculateSignalLevel(rssi) * SignalBars.BARS / max).coerceIn(1, SignalBars.BARS)
+        } else {
+            SignalBars.BARS
+        }
+    }.getOrNull()
 
     /** 0..100, or -1 when the platform will not say -- which the icon draws as an empty shell. */
     private fun batteryLevel(): Int = runCatching {
