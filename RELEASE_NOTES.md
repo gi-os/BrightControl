@@ -1,3 +1,18 @@
+## BrightControl v3.18 — the dither is gone, the list is bigger
+
+**The switcher's animated dither is removed.** v3.16 filled its background with an 8x8 Bayer
+field of grey on black that swept down the screen while the grain grew. The reasoning held up and
+the result did not: on the device it read as noise behind the text rather than as texture under
+it. The background is plain black again, which is what every other full-screen surface this app
+draws already is.
+
+**Every size on the switcher is 15% larger.** It is read at arm's length in the second between
+deciding to leave an app and leaving it, which is not the distance the SDK's body scale is set
+for, and eight rows have the room to spend. The one deliberate departure from `LightType` in this
+app.
+
+The list still rises in as it opens. Nothing about the gesture changed.
+
 ## BrightControl v3.17 — what is playing, on the lock face
 
 **The lock face carries a now-playing row.** Cover, track, artist, and previous / play-pause /

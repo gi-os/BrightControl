@@ -53,7 +53,6 @@ class SwitcherOverlay(private val context: Context) {
     private val type = LightType(context)
 
     private var root: FrameLayout? = null
-    private var backdrop: DitherBackdrop? = null
     private var content: View? = null
     private var column: LinearLayout? = null
     private var rows: List<TextView> = emptyList()
@@ -135,9 +134,7 @@ class SwitcherOverlay(private val context: Context) {
         val gone = runCatching { wm.removeView(view); true }
             .getOrElse { runCatching { wm.removeViewImmediate(view); true }.getOrDefault(false) }
         if (!gone) return false
-        runCatching { backdrop?.stop() }
         root = null
-        backdrop = null
         content = null
         column = null
         rows = emptyList()
@@ -147,15 +144,15 @@ class SwitcherOverlay(private val context: Context) {
     }
 
     /**
-     * The entrance: the ground dithers in, and the list arrives a beat behind it.
+     * The entrance: black, and the list rising into it.
      *
-     * The order is the point. Text drawn at the same moment as the pattern is text competing with
-     * it, and the pattern is the thing that says the screen has changed. So the background fills
-     * first, and the list rises into a ground that is already there — a little under a grid unit
-     * of travel, which is enough to read as movement and not enough to be a slide.
+     * v3.16 filled the background with an animated Bayer dither instead — grey cells on black,
+     * sweeping down the screen while the grain grew. It read as noise on the device rather than
+     * as texture, so it is gone and the ground is plain black again. What is left is the list's
+     * own arrival: a little under a grid unit of travel, enough to read as movement and not
+     * enough to be a slide.
      */
     private fun enter() {
-        backdrop?.ditherIn()
         val view = content ?: return
         view.animate().cancel()
         view.alpha = 0f
@@ -177,21 +174,13 @@ class SwitcherOverlay(private val context: Context) {
 
     private fun build(): FrameLayout? = runCatching {
         val frame = FrameLayout(context).apply {
-            // Black underneath the dither, so the window is opaque from its first frame — the
-            // pattern is *drawn* onto black rather than fading up out of whatever is behind it.
+            // Opaque from the first frame. Whatever is behind this window is an app the list is
+            // there to replace, and a translucent switcher is two screens at once.
             background = ColorDrawable(Color.BLACK)
             // Anywhere that isn't a row means "no thanks".
             isClickable = true
             setOnClickListener { hide() }
         }
-        val ground = DitherBackdrop(context).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            )
-        }
-        frame.addView(ground)
-        backdrop = ground
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             layoutParams = FrameLayout.LayoutParams(
@@ -225,7 +214,7 @@ class SwitcherOverlay(private val context: Context) {
             TextView(context).apply {
                 text = "RECENT"
                 setTextColor(DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.medium
                 letterSpacing = type.buttonTracking
                 setPadding(0, 0, 0, type.gridPx(1f))
@@ -234,7 +223,7 @@ class SwitcherOverlay(private val context: Context) {
         rows = entries.map { entry ->
             TextView(context).apply {
                 text = entry.label
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
                 typeface = type.regular
                 setPadding(0, type.gridPx(0.75f), 0, type.gridPx(0.75f))
                 isClickable = true
@@ -250,7 +239,7 @@ class SwitcherOverlay(private val context: Context) {
             TextView(context).apply {
                 text = "Wheel to move · click to open · home to close"
                 setTextColor(DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.regular
                 setPadding(0, type.gridPx(2f), 0, 0)
             },
@@ -276,7 +265,17 @@ class SwitcherOverlay(private val context: Context) {
         /** How long it waits with nothing pressed before closing itself. */
         const val IDLE_MS = 6_000L
 
-        /** How far behind the dither the list comes in, and how long it takes. */
+        /**
+         * Every size on this screen, over the SDK's own scale.
+         *
+         * The one deliberate departure from `LightType` in this app. The switcher is read at
+         * arm's length in the second between deciding to leave an app and leaving it, which is
+         * not the reading distance the SDK's body scale is set for, and a list of eight rows has
+         * the room to spend.
+         */
+        const val SCALE = 1.15f
+
+        /** How far behind the entrance the list comes in, and how long it takes. */
         const val CONTENT_DELAY_MS = 90L
         const val CONTENT_MS = 220L
     }

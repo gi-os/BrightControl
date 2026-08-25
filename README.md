@@ -170,9 +170,7 @@ becoming folklore.
 
 **Press home twice, quickly, and the apps you have been in are listed newest first.** The wheel
 moves the selection, a wheel click opens it, home closes it, and it closes itself after six idle
-seconds. The background dithers in as it opens — an 8x8 Bayer pattern of grey on black that
-sweeps down the screen while its grain grows from an eighth of a cell to twice one, because a
-cross-fade on a monochrome panel quantises into steps and a dither does not. LightOS ships no recents screen, so this is the only way back to what you were doing
+seconds. LightOS ships no recents screen, so this is the only way back to what you were doing
 two minutes ago that is not finding the app again.
 
 **The first press is never held back.** Reading a double press the usual way means sitting on
