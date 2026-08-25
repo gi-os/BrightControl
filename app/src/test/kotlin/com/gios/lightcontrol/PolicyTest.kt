@@ -89,6 +89,12 @@ class PolicyTest {
         assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightnotebook"))
     }
 
+    /** Phono's package id, which does not look like ours and so cannot ride any prefix. */
+    @Test
+    fun `BrightMusic is color out of the box`() {
+        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.lightphone.spotify"))
+    }
+
     @Test
     fun `everything else stays mono, including the rest of our own apps`() {
         // The whole point of the table being ids rather than the com.gios. prefix: sharing a

@@ -1009,6 +1009,10 @@ object Policy {
      *   asks for is not per-screen: it holds the whole app in colour while it is in front. Two
      *   writers that want the same thing are not a fight, and stating it here is what makes it work
      *   on a phone where the notebook itself was never granted anything.
+     * - **BrightMusic** is [ColorRule.Color] for the same reason, from its v0.59. Before that it
+     *   held colour per cover and restored greyscale between them, which this app answered by
+     *   re-asserting colour — the two took turns on every scroll. It states one thing now, and so
+     *   does this.
      *
      * To add one, put the id here rather than telling people to set it by hand — a preset that
      * ships is a preset that works on a phone nobody has configured. Prefer Passthrough for
@@ -1029,6 +1033,11 @@ object Policy {
         // [ColorRule.Default], and Default is an opinion, so every window it raised was repainted
         // mono over the top of its own request.
         "com.gios.lightnotebook" to ColorRule.Color,
+        // BrightMusic: same shape as the notebook from v0.59 on. It used to hold colour only around
+        // a cover and write greyscale back on the way out of one, which is the flicker this table
+        // warns about — every release was answered by this app re-asserting colour, on every scroll.
+        // It now states colour for as long as it is in front, and this states the same thing.
+        "com.lightphone.spotify" to ColorRule.Color,
         // LightOS itself, and the strongest case in this table for [ColorRule.Passthrough]: it is
         // the daltonizer's actual owner, and it has a colour setting *per tool* of its own —
         // camera, album and directions in colour, the rest of the layer grey. Every tool it draws

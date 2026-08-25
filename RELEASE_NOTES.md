@@ -1,3 +1,18 @@
+## BrightControl v3.36 — BrightMusic states one colour, and so does this
+
+**A COLOR preset for BrightMusic.** With no rule it resolved to AUTO, which behind the table is
+DEFAULT, which forces the baseline — mono. So the music app was repainted grey while it was in front,
+including over its own request to be in colour.
+
+It ships as COLOR rather than PASS because BrightMusic v0.59 changed what it asks for. It used to
+hold colour around one cover at a time and write greyscale back between them, and every one of those
+writes was answered here by re-asserting colour: the two apps took turns on every scroll, which is
+the flicker the preset table warns about. It now states colour for as long as it is in front, this
+states the same thing, and two writers that agree are not a fight.
+
+**Needs BrightMusic v0.59.** On an older build this preset is the second writer, and the panel will
+argue with itself around covers.
+
 ## BrightControl v3.35 — BrightNotebook comes up in colour
 
 **A preset for BrightNotebook.** It had no colour rule, so it resolved to AUTO — and AUTO with no
