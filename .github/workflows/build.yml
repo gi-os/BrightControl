@@ -102,6 +102,11 @@ jobs:
           tag_name: v${{ steps.ver.outputs.version }}
           name: LightControl v${{ steps.ver.outputs.version }}
           files: out/LightControl-v${{ steps.ver.outputs.version }}.apk
+          # The written notes are the release. Without this the body is the one
+          # auto-generated "Full Changelog" line, which is what BrightMarket then
+          # shows as the whole description of the update -- every release since
+          # v2.4 read that way on the phone.
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
           make_latest: true
 
@@ -113,9 +118,19 @@ jobs:
         if: success()
         continue-on-error: true
         run: |
-          curl -sf -X POST \
+          # -w, and the code printed, because the old form said only "index ping
+          # failed" and a silent -sf gave no way to tell a bad token from a
+          # network blip. INDEX_DISPATCH_TOKEN went stale here and the failure
+          # looked identical for weeks: the step is continue-on-error, so the
+          # release still went green while the index only picked the app up
+          # whenever the 15-minute cron next ran.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
             -H "Authorization: Bearer ${{ secrets.INDEX_DISPATCH_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/gi-os/brightmarket-index/dispatches \
-            -d "{\"event_type\":\"app-released\"}" \
-          || echo "index ping failed; the hourly cron will pick this up"
+            -d "{\"event_type\":\"app-released\"}")
+          if [ "$code" = "204" ]; then
+            echo "index pinged"
+          else
+            echo "::warning::index ping refused with HTTP $code -- check INDEX_DISPATCH_TOKEN. The 15-minute cron will pick this release up instead."
+          fi
