@@ -1005,6 +1005,10 @@ object Policy {
      *   interfered with.
      * - **The stock camera** is [ColorRule.Color], because it has no such grant and cannot ask.
      *   A viewfinder in greyscale misrepresents a photo that comes out colour regardless.
+     * - **BrightNotebook** is [ColorRule.Color] even though it holds the grant, because what it
+     *   asks for is not per-screen: it holds the whole app in colour while it is in front. Two
+     *   writers that want the same thing are not a fight, and stating it here is what makes it work
+     *   on a phone where the notebook itself was never granted anything.
      *
      * To add one, put the id here rather than telling people to set it by hand — a preset that
      * ships is a preset that works on a phone nobody has configured. Prefer Passthrough for
@@ -1017,6 +1021,14 @@ object Policy {
         "com.gios.lightchat" to ColorRule.Passthrough,
         // The stock LightOS camera, which holds no grant and cannot speak for itself.
         "com.android.camera2" to ColorRule.Color,
+        // BrightNotebook: [ColorRule.Color], and the exception to the "prefer Passthrough for apps
+        // that hold the grant" rule above. It does hold the grant, and it uses it to hold the whole
+        // app in colour while it is in front — days, planner and photographs alike — so the two
+        // writers are not in an argument, they agree. Stating it here is what makes the notebook
+        // work on a phone where *it* was never granted anything: with no rule it resolved to
+        // [ColorRule.Default], and Default is an opinion, so every window it raised was repainted
+        // mono over the top of its own request.
+        "com.gios.lightnotebook" to ColorRule.Color,
         // LightOS itself, and the strongest case in this table for [ColorRule.Passthrough]: it is
         // the daltonizer's actual owner, and it has a colour setting *per tool* of its own —
         // camera, album and directions in colour, the rest of the layer grey. Every tool it draws

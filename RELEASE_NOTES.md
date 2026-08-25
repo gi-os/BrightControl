@@ -1,3 +1,20 @@
+## BrightControl v3.35 — BrightNotebook comes up in colour
+
+**A preset for BrightNotebook.** It had no colour rule, so it resolved to AUTO — and AUTO with no
+preset behind it is DEFAULT, which is an opinion: restore the baseline. The baseline on this phone is
+mono. So every window the notebook raised was repainted grey, including over the top of the
+notebook's own request to be in colour, and the symptom was an app that would not stay in colour for
+reasons nothing on screen could explain.
+
+It ships as COLOR rather than PASS, which is the exception to the rule written next to Roll and
+BrightChat in the preset table. Those two hold `WRITE_SECURE_SETTINGS` and have a per-screen opinion
+— colour here, mono there — so anything stated for them is a second writer fighting the first.
+BrightNotebook holds the grant too, but what it asks for is not per-screen: the whole app, the whole
+time it is in front. Two writers that agree are not an argument, and stating it here is what makes
+the notebook work on a phone where the notebook itself was never granted anything.
+
+Set it to anything you like on the per-app colour list; a preset is only what ships.
+
 ## BrightControl v3.34 — the lock face answers the phone, and the speaker gets loud
 
 **A ringing call was ringing behind the clock.** The Light face is a window at layer 31, above
