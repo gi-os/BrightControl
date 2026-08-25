@@ -32,6 +32,9 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockOverlay
+import com.gios.lightcontrol.switcher.Recents
+import com.gios.lightcontrol.switcher.SwitcherOverlay
+import com.gios.lightcontrol.switcher.appName
 
 /**
  * The wheel and the buttons, everywhere on the phone.
@@ -151,6 +154,18 @@ class ControlService : AccessibilityService() {
     /** The Light face over the lock screen. A window this service owns, not an activity. */
     private lateinit var lockFace: LockOverlay
 
+    /** The app switcher, opened by pressing home twice. Also a window, not an activity. */
+    private lateinit var switcher: SwitcherOverlay
+
+    /**
+     * Which apps you have been in, built from the window-state events this service already gets.
+     * The only source of a recents order an unprivileged app has on this phone. See [Recents].
+     */
+    private val recents = Recents()
+
+    /** When the last short home press was released, for the double press. See [homeDouble]. */
+    private var homeTapAt = 0L
+
     /** What the face is being held up over, while an unlock's launch lands. See [onUserPresent]. */
     private var coverTarget: String? = null
     /**
@@ -210,6 +225,10 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
+        switcher = SwitcherOverlay(this)
+        // The list picks; the service launches. Every activity start in this app goes through one
+        // throttle and one log line, and a window that started its own would be outside both.
+        switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
@@ -270,6 +289,10 @@ class ControlService : AccessibilityService() {
             previous = foreground
             foreground = pkg
             foregroundAt = SystemClock.uptimeMillis()
+            // LightOS's own shell is left out on purpose: one press of home already goes there,
+            // so a row for it could only ever be the slower way to do the same thing. Our own
+            // settings screen is left out for the same reason it is ignored above.
+            if (!pkg.startsWith(LIGHTOS) && pkg != packageName) recents.note(pkg)
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
             if (pkg == coverTarget) dropCover()
         }
@@ -327,6 +350,9 @@ class ControlService : AccessibilityService() {
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
         armedHomeConsuming = false
+        homeTapAt = 0L
+        // A switcher that survives the screen going off is a black window an unlock lands on.
+        runCatching { switcher.hide() }
         handler.removeCallbacks(lockWatch)
         handler.removeCallbacks(coverTimeout)
         coverTarget = null
@@ -690,6 +716,7 @@ class ControlService : AccessibilityService() {
         prefs.setFault("${t.javaClass.simpleName}: ${t.message}", faults >= MAX_FAULTS)
         // Whatever was mid-gesture is now of unknown shape. Drop all of it.
         runCatching { swipe.cancel() }
+        runCatching { switcher.hide() }
         presses.clear()
         pendingTap = null
         handler.removeCallbacksAndMessages(null)
@@ -713,6 +740,11 @@ class ControlService : AccessibilityService() {
             }
             return false
         }
+        // The switcher owns every key it can use while it is up. It is a full-screen window over
+        // whatever you were doing, so a key that fell through it would act on an app nobody can
+        // see. Volume is the exception, because volume is never about what is on screen.
+        if (switcher.showing) return onSwitcherKey(key, event)
+
         val behavior = Policy.behaviorFor(prefs, front)
 
         if (key == LightKey.WheelUp || key == LightKey.WheelDown) {
@@ -888,7 +920,9 @@ class ControlService : AccessibilityService() {
         // can't dispatch into a phone that is now locked.
         presses.remove(Button.Home)
         val tap = prefs.action(Button.Home, Gesture.Tap)
-        if (!tap.acts) return false
+        // Note the missing `if (!tap.acts) return false` this used to open with. The double press
+        // is a gesture of this key rather than of its binding, so it has to be counted even when
+        // the tap does nothing — an unbound home button is the commonest way to have one.
         when (event.action) {
             KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
                 shadowDownAt = SystemClock.uptimeMillis()
@@ -903,7 +937,10 @@ class ControlService : AccessibilityService() {
                 // gets declined. The press that wakes the phone is the system's; ours is the
                 // next one.
                 if (started != 0L && SystemClock.uptimeMillis() - started < HOLD_MS && awake()) {
-                    perform(tap)
+                    // The switcher instead of the tap, when this release is the second of two.
+                    // LightOS still saw the press — nothing is consumed here — so it has gone
+                    // home underneath, and the list is drawn over the top of that.
+                    if (!homeDouble() && tap.acts) perform(tap)
                 }
             }
         }
@@ -946,6 +983,97 @@ class ControlService : AccessibilityService() {
             }
         }
         return false
+    }
+
+    // ------------------------------------------------------------------ the app switcher
+
+    /**
+     * Was this home release the second of two? If so, the switcher is now up.
+     *
+     * **The first press is never held back.** Reading a double press the usual way means waiting
+     * out the window before acting on the first one, and on this key that is a third of a second
+     * added to the gesture a phone is used with most. So home fires the instant it is released,
+     * every time, and a second release inside [HOME_DOUBLE_MS] opens the switcher over whatever
+     * the first press landed on. What it costs is a glimpse of home on the way to the list. What
+     * it buys is a home button that still feels like a button.
+     *
+     * Returns false — meaning "this was an ordinary tap" — whenever the switcher could not be
+     * shown, including when there is nothing to show. A gesture that swallows the press and then
+     * produces no window is the failure this whole file is written around.
+     */
+    private fun homeDouble(): Boolean {
+        if (!prefs.homeDoubleSwitcher) return false
+        val now = SystemClock.uptimeMillis()
+        val first = homeTapAt
+        homeTapAt = now
+        if (first == 0L || now - first >= HOME_DOUBLE_MS) return false
+        homeTapAt = 0L
+        return openSwitcher()
+    }
+
+    /**
+     * Put the list of recent apps up. False if there is nothing to put up.
+     *
+     * Never while locked or with the screen off: the list is a window at layer 31, so it would
+     * happily draw over the keyguard, and a lock screen is not a thing this app covers with a way
+     * into every app on the phone.
+     */
+    private fun openSwitcher(): Boolean {
+        if (!awake()) return false
+        if (switcher.showing) return true
+        val front = if (OwnWindow.resumed) packageName else foreground
+        val skip = setOfNotNull(packageName, front)
+        val list = runCatching {
+            recents.entries(packageManager, skip, SWITCHER_MAX) { appName(this, it) }
+        }.getOrDefault(emptyList())
+        if (list.isEmpty()) {
+            log("HOME double · nothing to switch to")
+            return false
+        }
+        // Anything the lock face is holding up has to come down first, the same as for a launch:
+        // layer 31 is layer 31, and two windows there is a coin toss nobody wins.
+        if (lockFace.showing) runCatching { lockFace.dismiss() }
+        val up = runCatching { switcher.show(list) }.getOrDefault(false)
+        log("HOME double · switcher ${if (up) "${list.size} apps" else "FAILED"}")
+        return up
+    }
+
+    /**
+     * The keys, while the switcher is up.
+     *
+     * Consuming here is safe in the way it usually is not: this window covers the screen, so the
+     * app underneath cannot be reached by the key anyway, and the list closes itself after a few
+     * idle seconds even if every one of these is somehow missed.
+     *
+     * The camera button closes rather than opens the camera. Starting a viewfinder *behind* a
+     * full-screen overlay is a bug this app has already shipped once (see [perform]), and one
+     * press to get out followed by another to open it is both obvious and impossible to get wrong.
+     */
+    private fun onSwitcherKey(key: LightKey, event: KeyEvent): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        val up = event.action == KeyEvent.ACTION_UP
+        return when (key) {
+            // Turning towards the top of the phone moves the selection up the list.
+            LightKey.WheelUp -> { if (down) runCatching { switcher.move(-1) }; true }
+            LightKey.WheelDown -> { if (down) runCatching { switcher.move(1) }; true }
+            LightKey.WheelClick -> {
+                if (up) runCatching { switcher.choose() }
+                true
+            }
+            LightKey.Home -> {
+                if (up) {
+                    log("switcher closed · home")
+                    runCatching { switcher.hide() }
+                }
+                true
+            }
+            LightKey.Camera, LightKey.Focus -> {
+                if (up) runCatching { switcher.hide() }
+                true
+            }
+            // Volume is about the phone, not about what is on screen.
+            LightKey.VolumeUp, LightKey.VolumeDown -> false
+        }
     }
 
     /** Interactive and unlocked — the only state a shadow tap may launch anything in. */
@@ -1147,6 +1275,9 @@ class ControlService : AccessibilityService() {
         handler.removeCallbacks(coverTimeout)
         coverTarget = null
         runCatching { lockFace.hide() }
+        // Both windows this service owns come down with it. One left behind is a black screen
+        // with nothing bound to the keys that would have closed it.
+        runCatching { switcher.hide() }
         keyguardListener?.let { listener ->
             keyguardListener = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1246,6 +1377,9 @@ class ControlService : AccessibilityService() {
                     }
                     return true
                 }
+                // Home, twice, quickly — the switcher, and nothing else this release. The first
+                // press already went home; repeating it under the list would only fight it.
+                if (!held && button == Button.Home && homeDouble()) return true
                 val action = if (held) hold else tap
                 if (action.acts) act(button, action)
             }
@@ -1738,6 +1872,9 @@ class ControlService : AccessibilityService() {
          * the wheel's window — a whole press sits inside it, not just a second click.
          */
         const val HOME_DOUBLE_MS = 600L
+
+        /** How many recent apps the switcher lists. More than this is a launcher. */
+        const val SWITCHER_MAX = 8
 
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L

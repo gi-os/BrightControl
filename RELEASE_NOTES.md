@@ -1,3 +1,42 @@
+## BrightControl v3.15 — press home twice for the apps you were just in
+
+**A double press of the home button opens an app switcher.** LightOS has no recents screen and
+no way back to the thing you were reading two minutes ago except finding it again, and this is
+that way back: press home, press it again quickly, and the apps you have been in are listed
+newest first. The wheel moves the selection, a click opens it, home closes it, and it closes
+itself after six idle seconds. On by default, and switchable off under Buttons → Home button →
+Double press.
+
+**The first press is never held back.** The usual way to read a double press is to sit on the
+first one until its partner could have arrived, which would put a third of a second on every
+press of the key this phone is used with most. So home fires the instant you let go, exactly as
+it always has, and the second press draws the list over whatever the first one landed on. The
+price is a glimpse of home on the way to the switcher, which is the right thing to spend.
+
+**The list is a window, not an activity — and it had to be.** An activity would push itself onto
+the recents order it exists to display, so the switcher would always be the most recent thing you
+used. It is drawn at `TYPE_ACCESSIBILITY_OVERLAY`, layer 31, the same layer as the lock face:
+nothing is started, no background-activity-start appop is involved, and there is no task to get
+stuck in.
+
+**`GLOBAL_ACTION_RECENTS` is deliberately not what this does.** That asks SystemUI for a recents
+screen and this phone ships none — the call returns true for "injected" and nothing appears,
+which is the worst answer available: a gesture that reports success and does nothing.
+
+**Where the recents order comes from.** `getRecentTasks` has been privileged since Lollipop and
+`UsageStatsManager` needs a special-access grant with a Settings screen LightOS does not ship, so
+the honest source is the one this service already receives for free — the window-state event
+naming each app as it comes to the front. The list therefore starts empty at boot and is as long
+as the phone has been awake, which is the right length for a switcher. Nothing is stored and
+nothing leaves the process. LightOS's own shell is left out, because one press of home already
+goes there.
+
+**Safety, since this consumes the home key while it is up.** The window covers the screen, so a
+key falling through it would act on an app nobody can see; every key it takes it takes only while
+it is showing. It closes on idle, on the screen going off, on a service fault, and on unbind. If
+the window fails to appear, the press is treated as an ordinary tap — a gesture that swallows the
+key and then produces nothing is the one failure this file is written to avoid.
+
 ## BrightControl v3.14 — two features that were pretending to be finished
 
 **Wi-Fi login and Hotspot now say they are unfinished, on the screen itself and in the README.**

@@ -44,6 +44,7 @@ Out of the box:
 | Tap the camera button | The Light camera |
 | Hold the camera button | Nothing. Bind it to any app |
 | Tap the home button | Home, whichever launcher is default |
+| Press the home button twice | The app switcher: the apps you have been in, newest first |
 | Hold the home button | The LightOS dashboard, by name. Rebind it to anything |
 | Wake the phone | The stock lock screen. Or a Light face over it, once you turn it on |
 | Volume keys, tap or hold | Passed through, but bindable. The level appears on screen |
@@ -164,6 +165,30 @@ that rule would otherwise claim it.
 Per-app overrides cycle on tap through `AUTO`, `BRIGHT`, `SWIPE`, `APP` and `OFF`. Rows left on
 `AUTO` show what it resolved to, so the table above stays visible in the UI rather than
 becoming folklore.
+
+### The app switcher
+
+**Press home twice, quickly, and the apps you have been in are listed newest first.** The wheel
+moves the selection, a wheel click opens it, home closes it, and it closes itself after six idle
+seconds. LightOS ships no recents screen, so this is the only way back to what you were doing
+two minutes ago that is not finding the app again.
+
+**The first press is never held back.** Reading a double press the usual way means sitting on
+the first one until its partner could have arrived, which is a third of a second added to every
+press of the key this phone is used with most. Home fires the moment you let go, exactly as it
+always did, and the second press draws the list over whatever the first one landed on.
+
+The list is a **window at layer 31**, the same as the lock face, not an activity. An activity
+would push itself onto the recents order it exists to display, so the switcher would always be
+the most recent thing you used. `performGlobalAction(GLOBAL_ACTION_RECENTS)` is not used: this
+phone has no recents screen for it to open, so it returns true and shows nothing.
+
+The order comes from the window-state events the service already receives — `getRecentTasks` is
+privileged and `UsageStatsManager` needs a grant LightOS has no screen for. So the list starts
+empty at boot, is as long as the phone has been awake, is never written to disk, and leaves out
+LightOS's own shell, which one press of home already reaches.
+
+Switch it off under **Buttons → Home button → Double press**.
 
 ### The home button
 

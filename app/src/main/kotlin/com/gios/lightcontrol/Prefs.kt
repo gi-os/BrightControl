@@ -246,6 +246,22 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
     /**
+     * Whether pressing home twice, quickly, opens the app switcher.
+     *
+     * Note what this does *not* do: it does not delay the home button. The usual way to read a
+     * double press is to hold the first one back until its partner could have arrived, and on
+     * the one key a phone cannot do without that would mean paying a third of a second on every
+     * press for a gesture used a dozen times a day. So the first press goes home immediately,
+     * exactly as it always did, and the second one — inside [ControlService.HOME_DOUBLE_MS] —
+     * opens the switcher over the top of wherever the first one landed. The cost is a glimpse of
+     * home on the way to the list, which is the correct thing to spend, because the alternative
+     * is a home button that feels slow.
+     */
+    var homeDoubleSwitcher: Boolean
+        get() = sp.getBoolean("home_double_switcher", true)
+        set(v) = sp.edit().putBoolean("home_double_switcher", v).apply()
+
+    /**
      * The master switch. Off means this app does nothing to any key, anywhere.
      *
      * Not a convenience. An accessibility service that filters keys is the one kind of app that can

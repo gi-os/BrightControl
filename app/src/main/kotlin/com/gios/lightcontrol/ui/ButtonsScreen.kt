@@ -48,6 +48,7 @@ fun ButtonsScreen(
     val prefs = remember { Prefs(context) }
 
     var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
+    var switcher by remember { mutableStateOf(prefs.homeDoubleSwitcher) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -88,6 +89,21 @@ fun ButtonsScreen(
                     )
                 }
                 if (button == Button.Home) {
+                    MenuRow(
+                        label = "Double press",
+                        detail = if (switcher) "APP SWITCHER" else "OFF",
+                        sub = if (switcher) {
+                            "two quick presses list the apps you have been in, newest first. " +
+                                "The first press still goes home the instant you let go — the " +
+                                "list opens over the top of it, so nothing is ever held back."
+                        } else {
+                            "off, so a second press is just another press of home"
+                        },
+                        onClick = {
+                            switcher = !switcher
+                            prefs.homeDoubleSwitcher = switcher
+                        },
+                    )
                     MenuRow(
                         label = "Timing the hold takes the key",
                         detail = if (homeArmed) "ON" else "OFF",
