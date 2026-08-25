@@ -353,6 +353,20 @@ of those last two are glyphs rather than text. You read "T-MOBILE" and "85%". Yo
 and a fill. Type comes from the LightOS scale ported from `light-sdk`: named sizes scaled by
 screen height, spacing in 27-wide grid units, and no hardcoded sp or dp anywhere on the screen.
 
+**A ringing call gets a card on the face.** This is a fix, not an addition. The face is a window
+at layer 31, so it paints over the dialer's incoming-call screen the same way it once painted over
+the camera. A call that arrived while the phone was locked rang behind a clock. The card shows who
+is calling and carries ANSWER and DECLINE.
+
+Answering presses the dialer's own notification buttons, which needs no grant beyond the
+notification listener the face already uses. A dialer whose buttons cannot be identified by their
+labels falls back to `TelecomManager`, which needs `ANSWER_PHONE_CALLS`. The card draws either way.
+
+Once the call is answered, **the face stands down for the length of the call**. LightOS shows mute,
+speaker, the keypad and hang up on its own in-call screen, and all of it sits under layer 31. The
+face comes back by itself when the call ends. Switch the card off and the face stands down for the
+whole call instead. It is never allowed to sit on top of a ringing phone.
+
 The background is a photo with a filter stack you assemble yourself. It offers ordered Bayer
 dither to halftone at a chosen cell size, black and white, opacity, corner blur and corner fade.
 You can reorder and repeat them, with a live preview at the panel aspect ratio.
@@ -382,6 +396,21 @@ So there is a HUD at the top of the screen, and it is **only a HUD. It reports. 
 adjusts.** Nothing here consumes a key, which is what makes it safe to put on the volume keys.
 It listens to `android.media.VOLUME_CHANGED_ACTION`, so it also catches the slider of a media
 app, a headset button, and a Bluetooth device that turns itself down on connect.
+
+The HUD stays off LightOS screens, which have volume controls of their own. **A call is the
+exception.** The dialer is in front for the whole call and has no volume control at all, so during
+a call the strip is the only feedback the phone gives.
+
+**A call on the speaker starts at maximum.** LightOS has no volume UI, so the call stream sits
+wherever it was last left and nothing on screen reports it. The level is set once, on the move to
+the speaker route, so turning it down mid-call keeps it down. Android holds one index per output
+device, so this moves the speaker and never the earpiece.
+
+Maximum is the ceiling for any app, and it is worth knowing why. Call audio goes from the modem to
+the codec to the speaker. It never passes through the app mixer, and its gain comes from one number
+inside the audio HAL, which is the `STREAM_VOICE_CALL` index. `LoudnessEnhancer`, an effect on
+session 0, or a dialer of our own would each control the route and the screen. None of them adds a
+decibel.
 
 ## System
 
@@ -541,11 +570,13 @@ keys/Brightness.kt         system brightness with a derived scale
 keys/ColorMode.kt          per-app color, written as state and never as a transition
 keys/WheelSwipe.kt         the synthetic finger: one continued stroke, tracked and relifted
 keys/Readout.kt            the brightness level, as one reused overlay window
-keys/VolumeHud.kt          the volume level; reports, never adjusts
+keys/VolumeHud.kt          the volume level, reported and never adjusted
+keys/CallAudio.kt          the call speaker, put to maximum once per speaker route
 keys/Grants.kt             what is granted, and the volatile own-window flag
 
 lock/LockOverlay.kt        the Light face as a service-owned window at layer 31
 lock/LockMedia.kt          what is playing, read off the platform media session
+lock/LockCall.kt           whether the phone is ringing, and the two ways to answer it
 lock/MediaGlyph.kt         the transport marks, drawn rather than shipped as drawables
 lock/LockBackground.kt     the photo and its filter stack
 lock/LockGallery.kt        DCIM walked directly, because MediaStore is never current here

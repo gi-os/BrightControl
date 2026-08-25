@@ -31,6 +31,8 @@ import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
+import com.gios.lightcontrol.lock.LockCall
+import com.gios.lightcontrol.lock.LockCallState
 import com.gios.lightcontrol.lock.LockOverlay
 import com.gios.lightcontrol.switcher.ForceStop
 import com.gios.lightcontrol.switcher.Recents
@@ -171,6 +173,22 @@ class ControlService : AccessibilityService() {
     /** The app switcher, opened by pressing home twice. Also a window, not an activity. */
     private lateinit var switcher: SwitcherOverlay
 
+    /** Whether the phone is ringing or on a call, and how to answer. See [LockCall]. */
+    private lateinit var lockCall: LockCall
+
+    /** The call speaker's level, on the one route it is allowed to touch. See [CallAudio]. */
+    private lateinit var callAudio: CallAudio
+
+    /**
+     * True while the face has stood down for a call in progress rather than been dismissed.
+     *
+     * The two are not the same and must not be stored the same way. A dismiss is the user saying
+     * "not now" and is sticky until the next sleep; this is the face getting out of the way of the
+     * dialer's own screen for the length of a call, and it has to come back by itself when the
+     * call ends — the screen is still on and still locked, and nothing else would raise it.
+     */
+    private var lockStoodDownForCall = false
+
     /**
      * Which apps you have been in, built from the window-state events this service already gets.
      * The only source of a recents order an unprivileged app has on this phone. See [Recents].
@@ -254,6 +272,16 @@ class ControlService : AccessibilityService() {
         // The now-playing row on the face reports a tap here rather than starting anything itself.
         // Every activity start in this app goes through one throttle, one log line and one cover.
         lockFace.onOpenPlayer = { pkg -> runCatching { openFromLock(pkg) } }
+        // A ringing phone is the one thing the face was hiding rather than drawing: it is a window
+        // at layer 31, so it painted straight over the dialer's incoming-call screen. See
+        // [onCallChanged].
+        callAudio = CallAudio(this, allowed = { prefs.callBoost }, log = { line -> log(line) })
+        lockCall = LockCall(this)
+        lockCall.onChange = { state -> runCatching { onCallChanged(state) } }
+        lockCall.onTick = { runCatching { callAudio.check() } }
+        lockCall.start()
+        lockFace.onAnswerCall = { runCatching { answerCall() } }
+        lockFace.onDeclineCall = { runCatching { declineCall() } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
@@ -1543,6 +1571,8 @@ class ControlService : AccessibilityService() {
         handler.removeCallbacks(coverTimeout)
         coverTarget = null
         runCatching { lockFace.hide() }
+        runCatching { lockCall.stop() }
+        lockStoodDownForCall = false
         // Both windows this service owns come down with it. One left behind is a black screen
         // with nothing bound to the keys that would have closed it.
         runCatching { switcher.hide() }
@@ -1911,6 +1941,85 @@ class ControlService : AccessibilityService() {
         packageManager.resolveActivity(probe, 0)?.activityInfo
             ?.let { probe.setClassName(it.packageName, it.name) }
     }.getOrNull()
+
+    // -------------------------------------------------------------------- calls
+
+    /**
+     * The phone started ringing, was answered, or the call ended.
+     *
+     * Three states, three different right answers:
+     *
+     *  - **Ringing.** Put the card on the face, and make sure the face is up — a call can arrive
+     *    on a phone whose screen was off, and the card is the only thing on this screen that can
+     *    answer it.
+     *  - **Answered.** Stand the face down. LightOS's in-call screen has mute, speaker, the keypad
+     *    and hang up on it, all of which are underneath a window at layer 31, and none of which is
+     *    worth re-drawing badly. This is a plain [LockOverlay.hide], deliberately not
+     *    [LockOverlay.dismiss] — a dismiss is sticky and would cost the face the rest of the day.
+     *  - **Over.** Bring it back, if the phone is still locked and still awake. Nothing else will:
+     *    the screen never went off, so there is no `ACTION_SCREEN_ON` coming.
+     */
+    private fun onCallChanged(state: LockCallState?) {
+        callAudio.onCall(state)
+        if (!prefs.enabled || !prefs.lockScreen || !prefs.lockCalls) {
+            runCatching { lockFace.setCall(null) }
+            // With the card switched off, the face still cannot be allowed to sit on top of a
+            // ringing phone. It gets out of the way for the whole call instead, and comes back the
+            // same way it does after an answered one.
+            if (state != null && lockFace.showing) {
+                lockStoodDownForCall = true
+                runCatching { lockFace.hide() }
+                log("call · face stood down (card off)")
+            } else if (state == null && lockStoodDownForCall) {
+                lockStoodDownForCall = false
+                if (locked() && interactive() && !lockFace.dismissed()) showLockFace()
+            }
+            return
+        }
+        when (state?.stage) {
+            LockCallState.Stage.Ringing -> {
+                if (locked() && !lockFace.dismissed()) showLockFace()
+                runCatching { lockFace.setCall(state) }
+                // The face fades in 500 ms after the screen lights, which is right for a phone
+                // being picked up and wrong for one that is ringing.
+                if (lockFace.showing) runCatching { lockFace.reveal() }
+                log("call ringing · " + if (lockFace.showing) "card up" else "no face")
+            }
+            LockCallState.Stage.Active -> {
+                runCatching { lockFace.setCall(state) }
+                if (lockFace.showing) {
+                    lockStoodDownForCall = true
+                    val gone = runCatching { lockFace.hide() }.getOrDefault(false)
+                    log("call answered · face " + if (gone) "stood down" else "WOULD NOT GO")
+                }
+            }
+            else -> {
+                runCatching { lockFace.setCall(null) }
+                if (!lockStoodDownForCall) return
+                lockStoodDownForCall = false
+                if (locked() && interactive() && !lockFace.dismissed()) {
+                    showLockFace()
+                    if (lockFace.showing) runCatching { lockFace.reveal() }
+                    log("call ended · face back")
+                }
+            }
+        }
+    }
+
+    private fun answerCall() {
+        val ok = lockCall.answer()
+        log("call answer" + if (ok) "" else " · NO ROUTE")
+    }
+
+    private fun declineCall() {
+        val ok = lockCall.decline()
+        log("call decline" + if (ok) "" else " · NO ROUTE")
+    }
+
+    /** Whether the keyguard is up. Not [KeyguardManager.isDeviceLocked] — that answers credentials. */
+    private fun locked(): Boolean = runCatching {
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked ?: false
+    }.getOrDefault(false)
 
     /**
      * Back to the app the screen went off on — or home, which is the answer most of the time.

@@ -703,6 +703,35 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("lock_media", v).apply()
 
     /**
+     * Whether a ringing call gets a card on the face, with answer and decline on it.
+     *
+     * On, and it is a fix rather than a feature. The face is a window at layer 31, so it paints
+     * over the dialer's full-screen incoming-call activity -- with this off, a call that arrives
+     * while the phone is locked rings behind a clock. The card is what the face shows instead, and
+     * once the call is answered the face stands down entirely so LightOS's own in-call screen
+     * (mute, speaker, keypad, end) is the thing you are looking at.
+     *
+     * Off means the face gets out of the way for the whole call instead. Nothing is lost either
+     * way; what must never happen is a ringing phone you cannot answer.
+     */
+    var lockCalls: Boolean
+        get() = sp.getBoolean("lock_calls", true)
+        set(v) = sp.edit().putBoolean("lock_calls", v).apply()
+
+    /**
+     * Whether a call routed to the phone's own speaker is put to maximum volume.
+     *
+     * On. LightOS has no volume UI at all, so the call stream sits wherever it was last left and
+     * there is nothing on screen that would tell you. Applied once per speaker route, never
+     * re-asserted, so lowering it afterwards is respected -- see
+     * [com.gios.lightcontrol.keys.CallAudio], which also explains why maximum is the ceiling for
+     * any app and why a dialer of our own would not raise it.
+     */
+    var callBoost: Boolean
+        get() = sp.getBoolean("call_boost", true)
+        set(v) = sp.edit().putBoolean("call_boost", v).apply()
+
+    /**
      * Whether unlocking holds the face open until a deliberate press-and-hold, instead of
      * launching the resume app the instant the fingerprint authenticates.
      *

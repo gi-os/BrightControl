@@ -184,6 +184,7 @@ fun VolumeScreen(onBack: () -> Unit) {
 
     var volumeHud by remember { mutableStateOf(prefs.showVolume) }
     var volumePin by remember { mutableStateOf(prefs.volumePin) }
+    var callBoost by remember { mutableStateOf(prefs.callBoost) }
 
     SectionScaffold(
         title = "Volume",
@@ -212,8 +213,30 @@ fun VolumeScreen(onBack: () -> Unit) {
             },
         )
         MenuRow(
+            label = "Loud speakerphone",
+            detail = if (callBoost) "ON" else "OFF",
+            sub = if (callBoost) {
+                "a call on the phone's own speaker starts at maximum. Turn it down mid-call and " +
+                    "it stays down; the earpiece level is never touched."
+            } else {
+                "off. The call speaker stays wherever it was last left, which on LightOS is a " +
+                    "number nothing shows you."
+            },
+            onClick = {
+                callBoost = !callBoost
+                prefs.callBoost = callBoost
+            },
+        )
+        MenuRow(
+            label = "Maximum is the ceiling",
+            sub = "call audio does not pass through this phone's app mixer, so no app can add a " +
+                "decibel past the top of the scale",
+            dim = true,
+        )
+        MenuRow(
             label = "Not over LightOS",
-            sub = "its own screens have their own volume control",
+            sub = "its own screens have their own volume control — except during a call, where " +
+                "the dialer has none and the strip is the only feedback there is",
             dim = true,
         )
     }

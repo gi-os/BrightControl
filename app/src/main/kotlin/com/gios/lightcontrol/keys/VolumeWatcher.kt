@@ -148,15 +148,21 @@ class VolumeWatcher(
      */
     private fun present(stream: Int, note: String?, valueFromBroadcast: Int, force: Boolean = false) {
         if (!wanted()) return
+        val audio = context.getSystemService(AudioManager::class.java) ?: return
         val app = front()
-        if (app != null && app.startsWith(LIGHTOS)) {
+        // The one exception to "not over LightOS", and it is the case the rule was never about.
+        // LightOS's dashboard and lock screen have a volume control of their own; **its dialer has
+        // none**, and the dialer is in front for the whole of a call. So a call whose speaker is
+        // too quiet was a phone where the keys moved a number nothing on the screen would show —
+        // which reads as the keys doing nothing at all.
+        val callUp = inCall(audio)
+        if (app != null && app.startsWith(LIGHTOS) && !callUp) {
             // And a pin cannot outlive the screen it was made on, or the keys would still be being
             // taken over on a screen showing LightOS's own slider.
             clearPin()
             hud.dismiss()
             return
         }
-        val audio = context.getSystemService(AudioManager::class.java) ?: return
         val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
         if (max <= 0) return
         val level = if (valueFromBroadcast >= 0) {

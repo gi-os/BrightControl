@@ -94,6 +94,26 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!--
+      The lock face's call card, and only as the fallback underneath the notification's own
+      buttons. Answering normally means sending the PendingIntent the dialer already put in the
+      shade, which needs nothing granted; this is what answers a call whose buttons could not be
+      identified by the words on them, through TelecomManager. A runtime permission with no
+      LightOS screen to grant it, so it goes the same way as the rest:
+
+        adb shell pm grant com.gios.lightcontrol android.permission.ANSWER_PHONE_CALLS
+
+      Without it the card still draws and still answers on every dialer that labels its buttons.
+    -->
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+
+    <!--
+      The call speaker's level. A normal permission, granted at install. It moves one index on one
+      stream, once per call, and only while the route is the phone's own speaker - see
+      keys/CallAudio.kt for why that index is the ceiling for any app on this phone.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!--
       The lock background's photo grid. An ordinary runtime prompt, granted from the
       app itself. Needed because the grid walks DCIM and Pictures by path instead of
       asking MediaStore - nothing on LightOS keeps MediaStore current, so the system

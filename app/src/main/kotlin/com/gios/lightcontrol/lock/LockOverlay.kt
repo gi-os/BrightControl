@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
@@ -109,6 +110,25 @@ class LockOverlay(private val context: Context) {
     private var mediaArtist: TextView? = null
     private var mediaPlay: MediaGlyph? = null
 
+    // ---- the call card. See [LockCall] for why the face has to draw this itself.
+    private var callRow: LinearLayout? = null
+    private var callLabel: TextView? = null
+    private var callWho: TextView? = null
+    private var callSub: TextView? = null
+    private var callAnswer: TextView? = null
+    private var callDecline: TextView? = null
+    private var callState: LockCallState? = null
+
+    /**
+     * The two buttons on the call card, reported rather than acted on.
+     *
+     * Same seam as everything else here: the window draws, the service does. Answering a call from
+     * a service that already holds the notification listener is one call; answering it from a
+     * window that may be torn down by the same event is a race.
+     */
+    var onAnswerCall: (() -> Unit)? = null
+    var onDeclineCall: (() -> Unit)? = null
+
     /**
      * Asked to open the player, with its package.
      *
@@ -181,6 +201,21 @@ class LockOverlay(private val context: Context) {
         content.alpha = 0f
         handler.removeCallbacks(fadeIn)
         handler.postDelayed(fadeIn, HOLD_DARK_MS)
+    }
+
+    /**
+     * Show the content now, without the half-second of black [wake] holds.
+     *
+     * That delay exists for a phone being picked up: a thumb already on the power button unlocks
+     * inside it, and the face is taken down before anything is drawn. A ringing phone is the
+     * opposite case — nobody is unlocking it, they are looking at it to see who it is — so the
+     * card fades straight in.
+     */
+    fun reveal() {
+        val content = face ?: return
+        handler.removeCallbacks(fadeIn)
+        content.animate().cancel()
+        content.animate().alpha(1f).setDuration(FADE_MS).start()
     }
 
     private val fadeIn = Runnable {
@@ -327,6 +362,12 @@ class LockOverlay(private val context: Context) {
         mediaTitle = null
         mediaArtist = null
         mediaPlay = null
+        callRow = null
+        callLabel = null
+        callWho = null
+        callSub = null
+        callAnswer = null
+        callDecline = null
         enterHint = null
         progressLine = null
         clock = null
@@ -444,6 +485,9 @@ class LockOverlay(private val context: Context) {
         }
         middle.addView(time)
         middle.addView(day)
+        // Above the shade and under the clock. A ringing phone is the most important thing this
+        // screen can be saying, and it is the one thing on it with buttons.
+        middle.addView(buildCall())
         middle.addView(noteList)
         column.addView(middle)
 
@@ -555,6 +599,136 @@ class LockOverlay(private val context: Context) {
         batteryIcon = battery
         frame
     }.getOrNull()
+
+    // ------------------------------------------------------------------------ the call card
+
+    /**
+     * A call arrived, changed, or ended. Told by the service, which owns the watcher.
+     *
+     * Kept in a field as well as drawn, because the face is rebuilt on every sleep and a call that
+     * survives one — put down mid-conversation, picked back up — has to come back with it.
+     */
+    fun setCall(state: LockCallState?) {
+        callState = state
+        runCatching { renderCall(state) }
+    }
+
+    /**
+     * The card: what is happening, who it is, and the two things you can do about it.
+     *
+     * Built once and hidden, like the now-playing row and for the same reason — a card inserted
+     * into the column when the phone rings would shove the clock up the screen at the exact moment
+     * somebody is looking at it.
+     *
+     * The buttons are touchable and are **not** gated on the phone being unlocked. Every phone
+     * answers a call from its lock screen; a face that made you unlock first would be a face that
+     * loses calls.
+     */
+    private fun buildCall(): LinearLayout {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, type.gridPx(1.5f), 0, type.gridPx(0.5f))
+        }
+        val label = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(DIM)
+            textSize = type.superfine
+            letterSpacing = type.buttonTracking
+            gravity = Gravity.CENTER
+        }
+        val who = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(Color.WHITE)
+            textSize = type.heading
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, type.gridPx(0.3f), 0, 0)
+        }
+        val sub = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(DIM)
+            textSize = type.detail
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val buttons = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, type.gridPx(1f), 0, 0)
+        }
+        val decline = callButton(filled = false) { runCatching { onDeclineCall?.invoke() } }
+        val answer = callButton(filled = true) { runCatching { onAnswerCall?.invoke() } }
+        buttons.addView(decline)
+        buttons.addView(answer)
+
+        card.addView(label)
+        card.addView(who)
+        card.addView(sub)
+        card.addView(buttons)
+
+        callRow = card
+        callLabel = label
+        callWho = who
+        callSub = sub
+        callAnswer = answer
+        callDecline = decline
+        return card
+    }
+
+    /**
+     * One button, drawn rather than themed.
+     *
+     * This app ships no drawables and the SDK's components are Compose, which a `View` cannot take
+     * — the same reason [MediaGlyph] exists. A stroked rectangle and a filled one are the whole
+     * vocabulary: filled is the thing you meant to do, stroked is the other one.
+     */
+    private fun callButton(filled: Boolean, press: () -> Unit) = TextView(context).apply {
+        typeface = type.medium
+        textSize = type.button
+        letterSpacing = type.buttonTracking
+        gravity = Gravity.CENTER
+        setTextColor(if (filled) Color.BLACK else Color.WHITE)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = type.gridPx(0.3f).toFloat()
+            if (filled) setColor(Color.WHITE) else setStroke(maxOf(2, type.gridPx(0.08f)), Color.WHITE)
+        }
+        setPadding(0, type.gridPx(0.7f), 0, type.gridPx(0.7f))
+        isClickable = true
+        setOnClickListener { runCatching { press() } }
+        layoutParams = LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
+        ).apply {
+            marginStart = type.gridPx(0.4f)
+            marginEnd = type.gridPx(0.4f)
+        }
+    }
+
+    /** Put the call on screen, or take the card away when there is not one. */
+    private fun renderCall(state: LockCallState?) {
+        val card = callRow ?: return
+        if (state == null) {
+            card.visibility = View.GONE
+            return
+        }
+        card.visibility = View.VISIBLE
+        val ringing = state.stage == LockCallState.Stage.Ringing
+        callLabel?.text = if (ringing) "INCOMING CALL" else "ON A CALL"
+        callWho?.text = state.who
+        callSub?.apply {
+            text = state.sub
+            visibility = if (state.sub.isBlank()) View.GONE else View.VISIBLE
+        }
+        // Answered, the only thing left to offer is hanging up — and it is drawn stroked, not
+        // filled, because the filled button is the one somebody presses without reading it.
+        callAnswer?.apply {
+            text = "ANSWER"
+            visibility = if (ringing) View.VISIBLE else View.GONE
+        }
+        callDecline?.text = if (ringing) "DECLINE" else "END"
+    }
 
     // ------------------------------------------------------------------------ now playing
 
@@ -762,6 +936,7 @@ class LockOverlay(private val context: Context) {
         }
         fillNotes()
         renderMedia(media.track)
+        renderCall(callState)
     }
 
     private fun fillNotes() {

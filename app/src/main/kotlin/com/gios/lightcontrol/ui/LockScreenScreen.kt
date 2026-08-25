@@ -29,11 +29,15 @@ fun LockScreenScreen(
     var lockPrompt by remember { mutableStateOf(prefs.lockPrompt) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
     var lockMedia by remember { mutableStateOf(prefs.lockMedia) }
+    var lockCalls by remember { mutableStateOf(prefs.lockCalls) }
     var lockHold by remember { mutableStateOf(prefs.lockHoldToEnter) }
     val notesGranted = LockNotes.granted(context)
     val hasBackground = LockBackground.has(context)
     val phoneState = context.checkSelfPermission(
         android.Manifest.permission.READ_PHONE_STATE,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val answerCalls = context.checkSelfPermission(
+        android.Manifest.permission.ANSWER_PHONE_CALLS,
     ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     SectionScaffold(
@@ -154,6 +158,38 @@ fun LockScreenScreen(
                     lockNotes = !lockNotes
                     prefs.lockNotes = lockNotes
                 },
+            )
+            MenuRow(
+                label = "Calls",
+                detail = when {
+                    !lockCalls -> "STANDS ASIDE"
+                    notesGranted -> "ON"
+                    else -> "NO GRANT"
+                },
+                dim = lockCalls && !notesGranted,
+                sub = when {
+                    lockCalls && !notesGranted ->
+                        "same grant as Notifications: adb shell cmd notification allow_listener " +
+                            "com.gios.lightcontrol/.lock.LockNotifications"
+                    lockCalls ->
+                        "a ringing call gets a card here, with answer and decline. Answer it and " +
+                            "the face steps aside for LightOS's own in-call screen."
+                    else ->
+                        "off. The face hides for the whole call instead, so the stock " +
+                            "incoming-call screen is what you see."
+                },
+                onClick = {
+                    lockCalls = !lockCalls
+                    prefs.lockCalls = lockCalls
+                },
+            )
+            GrantRow(
+                label = "Answer without the shade buttons",
+                ok = answerCalls,
+                fix = "adb shell pm grant com.gios.lightcontrol " +
+                    "android.permission.ANSWER_PHONE_CALLS",
+                sub = "only the fallback. The card presses the dialer's own buttons first, and " +
+                    "those need nothing granted",
             )
             MenuRow(
                 label = "Now playing",

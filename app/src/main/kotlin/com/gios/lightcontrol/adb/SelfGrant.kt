@@ -44,6 +44,11 @@ object SelfGrant {
             GrantCheck.Permission(PKG, "android.permission.READ_PHONE_STATE"),
         ),
         Step(
+            "Answer calls (ANSWER_PHONE_CALLS)",
+            "pm grant $PKG android.permission.ANSWER_PHONE_CALLS",
+            GrantCheck.Permission(PKG, "android.permission.ANSWER_PHONE_CALLS"),
+        ),
+        Step(
             "Lock-screen notifications",
             "cmd notification allow_listener $PKG/.lock.LockNotifications",
             GrantCheck.SecureListHas(

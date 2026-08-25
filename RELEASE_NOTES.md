@@ -1,3 +1,47 @@
+## BrightControl v3.34 — the lock face answers the phone, and the speaker gets loud
+
+**A ringing call was ringing behind the clock.** The Light face is a window at layer 31, above
+every activity on the phone, and the dialer's incoming-call screen is an activity — so with the
+face on, a call arriving on a locked phone lit the panel, rang, and showed you the time. The screen
+with ANSWER on it was underneath, painted, correct and unreachable. It is exactly the trap the
+camera button hit in v2.12, and it has the same two possible answers: draw the thing yourself, or
+get out of the way.
+
+**So the face draws the call, and gets out of the way for the rest of it.** A ring now puts a card
+under the clock — who is calling, what the dialer had to say about it, and DECLINE and ANSWER as
+two buttons. Answer it and the face stands down for the length of the call, because LightOS's own
+in-call screen has mute, speaker, the keypad and hang up on it, and none of that is worth redrawing
+badly. The face comes back by itself when the call ends. Turn the card off under **Lock screen →
+Calls** and the face stands aside for the whole call instead. What cannot happen any more is a
+ringing phone you cannot answer.
+
+**Answering presses the dialer's own buttons.** The card sends the `PendingIntent` that is already
+in the shade, which is the same thing pressing ANSWER in a notification does, and it needs no grant
+beyond the notification listener the face already has. Underneath it is `TelecomManager`, for a
+dialer whose buttons cannot be told apart by their labels, and that one needs `ANSWER_PHONE_CALLS`
+— one line on the ADB screen, listed with the rest. Without it the card still draws and still
+answers on any dialer that writes ANSWER on its answer button.
+
+**A call on the speaker now starts at maximum.** LightOS ships no volume UI at all, so the call
+stream sits at whatever it was last left at, with nothing on screen that would tell you and nothing
+to drag. The level is set once, on the move to the speaker route — once, deliberately: a level
+re-asserted every second is a volume control you cannot turn down, and turning it down is exactly
+what somebody does when a call gets loud in a quiet room. Lower it after the boost and it stays
+lowered. Android keeps one index per output device, so this moves the speaker and never the
+earpiece. Switch it off under **Volume → Loud speakerphone**.
+
+**And the volume strip now appears during a call.** It has always stayed off LightOS's own screens,
+which have volume controls of their own — but the dialer is a LightOS screen with no volume control
+at all, and it is in front for the whole call. So pressing volume up during a call moved a number
+that nothing on the phone would show, which reads as the keys doing nothing. The strip is the only
+feedback there is in that moment, and it is there now.
+
+**Maximum is the ceiling, and no app can raise it.** Worth writing down, because the obvious next
+idea does not work: call audio goes modem to codec to speaker and never passes through the app
+mixer. Its gain comes from one number inside the audio HAL, the `STREAM_VOICE_CALL` index.
+`LoudnessEnhancer`, an effect on session 0, and a full dialer of our own would each buy control of
+the route and of the in-call screen. None of them adds a decibel.
+
 ## BrightControl v3.33 — the new key is withdrawn; this installs over what you have
 
 **No uninstall. This is an ordinary update.** v3.30 was signed with a brand-new certificate, which
