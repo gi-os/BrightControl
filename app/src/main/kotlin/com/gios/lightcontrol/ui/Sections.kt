@@ -230,6 +230,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var logKeys by remember { mutableStateOf(prefs.logKeys) }
+    var standDown by remember { mutableStateOf(prefs.standDownOnMash) }
     var keyLog by remember { mutableStateOf(prefs.keyLog()) }
 
     SectionScaffold(
@@ -239,6 +240,27 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             "when a button misbehaves, and the event is over before you can look. Everything the " +
             "app noticed about itself is here.",
     ) {
+        SectionLabel("WHEN SOMETHING GOES WRONG")
+        MenuRow(
+            label = "Allowed to stand itself down",
+            detail = if (standDown) "ON" else "OFF",
+            sub = if (standDown) {
+                "four presses of one binding in four seconds, or three throws in a minute, and " +
+                    "the filter goes quiet until you open this app. That takes the wheel and " +
+                    "every button with it — including on a phone that was working fine and just " +
+                    "had its flashlight pressed four times."
+            } else {
+                "off: a run of presses is logged and obeyed, and a run of faults clears itself " +
+                    "after a quiet minute. The buttons keep working. The master switch above is " +
+                    "still yours either way."
+            },
+            onClick = {
+                standDown = !standDown
+                prefs.standDownOnMash = standDown
+            },
+        )
+        Rule()
+
         fault?.let { text ->
             SectionLabel("FAULT")
             MenuRow(

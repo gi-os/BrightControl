@@ -1,3 +1,32 @@
+## BrightControl v3.32 — it stops standing itself down
+
+**Four presses of one binding no longer shut the service off.** The guard was written for somebody
+fighting their phone: four of the same action inside four seconds meant something was looping, and
+a key filter that is wrong about what is happening should stop. In practice four presses of the
+flashlight in four seconds is a flashlight being used, and four presses of home is walking through
+a menu — and the cost of being wrong was the wheel, every button and the lock face going silent
+*until somebody opened this app and noticed*. A guard whose false positive is "your phone's buttons
+have stopped working" has to be worth more than that one was.
+
+It is off now. The run is still logged — a genuine loop looks exactly like this in the key log, and
+that line is where it shows up.
+
+**And a run of faults clears itself.** Three throws inside a minute is a real signal and still
+quiets the filter; what changed is that it comes back on its own a minute later instead of waiting
+to be found. Whatever threw has finished by then, and a wheel that is dead until somebody remembers
+this app exists is the worse of the two failures.
+
+Both are on one switch, **Diagnostics → Allowed to stand itself down**, off by default, for anybody
+who would rather the app went quiet than kept trying. The master switch is unaffected either way:
+that one is yours, this one was only ever the service's opinion of itself.
+
+**The switcher lists as many apps as fit the screen.** It listed eight, which is a number somebody
+typed while looking at one phone — and eight rows plus a label plus the hint line is taller than the
+LPIII's panel at this type size, so the app furthest back was drawn below a fold on a list that
+deliberately cannot be finger-scrolled. The count is worked out from the panel's height and the type
+it is drawn in, floored at three and capped at twelve.
+
+## BrightControl v3.30 — a dialog is not an app you switched to
 ## BrightControl v3.30 — a new signing key, and the reports it closes
 
 **This release is signed with a different key, so it will not install over the last one.** Uninstall

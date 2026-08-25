@@ -367,6 +367,26 @@ class Prefs(context: Context) {
      * switch above, the ring grace window, one activity start a second, and standing down when the
      * same binding fires four times over.
      */
+    /**
+     * Whether the service is allowed to stand *itself* down.
+     *
+     * Off, which is the change. Two guards used to do it and both were sticky until somebody opened
+     * this app:
+     *
+     *  - **Four presses of the same binding inside four seconds.** Written as "somebody is fighting
+     *    the phone", read in practice as "somebody is using the flashlight". Its false positive
+     *    costs the wheel, every button and the lock face at once.
+     *  - **Three throws inside a minute.** A real signal, and still honoured — but now it clears
+     *    itself after a quiet minute instead of waiting to be found.
+     *
+     * On restores the old behaviour for anybody who would rather this app went silent than kept
+     * trying. The master switch above is unaffected either way: that one is the user's, and this
+     * one is only about the service's opinion of itself.
+     */
+    var standDownOnMash: Boolean
+        get() = sp.getBoolean("stand_down_on_mash", false)
+        set(v) = sp.edit().putBoolean("stand_down_on_mash", v).apply()
+
     var homeTakeover: Boolean
         get() = sp.getBoolean("home_takeover", true)
         set(v) = sp.edit().putBoolean("home_takeover", v).apply()

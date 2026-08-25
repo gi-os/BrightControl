@@ -799,7 +799,21 @@ class ControlService : AccessibilityService() {
             faults = 0
             return false
         }
-        return faults >= MAX_FAULTS
+        if (faults < MAX_FAULTS) return false
+        // **It comes back by itself.** Standing down until somebody opens the app made sense while
+        // the only way to notice was to open the app; it does not make sense as the resting state of
+        // a phone's buttons. Three throws inside a minute is still a reason to go quiet — whatever
+        // is wrong, doing it again immediately will not fix it — but a minute later the keys are
+        // worth another try, because the alternative is a wheel that is dead until somebody
+        // remembers this app exists.
+        //
+        // Sticky is still available for anybody who wants it, on the same switch as the mash guard.
+        if (prefs.standDownOnMash) return true
+        if (SystemClock.uptimeMillis() - lastFaultAt < RECOVER_MS) return true
+        faults = 0
+        prefs.setFault("recovered by itself after a quiet minute", false)
+        log("faults cleared · trying again")
+        return false
     }
 
     private fun recordFault(t: Throwable) {
@@ -1146,7 +1160,9 @@ class ControlService : AccessibilityService() {
         // The first notch after the list opens always lands. See [moveSwitcher].
         lastSwitcherMoveAt = 0L
         val list = runCatching {
-            recents.entries(packageManager, skip, SWITCHER_MAX) { appName(this, it) }
+            // As many as fit, asked of the window rather than fixed here: the row that does not
+            // fit is the one furthest back, which is the one a switcher exists for.
+            recents.entries(packageManager, skip, switcher.capacity()) { appName(this, it) }
         }.getOrDefault(emptyList())
         // Anything the lock face is holding up has to come down first, the same as for a launch:
         // layer 31 is layer 31, and two windows there is a coin toss nobody wins.
@@ -1661,19 +1677,33 @@ class ControlService : AccessibilityService() {
             log("${button.name} ${action.store()} DUP dropped")
             return
         }
-        // Someone pressing the same button over and over is someone whose phone is not doing what
-        // they asked. Whatever the service thinks is happening, it is wrong, and the useful thing
-        // it can do is stop — a fight with a key filter is one the phone loses, and it was a run of
-        // presses like this that ended with an activity being started at a launcher over and over.
+        // Four presses of the same binding inside four seconds. The original reading was that
+        // somebody pressing a button over and over is somebody whose phone is not doing what they
+        // asked, and the useful thing a key filter can do about that is stop — it came out of a run
+        // of presses that ended with an activity being started at a launcher over and over.
+        //
+        // The reading was wrong more often than it was right. Four presses of the flashlight in
+        // four seconds is a flashlight being used; four presses of home is walking through a menu.
+        // Both stood the whole service down, which took the wheel, the buttons and the lock face
+        // with them — and standing down is *sticky*, so the phone stayed like that until somebody
+        // opened this app and noticed. A guard whose false positive is "your phone's buttons have
+        // stopped working" has to be worth more than this one is.
+        //
+        // So it is off unless asked for. See [Prefs.standDownOnMash].
         if (action == lastAction && now - runStartedAt < MASH_WINDOW_MS) {
             sameActionRun++
             if (sameActionRun >= MASH_PRESSES) {
-                faults = MAX_FAULTS
-                lastFaultAt = now
                 sameActionRun = 0
-                prefs.setFault("${action.store()} $MASH_PRESSES times over — stood down", true)
-                log("${button.name} MASH — stood down")
-                return
+                if (prefs.standDownOnMash) {
+                    faults = MAX_FAULTS
+                    lastFaultAt = now
+                    prefs.setFault("${action.store()} $MASH_PRESSES times over — stood down", true)
+                    log("${button.name} MASH — stood down")
+                    return
+                }
+                // Logged and carried on. The line is worth keeping: a genuine loop looks exactly
+                // like this in the key log, and now it is the only place it shows up.
+                log("${button.name} MASH — kept going")
             }
         } else {
             sameActionRun = 1
@@ -2134,14 +2164,19 @@ class ControlService : AccessibilityService() {
          */
         const val FRONT_MEMORY_MS = 2 * 60_000L
 
-        /** How many recent apps the switcher lists. More than this is a launcher. */
-        const val SWITCHER_MAX = 8
-
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L
 
         /** How long [ringing]'s quiet answer is reused. See the note there. */
         const val RING_CHECK_MS = 250L
+
+        /**
+         * How long the filter stays quiet after a run of faults before trying again.
+         *
+         * Long enough that whatever threw has finished doing it, short enough that nobody has time
+         * to conclude the buttons are broken. See [dormant].
+         */
+        const val RECOVER_MS = 60_000L
 
         /** The same binding this many times inside this window and the service stands down. */
         const val MASH_PRESSES = 4

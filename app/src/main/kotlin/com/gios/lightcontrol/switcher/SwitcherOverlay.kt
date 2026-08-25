@@ -79,6 +79,38 @@ class SwitcherOverlay(private val context: Context) {
     private val idle = Runnable { hide() }
 
     /**
+     * How many rows fit on this screen, measured rather than assumed.
+     *
+     * It was eight, which is a number somebody typed while looking at one phone. Eight rows plus a
+     * label plus the hint line is taller than the LPIII's panel at the type size this screen uses,
+     * so the last app on the list — the one furthest back, and the one a long press is most likely
+     * aiming at — was drawn below the fold on a list that deliberately cannot be scrolled by
+     * finger.
+     *
+     * Worked out from the same numbers the view is built from: the panel's height, the grid units
+     * of padding above and below, the header and the hint, and one row of type plus its own
+     * padding. [FLOOR] is the honest minimum — a switcher showing fewer than three apps is not
+     * worth the gesture — and the ceiling stops a tablet-sized surface turning this into a
+     * launcher.
+     */
+    fun capacity(): Int {
+        val metrics = context.resources.displayMetrics
+        val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
+        val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
+        val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
+        val padding = type.gridPx(3f) + type.gridPx(3f)
+        val room = metrics.heightPixels - padding - labelPx - hintPx
+        if (rowPx <= 0f) return FLOOR
+        return (room / rowPx).toInt().coerceIn(FLOOR, CEILING)
+    }
+
+    private fun sp(value: Float): Float = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_SP,
+        value,
+        context.resources.displayMetrics,
+    )
+
+    /**
      * Put it up. False means nothing was added, and the caller must not swallow keys for it.
      *
      * **An empty list still shows.** It says so, on the screen, with a line explaining that
@@ -342,6 +374,15 @@ class SwitcherOverlay(private val context: Context) {
     private companion object {
         /** LightOS's own secondary grey. The same value as the app's Compose `Dim`. */
         val DIM: Int = Color.rgb(0x9A, 0x9A, 0x9A)
+
+        /** Fewer than this and the gesture is not worth making. */
+        const val FLOOR = 3
+
+        /** More than this and it is a launcher, not a switcher. */
+        const val CEILING = 12
+
+        /** Roughly what a line of this type occupies, including its own leading. */
+        const val LINE_SPACING = 1.3f
 
         /** How long it waits with nothing pressed before closing itself. */
         const val IDLE_MS = 6_000L
