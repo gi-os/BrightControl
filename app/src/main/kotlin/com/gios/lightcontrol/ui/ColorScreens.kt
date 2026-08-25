@@ -246,7 +246,15 @@ fun ColorAppListScreen(onBack: () -> Unit) {
         runCatching {
             val pm = context.packageManager
             val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
+            // Launchers as well as launchable apps, and LightOS is the reason. A home app
+            // publishes `CATEGORY_HOME` and need not publish `CATEGORY_LAUNCHER` at all — LightOS
+            // does not — so the one package that draws the dashboard, the lock screen, the camera
+            // and the album was the one package this list could not offer a row for. Reported as
+            // "album has no colour filter option to toggle", which was exactly true.
+            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val found = pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL) +
+                pm.queryIntentActivities(home, PackageManager.MATCH_ALL)
+            found
                 .map { it.loadLabel(pm).toString() to it.activityInfo.packageName }
                 .distinctBy { it.second }
                 .sortedBy { it.first.lowercase() }
@@ -284,13 +292,22 @@ fun ColorAppListScreen(onBack: () -> Unit) {
                     val explicit = rules[pkg]
                     val builtIn = Policy.builtInColorRuleFor(pkg)
                     val resolved = explicit ?: builtIn
+                    // LightOS is one package for its whole layer, so its row is one decision for
+                    // the dashboard, the lock screen, the camera and the album together. Worth
+                    // saying on the row: somebody looking for "Album" will never find it, and the
+                    // reason is not obvious from outside.
+                    val wholeLayer = pkg.startsWith("com.lightos")
                     MenuRow(
                         label = label,
                         detail = colorDetail(resolved),
-                        sub = if (explicit == null && builtIn != ColorRule.Default) {
-                            "built in — ${colorDescribe(builtIn)}. Tap to override"
-                        } else {
-                            colorDescribe(resolved)
+                        sub = when {
+                            wholeLayer ->
+                                "the whole Light layer — dashboard, lock screen, camera, album " +
+                                    "and the tools are one package, so this is one decision for " +
+                                    "all of them. " + colorDescribe(resolved)
+                            explicit == null && builtIn != ColorRule.Default ->
+                                "built in — ${colorDescribe(builtIn)}. Tap to override"
+                            else -> colorDescribe(resolved)
                         },
                         onClick = {
                             // Landing back on the preset stores nothing, so a later change to the

@@ -1,3 +1,22 @@
+## BrightControl v3.27 — LightOS's own layer gets a colour row
+
+**The per-app colour list now offers LightOS.** It could not before, and the reason is a detail of
+how launchers declare themselves: the list was built from `CATEGORY_LAUNCHER`, and a home app
+publishes `CATEGORY_HOME` and need not publish `CATEGORY_LAUNCHER` at all. LightOS does not. So the
+one package that draws the dashboard, the lock screen, the camera and the album was the one package
+with no row — reported as "album has no colour filter option to toggle", which was exactly true.
+Home apps are queried too now, which also picks up any other launcher installed.
+
+**Its row says what it covers.** Every Light tool lives in that single package, so the row is one
+decision for the dashboard, the lock screen, the camera and the album together. Set it to COLOR and
+all of them keep colour; there is no way to separate the album from the dashboard, because as far
+as the system is concerned they are not separate things. Nothing about that is obvious from
+outside, so the row explains itself rather than leaving somebody hunting for a row named Album.
+
+Worth knowing what this means for the mono look: LightOS's own interface is drawn in greys, so
+turning the layer to colour changes nothing you can see except the things that were colour to begin
+with — a viewfinder, and the photographs in the album.
+
 ## BrightControl v3.26 — the next overlay app cannot drop your colour either
 
 **v3.24 named Edge Gestures; this stops the class of bug.** `Default` means *restore the
