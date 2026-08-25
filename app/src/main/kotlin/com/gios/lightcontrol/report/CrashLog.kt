@@ -43,6 +43,26 @@ object CrashLog {
         runCatching { file(context).delete() }
     }
 
+    /**
+     * Take over a crash the old SharedPreferences handler recorded, once.
+     *
+     * There were two crash recorders for a while and only one of them was ever installed early
+     * enough to catch anything: [install] ran from `MainActivity.onCreate`, so a crash in the
+     * accessibility service before the settings screen had ever been opened wrote a Prefs entry
+     * and left this file empty — and the three screens that read the file printed "None — the app
+     * did not die", which is light-reports#12. There is one recorder now; this is what stops the
+     * changeover from throwing away a trace already on somebody's phone.
+     *
+     * Never overwrites. A real crash caught by this file wins over anything carried across.
+     */
+    fun adopt(context: Context, text: String) {
+        runCatching {
+            val f = file(context)
+            if (f.exists()) return
+            f.writeText(text)
+        }
+    }
+
     private fun write(context: Context, thread: Thread, error: Throwable) {
         val stack = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
         val at = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())

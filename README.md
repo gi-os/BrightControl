@@ -609,8 +609,10 @@ Solo repo, no PR workflow. Commits go straight to `main`. Every push to `main` t
 builds, signs and publishes a GitHub Release. **A push is a release, not a cosmetic
 action.** Verify before you push, not after. `paths-ignore` excludes documentation-only pushes.
 
-The keystore sits committed under `keystore/`, so every build carries the same signing
-certificate and upgrades install over the top. CI pins the certificate SHA-256 in
+The release keystore is a repository secret, not a file in the tree. CI decodes `KEYSTORE_B64`
+to `keystore/lightcontrol.jks` — a gitignored path — and opens it with `KEYSTORE_PASSWORD`. A
+build without those secrets still produces an installable APK; it is just signed with the local
+debug key and will not install over a release. CI pins the certificate SHA-256 in
 `signing-fingerprint.txt` and fails on drift. `versionCode` is the workflow run number.
 `versionName` in the committed `build.gradle.kts` is only the `major.minor` base. CI stamps
 `major.minor.RUN` at build time and tags it `vX.Y.Z`.

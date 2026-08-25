@@ -37,7 +37,9 @@ import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.ColorMode
+import com.gios.lightcontrol.keys.ColorOutcome
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.report.CrashLog
 import com.gios.lightcontrol.report.Failure
 import com.gios.lightcontrol.report.Reports
 import com.gios.lightcontrol.report.Symptom
@@ -207,7 +209,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
                     symptom = Symptom.Wrong,
                     note = colorHeadline(log),
                     screen = "color",
-                    crash = prefs.lastCrash(),
+                    crash = CrashLog.read(context),
                     failure = Failure(
                         what = "hold per-app color",
                         detail = colorEvidence(prefs, live, auto, canWriteSecure),
@@ -360,6 +362,11 @@ private fun colorDescribe(rule: ColorRule): String = when (rule) {
  * A title reading "Something looks wrong" is worth nothing in a list of them weeks later, and the
  * one fact that decides which bug this is — whether the writes are being lost or ignored — is
  * already in the log. Put it in the title.
+ *
+ * A repaint leads, because it is the only one of these counts that is about the screen rather
+ * than about a write. Four reports — light-reports#37, #38, #44 and #45 — arrived titled "N held,
+ * 0 overwritten" while the phone was being repainted grey between the lines, because every write
+ * really had landed and the count really was zero. See [ColorOutcome.repaints].
  */
 private fun colorHeadline(log: List<String>): String {
     if (log.isEmpty()) return "per-app color: nothing was ever applied"
@@ -368,6 +375,10 @@ private fun colorHeadline(log: List<String>): String {
     // A line the next app's rule replaced is neither: counting it as overwritten made an ordinary
     // walk through three apps read as a fault, and counting it as held would hide a real one.
     val superseded = log.size - ok - lost
+    val repainted = ColorOutcome.repaints(log)
+    if (repainted > 0) {
+        return "per-app color: $repainted repainted by another app, $ok held"
+    }
     return "per-app color: $ok held, $lost overwritten" +
         if (superseded > 0) ", $superseded superseded" else ""
 }

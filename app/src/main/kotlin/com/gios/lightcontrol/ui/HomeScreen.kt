@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.report.CrashLog
 
 /**
  * The top of the app: a master switch, a one-line health line, and a door to each section.
@@ -60,7 +61,7 @@ fun HomeScreen(
 
     var enabled by remember { mutableStateOf(prefs.enabled) }
     val fault = remember { prefs.fault() }
-    val crash = remember { prefs.lastCrash() }
+    val crash = remember { CrashLog.read(context) }
     val homeFault = remember { prefs.homeFault() }
     val lockFault = remember { prefs.lockFault() }
     val anyTrouble = fault != null || crash != null || homeFault != null || lockFault != null

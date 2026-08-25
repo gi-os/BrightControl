@@ -1,4 +1,70 @@
-## BrightControl v3.30 — a dialog is not an app you switched to
+## BrightControl v3.30 — a new signing key, and the reports it closes
+
+**This release is signed with a different key, so it will not install over the last one.** Uninstall
+BrightControl and install this build fresh. It is a nuisance exactly once and it is worth it: the
+old key was committed to this repository with its password written three lines below it, which
+meant anybody who had ever looked at the repo could build an APK Android would accept as an update
+to this app — the app that filters every key on the phone, draws the lock face and holds an adb
+shell. The key is a CI secret now, the keystore path is gitignored, and the build fails outright if
+the certificate ever drifts from the one pinned in `signing-fingerprint.txt`.
+
+Settings, rules and the recents list are in app storage and do not survive an uninstall. The grants
+do not either — `WRITE_SECURE_SETTINGS`, the accessibility service, the notification listener, the
+overlay appop — so run the ADB screen once after reinstalling, which is the one pass it was built
+for.
+
+**The recents list no longer laps itself.** The wheel sends a whole key press per detent, 35 to 60
+milliseconds apart, and the switcher moved one row per press against a list of eight — so an
+ordinary flick ran the list two or three times over before your eye caught up. It now takes at most
+one row every 120 ms, and Buttons › Double press carries a **Switcher scroll speed** row with four
+settings for anyone whose hand disagrees. *(light-reports#47)*
+
+**BrightControl appears in its own switcher.** It could not before, and not for the reason it
+looked like: window events from this package are dropped on purpose, because the overlays this
+service owns raise them too, so the settings screen was never recorded as an app you had been in.
+It records itself now. Holding the click on its row does nothing — force-stopping the process that
+runs the key filter is not a thing this list is going to offer. *(light-reports#47)*
+
+**The lock face shows a charging bolt again.** It was drawn last, under two early returns that fire
+at an unknown level and at a near-flat battery — which are precisely the two states somebody plugs
+a phone in to look at. The bolt is drawn first now, punched black over the charged part and white
+over the empty part as before, and white on the bare shell when there is no fill to punch. It is
+static rather than animated: the face repaints on the minute tick and on a battery broadcast, and a
+pulse would mean a new timer running inside an accessibility service. That is not a trade worth
+making for an animation. *(light-reports#46)*
+
+**Per-app colour holds for the full two seconds it was always meant to.** Every colour write ends
+in a deliberate double-write of the enable flag — the only way to make "off" look like a change to
+whatever is downstream of it — and those writes woke this app's own settings observer, whose first
+act was to cancel every pending re-assert. The 800 ms and 2000 ms passes were being cancelled by
+the write that scheduled them, leaving a single attempt at +120 ms, which is before LightOS has
+finished repainting. The observer has its own callback now and can only ever cancel its own.
+*(light-reports#37, #38, #44, #45)*
+
+**And the diagnostic that made those four reports useless is fixed.** The Colour screen counted
+`got == want` — this app comparing its own write against the setting it had just written — so it
+headlined "12 held, 0 overwritten" over a log whose every other line was something else painting
+the screen grey. Both numbers were true. Neither was the fault. A `Default` or `Mono` line landing
+within three seconds of a `Color` line for a different package is now read as what it is, and the
+title says "N repainted by another app".
+
+**A crash in the service is recorded from the first instruction of the process.** There were two
+crash recorders and the one everything read from was installed by the settings screen — so a crash
+in the accessibility service, on a phone whose owner had not opened the settings since installing,
+was written to one place and read from another. The report then printed "None — the app did not
+die" above a report filed because it had. One recorder now, installed in `Application.onCreate`,
+and anything the old one caught is carried across once rather than dropped. *(light-reports#12)*
+
+**The grant screen checks who is asking instead of being told.** Another app can ask BrightControl
+to run the ADB setup its README describes, and every command is rebuilt here and pinned to the
+requesting package — but the requesting package was read out of the intent, by the sender. Checking
+an attacker's commands against an attacker's package name proves nothing, and the screen said in as
+many words that it "is checked here, not taken on trust". The caller now comes from the platform:
+the calling activity where there is one, otherwise the system's referrer, with the forgeable
+referrer extras stripped first. No verifiable caller, no screen. BrightMarket relays setup for apps
+in its catalogue, so it alone may name a different target; anyone else naming a package that is not
+their own gets every line refused, by name, on the screen built to say so. The app's own name comes
+from the package manager now rather than from the intent.
 
 **Deleting a photograph in the album no longer turns the album monochrome.** Reported from outside,
 and the log named it exactly: `com.android.providers.media.module DEFAULT want 1/0`. The album's
@@ -20,6 +86,10 @@ it has is written against.
 
 `com.android.providers.media.module` and the two permission controllers are named as well. A name
 costs nothing, skips a `PackageManager` round trip, and makes the key log readable.
+
+**Under the hood.** The unit tests run before the build on every push — pushes go straight to
+`main`, and the branch workflow that ran them ignores `main`, so 68 tests had never once gated a
+build that shipped. Every GitHub Action is pinned to a commit SHA rather than a moving tag.
 
 ## BrightControl v3.29 — LightOS drives its own colour
 

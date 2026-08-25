@@ -11,6 +11,7 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.report.CrashLog
 
 /** What a bare turn does, per-app overrides, swipe distance, and the double-tap mode switch. */
 @Composable
@@ -225,7 +226,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     val prefs = remember { Prefs(context) }
 
     var fault by remember { mutableStateOf(prefs.fault()) }
-    var crash by remember { mutableStateOf(prefs.lastCrash()) }
+    var crash by remember { mutableStateOf(CrashLog.read(context)) }
     var homeFault by remember { mutableStateOf(prefs.homeFault()) }
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var logKeys by remember { mutableStateOf(prefs.logKeys) }
@@ -288,7 +289,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                     label = "Forget it",
                     detail = "CLEAR",
                     onClick = {
-                        prefs.clearCrash()
+                        CrashLog.clear(context)
                         crash = null
                     },
                 )

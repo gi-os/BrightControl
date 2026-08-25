@@ -92,4 +92,21 @@ object Grants {
 object OwnWindow {
     @Volatile
     var resumed: Boolean = false
+        set(value) {
+            val was = field
+            field = value
+            if (value && !was) runCatching { onResumed?.invoke() }
+        }
+
+    /**
+     * Called when the settings screen comes to the front, once per arrival.
+     *
+     * The switcher's list is built from window-state events, and events from this package are
+     * dropped before they get anywhere near it — so this app could never appear in its own list
+     * of recent apps, which is the second half of light-reports#47. This is the one honest signal
+     * that it was in front, and [com.gios.lightcontrol.keys.ControlService] is what records it.
+     * Null whenever the service is not bound; the flag itself still works.
+     */
+    @Volatile
+    var onResumed: (() -> Unit)? = null
 }

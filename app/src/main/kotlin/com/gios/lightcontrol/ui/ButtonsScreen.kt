@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +50,7 @@ fun ButtonsScreen(
 
     var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
     var switcher by remember { mutableStateOf(prefs.homeDoubleSwitcher) }
+    var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
     var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
@@ -105,6 +107,24 @@ fun ButtonsScreen(
                             prefs.homeDoubleSwitcher = switcher
                         },
                     )
+                    if (switcher) {
+                        MenuRow(
+                            label = "Switcher scroll speed",
+                            detail = switcherSpeedLabel(stepMs),
+                            sub = "at most one row every $stepMs ms. The wheel sends a notch " +
+                                "every 35–60 ms, so without a floor one flick runs the whole " +
+                                "list two or three times over.",
+                            onClick = {
+                                stepMs = when (stepMs) {
+                                    60L -> 120L
+                                    120L -> 200L
+                                    200L -> 320L
+                                    else -> 60L
+                                }
+                                prefs.switcherStepMs = stepMs
+                            },
+                        )
+                    }
                     MenuRow(
                         label = "Timing the hold takes the key",
                         detail = if (homeArmed) "ON" else "OFF",
@@ -203,3 +223,11 @@ fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
 fun appLabel(pm: PackageManager, pkg: String): String = runCatching {
     pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
 }.getOrDefault(pkg)
+
+/** A number of milliseconds, as the word somebody would use for it. */
+private fun switcherSpeedLabel(stepMs: Long): String = when {
+    stepMs <= 80L -> "FAST"
+    stepMs <= 150L -> "NORMAL"
+    stepMs <= 260L -> "SLOW"
+    else -> "SLOWEST"
+}

@@ -258,6 +258,10 @@ class ControlService : AccessibilityService() {
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
         colorMode = ColorMode(this, prefs)
+        // Our own settings screen, onto the recents list. Nothing else can put it there: window
+        // events from this package are transient by policy, because the overlays this service
+        // owns raise them too. See [OwnWindow.onResumed].
+        OwnWindow.onResumed = { runCatching { recents.note(packageName) } }
         recoverForeground()
         runCatching { colorMode.applyFor(foreground) }
         scheduleColorReasserts()
@@ -351,9 +355,12 @@ class ControlService : AccessibilityService() {
             foreground = pkg
             foregroundAt = SystemClock.uptimeMillis()
             // LightOS's own shell is left out on purpose: one press of home already goes there,
-            // so a row for it could only ever be the slower way to do the same thing. Our own
-            // settings screen is left out for the same reason it is ignored above.
-            if (!pkg.startsWith(LIGHTOS) && pkg != packageName) recents.note(pkg)
+            // so a row for it could only ever be the slower way to do the same thing. This app's
+            // own package needs no test here — [Policy.isTransientWindow] returned above for it,
+            // because the overlay windows this service owns raise these events too. The settings
+            // screen puts itself on the list from [OwnWindow], where an activity resuming is the
+            // one signal that means what it says.
+            if (!pkg.startsWith(LIGHTOS)) recents.note(pkg)
             // Written down for the next process. See [Prefs.lastFront] and [recoverForeground].
             runCatching { prefs.setLastFront(pkg, System.currentTimeMillis()) }
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
@@ -1131,7 +1138,13 @@ class ControlService : AccessibilityService() {
         if (!awake()) return false
         if (switcher.showing) return true
         val front = if (OwnWindow.resumed) packageName else foreground
-        val skip = setOfNotNull(packageName, front)
+        // Only what you are looking at is left out. This app used to be excluded outright, which
+        // is right while its settings are the front app — `front` already says so — and wrong
+        // every other time: light-reports#47 asks for the row, and a switcher that cannot switch
+        // back to the app you switched away from is missing the obvious entry.
+        val skip = setOfNotNull(front)
+        // The first notch after the list opens always lands. See [moveSwitcher].
+        lastSwitcherMoveAt = 0L
         val list = runCatching {
             recents.entries(packageManager, skip, SWITCHER_MAX) { appName(this, it) }
         }.getOrDefault(emptyList())
@@ -1156,6 +1169,15 @@ class ControlService : AccessibilityService() {
      */
     private fun stopApp(pkg: String) {
         val label = appName(this, pkg)
+        // Never this app. Now that it has a row of its own, a hold on that row would otherwise
+        // kill the process this service runs in — the phone's key filter, its lock face and its
+        // colour, stopped by a gesture meant to tidy up a misbehaving app.
+        if (pkg == packageName) {
+            runCatching {
+                switcher.stopped(pkg, "CANNOT STOP $label · it is the key filter", gone = false)
+            }
+            return
+        }
         Thread {
             val result = runCatching { ForceStop.stop(this, pkg) }
                 .getOrDefault(ForceStop.Result.Failed)
@@ -1190,8 +1212,8 @@ class ControlService : AccessibilityService() {
         val up = event.action == KeyEvent.ACTION_UP
         return when (key) {
             // Turning towards the top of the phone moves the selection up the list.
-            LightKey.WheelUp -> { if (down) runCatching { switcher.move(-1) }; true }
-            LightKey.WheelDown -> { if (down) runCatching { switcher.move(1) }; true }
+            LightKey.WheelUp -> { if (down) moveSwitcher(-1); true }
+            LightKey.WheelDown -> { if (down) moveSwitcher(1); true }
             // Tap opens the selection; holding it stops that app — the same pair the rows offer
             // a thumb. Timed at the release like every other hold in this service: one that fired
             // mid-press would stop an app while the button was still down and then hand the rest
@@ -1223,6 +1245,34 @@ class ControlService : AccessibilityService() {
             LightKey.VolumeUp, LightKey.VolumeDown -> false
         }
     }
+
+    /**
+     * Move the switcher's selection, at most one row per [Prefs.switcherStepMs].
+     *
+     * The wheel emits a whole DOWN/UP pair per detent, 35–60 ms apart (see [LightKeys]), and one
+     * row per pair against a list of [SWITCHER_MAX] means an ordinary flick laps it two or three
+     * times before your eye catches up — which is exactly what light-reports#47 describes. A
+     * floor is the only thing that helps: the hardware will not send fewer notches, so the list
+     * has to take fewer of them.
+     *
+     * The settings screens solved the same problem in [com.gios.lightcontrol.ui.WheelCursor] by
+     * scrolling to the selection instead of counting rows, which cannot apply here — the switcher
+     * is eight rows on one screen with nothing to scroll. So this is the same idea spent on time
+     * rather than on distance, and the interval is a preference for the same reason the swipe
+     * distance is one: what reads as fast is a fact about the hand, not about the phone.
+     */
+    private fun moveSwitcher(delta: Int) {
+        val now = SystemClock.uptimeMillis()
+        val step = prefs.switcherStepMs
+        // Dropped, never queued. A notch that arrives inside the window is a notch nobody saw the
+        // result of, and replaying it late would move the list after the hand had stopped.
+        if (lastSwitcherMoveAt != 0L && now - lastSwitcherMoveAt < step) return
+        lastSwitcherMoveAt = now
+        runCatching { switcher.move(delta) }
+    }
+
+    /** When the switcher's selection last moved. Zero means "the next notch goes through". */
+    private var lastSwitcherMoveAt = 0L
 
     /** Interactive and unlocked — the only state a shadow tap may launch anything in. */
     private fun awake(): Boolean = runCatching {
@@ -1402,6 +1452,18 @@ class ControlService : AccessibilityService() {
     }
 
     /**
+     * The same work, as a second object, so the two schedulers cannot cancel each other.
+     *
+     * `Handler.removeCallbacks` matches on the Runnable instance, so one shared object made the
+     * settings observer and [scheduleColorReasserts] a single queue with one entry in it. They
+     * want different things — the observer wants the latest change coalesced, the train wants
+     * three fixed posts kept — and neither can have both from one identity.
+     */
+    private val colorObserverReassert = Runnable {
+        runCatching { colorMode.applyFor(foreground, realScreen = lastWindowWasActivity) }
+    }
+
+    /**
      * Watch the two daltonizer settings and put the front app's rule back whenever anything else
      * moves them.
      *
@@ -1424,8 +1486,16 @@ class ControlService : AccessibilityService() {
                 override fun onChange(selfChange: Boolean) {
                     // Coalesced: a mode/enabled pair arrives as two changes a millisecond apart,
                     // and re-asserting between them would fight a half-written state.
-                    handler.removeCallbacks(colorReassert)
-                    handler.postDelayed(colorReassert, COLOR_SETTLE_MS)
+                    //
+                    // Its own Runnable, and that is the whole of light-reports#37/38/44/45. Every
+                    // Color write ends in ColorMode.nudge(), which writes ENABLED twice on
+                    // purpose — and those writes wake this observer, whose removeCallbacks then
+                    // cancelled the 800 ms and 2000 ms re-asserts scheduled by
+                    // [scheduleColorReasserts] a moment earlier. Two seconds of cover collapsed
+                    // to a single post at +120 ms, which is before LightOS has finished
+                    // repainting. Cancelling now only ever cancels this observer's own post.
+                    handler.removeCallbacks(colorObserverReassert)
+                    handler.postDelayed(colorObserverReassert, COLOR_SETTLE_MS)
                 }
             }
             contentResolver.registerContentObserver(
@@ -1450,6 +1520,9 @@ class ControlService : AccessibilityService() {
             runCatching { contentResolver.unregisterContentObserver(observer) }
         }
         Lock.pending = null
+        OwnWindow.onResumed = null
+        handler.removeCallbacks(colorReassert)
+        handler.removeCallbacks(colorObserverReassert)
         handler.removeCallbacks(lockWatch)
         handler.removeCallbacks(coverTimeout)
         coverTarget = null

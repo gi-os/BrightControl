@@ -43,7 +43,6 @@ import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import com.gios.lightcontrol.report.CrashLog
 import com.gios.lightcontrol.report.ReportOverlay
 
 /**
@@ -106,7 +105,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        CrashLog.install(this)
+        // The crash handler is installed by [App], which runs before this and before the
+        // accessibility service. Installing it here as well is what made a crash in the service
+        // invisible until somebody had opened these settings at least once — light-reports#12.
         setContent {
             LightControlTheme {
                 CompositionLocalProvider(
@@ -299,19 +300,89 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
 /**
  * The grant request carried by a launching intent, if there is one.
  *
- * Sent by BrightMarket when an app in the catalog declares ADB setup in its README. Nothing is
- * trusted here beyond "these are the words that arrived" — [com.gios.lightcontrol.adb
- * .GrantRequest] does the checking, and the screen shows the result before anything runs.
+ * Sent by BrightMarket when an app in the catalog declares ADB setup in its README.
+ *
+ * ## Who is asking is decided here, not stated in the intent
+ *
+ * This used to read the requesting package out of [EXTRA_PACKAGE] — a string put there by
+ * whoever sent the intent — and hand it to [com.gios.lightcontrol.adb.GrantRequest.parse] as the
+ * package every command is then checked against. Checking an attacker's lines against an
+ * attacker's package name proves nothing: any app on the phone could name any other, and the
+ * screen said in as many words that this "is checked here, not taken on trust".
+ *
+ * The caller's identity now comes from the platform:
+ *
+ *  1. [Activity.getCallingActivity], which only exists for `startActivityForResult` and is the
+ *     strongest answer when it is there.
+ *  2. Otherwise the referrer, which the system sets from the launching package. [callerOf] strips
+ *     `EXTRA_REFERRER` and `EXTRA_REFERRER_NAME` off the intent first, because
+ *     [Activity.getReferrer] prefers those extras over the system's own value and they are as
+ *     forgeable as anything else in a Bundle.
+ *
+ * No verifiable caller means no screen. There is no third source and deliberately no fallback to
+ * the extra.
+ *
+ * ## Brokering, which is what the extra is actually for
+ *
+ * BrightMarket does not ask for grants for itself; it relays the ones an app in its catalogue
+ * declares, and launches this with `startActivity`. So one package — and only that one — may
+ * name a different target in [EXTRA_PACKAGE]. Everyone else is pinned to itself: a request from
+ * `com.evil.app` naming `com.gios.roll` becomes a request from `com.evil.app` naming
+ * `com.gios.roll`, and every line of it is refused, loudly, on the screen built to say so.
+ *
+ * [EXTRA_LABEL] is ignored outright. The words above the commands come from
+ * [PackageManager.getApplicationLabel] for the package that will actually be named in them, so
+ * "Set up Roll" is a fact about this phone rather than a claim in a Bundle.
  */
-private fun grantRequestFrom(intent: android.content.Intent?): Screen? {
+private fun MainActivity.grantRequestFrom(intent: android.content.Intent?): Screen? {
     if (intent?.action != ACTION_RUN_GRANTS) return null
-    val pkg = intent.getStringExtra(EXTRA_PACKAGE)?.takeIf { it.isNotBlank() } ?: return null
+    val caller = callerOf(intent) ?: return null
     val lines = intent.getStringArrayListExtra(EXTRA_COMMANDS)?.filter { it.isNotBlank() }
         ?: return null
     if (lines.isEmpty()) return null
-    val label = intent.getStringExtra(EXTRA_LABEL)?.takeIf { it.isNotBlank() } ?: pkg
-    return Screen.GrantRequestFor(label = label, pkg = pkg, lines = lines)
+    val asked = intent.getStringExtra(EXTRA_PACKAGE)?.takeIf { it.isNotBlank() }
+    // Only the broker may speak for somebody else. Anyone else asking for a package that is not
+    // their own is left pointed at their own, so GrantRequest.parse refuses the lot and names
+    // the mismatch.
+    val target = if (caller == BROKER_PKG && asked != null) asked else caller
+    return Screen.GrantRequestFor(label = labelOf(target), pkg = target, lines = lines)
 }
+
+/**
+ * The package that launched this activity, as the platform knows it, or null.
+ *
+ * The extras are removed before [Activity.getReferrer] is asked, because that method returns
+ * `EXTRA_REFERRER` ahead of the system-set value and both extras travel in the same Bundle as
+ * everything else the sender chose. What is left is `mReferrer`, filled in by the activity
+ * manager from the launching package.
+ */
+private fun MainActivity.callerOf(intent: android.content.Intent): String? {
+    callingActivity?.packageName?.takeIf { it.isNotBlank() }?.let { return it }
+    intent.removeExtra(android.content.Intent.EXTRA_REFERRER)
+    intent.removeExtra(android.content.Intent.EXTRA_REFERRER_NAME)
+    // `this.referrer` spelled out: a local named `referrer` would shadow the property it is
+    // being initialised from.
+    val from = runCatching { this.referrer }.getOrNull() ?: return null
+    if (from.scheme != "android-app") return null
+    return from.host?.takeIf { it.isNotBlank() }
+}
+
+/** An installed app's own name, falling back to its package id when it is not installed. */
+private fun MainActivity.labelOf(pkg: String): String = runCatching {
+    val info = packageManager.getApplicationInfo(pkg, 0)
+    packageManager.getApplicationLabel(info).toString().takeIf { it.isNotBlank() } ?: pkg
+}.getOrDefault(pkg)
+
+/**
+ * The one app allowed to ask on another app's behalf. See [grantRequestFrom].
+ *
+ * A package name, not a signature. Two packages with the same id cannot both be installed, so
+ * this is not spoofable while BrightMarket is on the phone — and if it is not, there is no
+ * brokered request to honour in the first place. Pinning its certificate here as well would be
+ * stronger and would also mean BrightMarket rotating its own key silently kills this screen, so
+ * it is written down as the next step rather than done blind.
+ */
+private const val BROKER_PKG = "com.gios.brightmarket"
 
 const val ACTION_RUN_GRANTS = "com.gios.lightcontrol.action.RUN_GRANTS"
 const val EXTRA_PACKAGE = "com.gios.lightcontrol.extra.PACKAGE"

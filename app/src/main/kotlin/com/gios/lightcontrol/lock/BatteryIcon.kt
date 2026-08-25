@@ -76,36 +76,49 @@ class BatteryIcon(context: Context) : View(context) {
         val nubRect = RectF(bodyRight + nubGap, nubTop, w, nubTop + nubHeight)
         canvas.drawRoundRect(nubRect, nubWidth / 2f, nubWidth / 2f, fill)
 
-        if (level < 0) return
-
         // The fill sits inside the outline with a hairline of ground around it, so a full
         // battery still reads as an outline containing something rather than a solid block.
         val pad = stroke * 1.6f
         val trackLeft = body.left + pad
         val trackRight = body.right - pad
         val span = (trackRight - trackLeft).coerceAtLeast(0f)
-        val filled = span * (level.coerceIn(0, 100) / 100f)
-        if (filled <= 0f) return
-
-        inner.set(trackLeft, body.top + pad, trackLeft + filled, body.bottom - pad)
+        // An unknown level is an empty shell, not a full one. Below zero never becomes a fill.
+        val filled = if (level < 0) 0f else span * (level.coerceIn(0, 100) / 100f)
+        val hasFill = filled > 0f
         val innerRadius = radius * 0.5f
-        canvas.drawRoundRect(inner, innerRadius, innerRadius, fill)
 
-        if (charging) {
-            // The bolt has to survive crossing the edge of the fill. Punching it black works only
-            // where there is white under it — at 45% that left the bolt half drawn, reading as a
-            // bite out of the fill rather than as a bolt. So it is drawn twice, clipped: black
-            // over the charged part, white over the empty part.
-            canvas.save()
-            canvas.clipRect(inner)
-            drawBolt(canvas, body, bolt)
-            canvas.restore()
-
-            canvas.save()
-            canvas.clipRect(inner.right, body.top, body.right, body.bottom)
-            drawBolt(canvas, body, fill)
-            canvas.restore()
+        if (hasFill) {
+            inner.set(trackLeft, body.top + pad, trackLeft + filled, body.bottom - pad)
+            canvas.drawRoundRect(inner, innerRadius, innerRadius, fill)
         }
+
+        // Above both of the returns this used to sit under, which is the whole of
+        // light-reports#46. `level < 0` and `filled <= 0f` both bailed out before the bolt was
+        // reached — an unknown level and a flat battery — and those are precisely the two states
+        // somebody plugs a phone in to leave. The lock face showed no charging mark at all, and
+        // LightOS showed one the moment the phone was unlocked, so it read as ours being broken.
+        if (!charging) return
+
+        if (!hasFill) {
+            // Nothing white underneath, so nothing to punch out of: one white bolt on the empty
+            // shell. This is the flat-battery and unknown-level case.
+            drawBolt(canvas, body, fill)
+            return
+        }
+
+        // The bolt has to survive crossing the edge of the fill. Punching it black works only
+        // where there is white under it — at 45% that left the bolt half drawn, reading as a
+        // bite out of the fill rather than as a bolt. So it is drawn twice, clipped: black
+        // over the charged part, white over the empty part.
+        canvas.save()
+        canvas.clipRect(inner)
+        drawBolt(canvas, body, bolt)
+        canvas.restore()
+
+        canvas.save()
+        canvas.clipRect(inner.right, body.top, body.right, body.bottom)
+        drawBolt(canvas, body, fill)
+        canvas.restore()
     }
 
     /** A lightning bolt centered on the body, in whichever color the region under it needs. */

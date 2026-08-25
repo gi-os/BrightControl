@@ -290,6 +290,22 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("home_double_switcher", v).apply()
 
     /**
+     * The shortest gap between two rows while the switcher is up, in milliseconds.
+     *
+     * The wheel sends a whole key pair per detent, 35–60 ms apart, and one row per pair against
+     * an eight-row list means a flick laps it two or three times — reported as "scrolling on
+     * recent view is very fast". 120 ms is roughly two detents per row, which is a list that
+     * keeps up with a deliberate turn and ignores a spin.
+     *
+     * A preference because the reporter asked for one and because the right number is a fact
+     * about the hand. Coerced rather than trusted: zero would restore the bug and anything above
+     * half a second would read as a wheel that has stopped answering.
+     */
+    var switcherStepMs: Long
+        get() = sp.getLong("switcher_step_ms", 120L)
+        set(v) = sp.edit().putLong("switcher_step_ms", v.coerceIn(40L, 500L)).apply()
+
+    /**
      * Whether the camera button's binding applies on LightOS's own screens.
      *
      * The one key that needed its own answer. Everything else on those screens is gated behind
@@ -435,15 +451,17 @@ class Prefs(context: Context) {
     fun clearFault() = sp.edit().remove("fault").putBoolean("fault_dormant", false).apply()
 
     /**
-     * The last crash that killed the app, kept so the phone can show it.
+     * The last crash, as the old recorder stored it. **Read once, on the way out.**
      *
-     * A sideloaded app on LightOS has no crash dialog worth reading and no adb attached when it
-     * matters — "it crashes when I open it" is the whole report otherwise. [com.gios.lightcontrol.App]
-     * writes here from the uncaught-exception handler, before the process goes, and the settings
-     * screen shows it on the next launch.
+     * There were two crash recorders and they disagreed: this one, written from
+     * [com.gios.lightcontrol.App], and [com.gios.lightcontrol.report.CrashLog], read by the report
+     * sheet and installed too late to catch anything the service did. Everything reads the file
+     * now. These stay only so that a trace already sitting on a phone survives the changeover —
+     * `App.onCreate` hands it to `CrashLog.adopt` and clears it, once.
      */
     fun lastCrash(): String? = sp.getString("last_crash", null)
 
+    /** No longer written to. See [lastCrash]. */
     fun recordCrash(text: String) {
         // commit(), not apply(): the process is about to die and apply() is asynchronous.
         sp.edit().putString("last_crash", text.take(CRASH_CHARS)).commit()

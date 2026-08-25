@@ -56,4 +56,73 @@ object ColorOutcome {
         "$at $pkg ${rule.uppercase()} " +
             "want ${want.first}/${want.second} got ${got.first}/${got.second} " +
             of(want, got, wantedNow)
+
+    /**
+     * How many times another app repainted the screen out from under a colour rule.
+     *
+     * ### Why the per-line outcome cannot see this
+     *
+     * [of] compares `got` against `want` — this app's read-back against the value this app had
+     * just written — so a write that landed reads `ok` no matter what happens to the screen a
+     * second later. That is why light-reports#37, #38, #44 and #45 all arrived headlined "N held,
+     * 0 overwritten" over a log whose every other line is somebody else stating the baseline. The
+     * counts were true and the report was useless.
+     *
+     * ### What a repaint looks like
+     *
+     * A `COLOR` line for one package, then a `DEFAULT` or `MONO` line for a *different* package
+     * within [REPAINT_WINDOW_S] seconds. On this phone the baseline is monochrome, so that
+     * second line is the screen going grey under an app that asked for colour and is still in
+     * front — the fault, spelled out, in two lines that individually both say `ok`.
+     *
+     * One repaint is counted per colour write. A window state that raises three baseline writes
+     * in a row is one thing going wrong, not three.
+     *
+     * @param log newest first, the way [com.gios.lightcontrol.Prefs.colorLog] stores it.
+     */
+    fun repaints(log: List<String>): Int {
+        var count = 0
+        var colour: Line? = null
+        // Oldest first, because "landed after" is the whole question.
+        for (line in log.mapNotNull { parse(it) }.reversed()) {
+            if (line.rule == "COLOR") {
+                colour = line
+                continue
+            }
+            if (line.rule != "DEFAULT" && line.rule != "MONO") continue
+            val since = colour ?: continue
+            if (line.pkg == since.pkg) continue
+            // A negative gap is the log crossing midnight, which is not a measurement. Left
+            // uncounted rather than guessed at: the log is twelve lines and it will say so again.
+            val gap = line.at - since.at
+            if (gap < 0 || gap > REPAINT_WINDOW_S) continue
+            count++
+            colour = null
+        }
+        return count
+    }
+
+    /** How long after a colour write a baseline write is still that colour being undone. */
+    const val REPAINT_WINDOW_S = 3
+
+    private class Line(val at: Int, val pkg: String, val rule: String)
+
+    /**
+     * The three fields [repaints] needs back out of a line, or null if this is not one.
+     *
+     * Parsing the app's own format rather than storing structured records: the log is a ring of
+     * strings in SharedPreferences that a phone in somebody's pocket is already carrying, and a
+     * schema change would blank it for everyone mid-investigation.
+     */
+    private fun parse(line: String): Line? {
+        val parts = line.split(' ')
+        if (parts.size < 3) return null
+        val hms = parts[0].split(':')
+        if (hms.size != 3) return null
+        val h = hms[0].toIntOrNull() ?: return null
+        val m = hms[1].toIntOrNull() ?: return null
+        val sec = hms[2].toIntOrNull() ?: return null
+        if (parts[1].isBlank() || parts[2].isBlank()) return null
+        return Line(h * 3600 + m * 60 + sec, parts[1], parts[2])
+    }
 }

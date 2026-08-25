@@ -51,6 +51,135 @@ class ColorOutcomeTest {
         )
     }
 
+    // ---- repaints: what the per-line outcome cannot see -----------------------
+
+    private fun log(vararg lines: String) = lines.toList()
+
+    @Test
+    fun `a baseline write over another app's colour is a repaint`() {
+        // The shape of light-reports#44, and every line in it says `ok`.
+        assertEquals(
+            1,
+            ColorOutcome.repaints(
+                log(
+                    "11:54:12 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:11 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a headline of held and overwritten hides it entirely`() {
+        // Every one of these is `ok`, so the old title read "6 held, 0 overwritten" over a phone
+        // that was being repainted grey three times.
+        val lines = log(
+            "12:00:23 com.lightos DEFAULT want 1/0 got 1/0 ok",
+            "12:00:22 com.waze COLOR want 0/-1 got 0/-1 ok",
+            "12:00:17 com.lightos DEFAULT want 1/0 got 1/0 ok",
+            "12:00:15 com.gios.lightcamera COLOR want 0/-1 got 0/-1 ok",
+            "12:00:10 com.lightos DEFAULT want 1/0 got 1/0 ok",
+            "12:00:09 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+        )
+        assertEquals(6, lines.count { it.endsWith("ok") })
+        assertEquals(3, ColorOutcome.repaints(lines))
+    }
+
+    @Test
+    fun `a baseline long after the colour is not a repaint`() {
+        // Ten seconds later is somebody putting the phone down, not the screen being taken back.
+        assertEquals(
+            0,
+            ColorOutcome.repaints(
+                log(
+                    "11:54:21 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:11 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `an app restating its own baseline is not a repaint`() {
+        assertEquals(
+            0,
+            ColorOutcome.repaints(
+                log(
+                    "11:54:12 com.gios.lightchat DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:11 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a run of baselines over one colour write counts once`() {
+        // One window state raising three baseline writes is one thing going wrong.
+        assertEquals(
+            1,
+            ColorOutcome.repaints(
+                log(
+                    "11:54:13 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:12 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:12 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "11:54:11 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `mono counts as a repaint too`() {
+        assertEquals(
+            1,
+            ColorOutcome.repaints(
+                log(
+                    "09:00:02 com.ss.edgegestures MONO want 1/0 got 1/0 ok",
+                    "09:00:01 com.gios.lightcamera COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a colour write with nothing after it is not a repaint`() {
+        assertEquals(
+            0,
+            ColorOutcome.repaints(log("09:00:01 com.gios.lightcamera COLOR want 0/-1 got 0/-1 ok")),
+        )
+    }
+
+    @Test
+    fun `an unreadable log is not a crash`() {
+        assertEquals(0, ColorOutcome.repaints(emptyList()))
+        assertEquals(0, ColorOutcome.repaints(log("", "empty", "not a line at all")))
+    }
+
+    @Test
+    fun `a log crossing midnight is left uncounted rather than guessed at`() {
+        assertEquals(
+            0,
+            ColorOutcome.repaints(
+                log(
+                    "00:00:01 com.lightos DEFAULT want 1/0 got 1/0 ok",
+                    "23:59:59 com.gios.lightchat COLOR want 0/-1 got 0/-1 ok",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `the line this reads is the line the app writes`() {
+        // The parser and the formatter have to agree, and only one of them is on this screen.
+        val written = ColorOutcome.line(
+            "11:54:12", "com.lightos", "Default", 1 to 0, 1 to 0, 1 to 0,
+        )
+        val colour = ColorOutcome.line(
+            "11:54:11", "com.gios.lightchat", "Color", 0 to -1, 0 to -1, 0 to -1,
+        )
+        assertEquals(1, ColorOutcome.repaints(listOf(written, colour)))
+    }
+
     @Test
     fun `the outcome stays at the end of the line`() {
         // The Color screen's headline counts held, overwritten and superseded by the line's
