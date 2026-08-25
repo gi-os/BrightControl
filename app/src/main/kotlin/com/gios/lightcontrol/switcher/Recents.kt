@@ -3,6 +3,7 @@ package com.gios.lightcontrol.switcher
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import com.gios.lightcontrol.Prefs
 
 /**
  * Which apps you have been in, most recent first.
@@ -17,9 +18,15 @@ import android.content.pm.PackageManager
  *
  * Nothing is stored. This lives in the service's process and dies with it.
  */
-class Recents {
+class Recents(private val prefs: Prefs) {
 
-    private val order = ArrayDeque<String>()
+    /**
+     * Loaded from storage, not started empty.
+     *
+     * Every release of this app rebinds the service, and an order held only in memory is empty
+     * for the minutes right after an update — which are the minutes somebody tries the gesture.
+     */
+    private val order = ArrayDeque(prefs.recentApps())
 
     /** Note an app coming to the front. The most recent is always at the head. */
     @Synchronized
@@ -27,6 +34,7 @@ class Recents {
         order.remove(pkg)
         order.addFirst(pkg)
         while (order.size > KEEP) order.removeLast()
+        runCatching { prefs.setRecentApps(order.toList()) }
     }
 
     @Synchronized

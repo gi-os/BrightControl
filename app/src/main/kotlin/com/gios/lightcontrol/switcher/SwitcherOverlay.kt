@@ -72,11 +72,12 @@ class SwitcherOverlay(private val context: Context) {
     /**
      * Put it up. False means nothing was added, and the caller must not swallow keys for it.
      *
-     * An empty list is a refusal, not an error: it is the ordinary state of a phone that has
-     * been used for one thing since it booted.
+     * **An empty list still shows.** It says so, on the screen, with a line explaining that
+     * nothing has been opened yet. The alternative — refusing to appear — is a gesture that
+     * looks broken in exactly the state a new install is in, which is the state everybody who
+     * has just updated the app is in. A feature that cannot show you it worked has not worked.
      */
     fun show(list: List<Entry>): Boolean {
-        if (list.isEmpty()) return false
         entries = list
         index = 0
         if (root != null) {
@@ -220,6 +221,17 @@ class SwitcherOverlay(private val context: Context) {
                 setPadding(0, 0, 0, type.gridPx(1f))
             },
         )
+        if (entries.isEmpty()) {
+            col.addView(
+                TextView(context).apply {
+                    text = "Nothing yet. Open an app and press home twice again."
+                    setTextColor(DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
+                    typeface = type.regular
+                    setPadding(0, type.gridPx(0.75f), 0, type.gridPx(0.75f))
+                },
+            )
+        }
         rows = entries.map { entry ->
             TextView(context).apply {
                 text = entry.label

@@ -448,6 +448,50 @@ class Prefs(context: Context) {
         get() = sp.getInt("swipe_dp", 64)
         set(v) = sp.edit().putInt("swipe_dp", v.coerceIn(24, 200)).apply()
 
+    // ------------------------------------------------------------------ recents
+
+    /**
+     * The switcher's order, kept across a restart of the service.
+     *
+     * It has to be stored, and the reason is the update: every release of this app rebinds the
+     * accessibility service, which is the only thing that knows which apps you have been in. An
+     * order held in memory is empty for the first few minutes after every update — the exact
+     * minutes somebody installs a release and tries the gesture — and an empty list looked
+     * identical to a broken one.
+     *
+     * A string of package names, most recent first. Written on each app change, which is a
+     * handful of times a minute at worst.
+     */
+    fun recentApps(): List<String> = sp.getString(RECENTS, null)
+        ?.split('\n')
+        ?.filter { it.isNotBlank() }
+        ?: emptyList()
+
+    fun setRecentApps(list: List<String>) {
+        sp.edit().putString(RECENTS, list.joinToString("\n")).apply()
+    }
+
+    /**
+     * The app that was in front when the service last saw a window change, and when.
+     *
+     * For the one state nothing else can recover: the service has just rebound after an update,
+     * so it has seen no window-state event, and something is already on screen. Per-app color is
+     * driven from that package name — with no name, the rule cannot be applied, and the app sat
+     * in whatever mode the phone happened to be in until it was force-closed and reopened. Which
+     * is exactly the bug report: "each update my apps go back and forth as to whether the colors
+     * work, and force-closing brings them back."
+     *
+     * Stamped, because a guess is only worth making while it is fresh.
+     */
+    fun lastFront(): Pair<String, Long>? {
+        val pkg = sp.getString(LAST_FRONT, null)?.takeIf { it.isNotBlank() } ?: return null
+        return pkg to sp.getLong(LAST_FRONT_AT, 0L)
+    }
+
+    fun setLastFront(pkg: String, at: Long) {
+        sp.edit().putString(LAST_FRONT, pkg).putLong(LAST_FRONT_AT, at).apply()
+    }
+
     // ------------------------------------------------------------------ resume apps
 
     /**
@@ -693,6 +737,10 @@ class Prefs(context: Context) {
 
         const val APP_PREFIX = "app:"
         const val COLOR_PREFIX = "color:"
+
+        const val RECENTS = "recent_apps"
+        const val LAST_FRONT = "last_front"
+        const val LAST_FRONT_AT = "last_front_at"
 
         const val RESUME_APPS = "resume_apps"
         const val RESUME_FALLBACK = "resume_fallback"

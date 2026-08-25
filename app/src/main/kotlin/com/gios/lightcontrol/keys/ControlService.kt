@@ -161,7 +161,7 @@ class ControlService : AccessibilityService() {
      * Which apps you have been in, built from the window-state events this service already gets.
      * The only source of a recents order an unprivileged app has on this phone. See [Recents].
      */
-    private val recents = Recents()
+    private lateinit var recents: Recents
 
     /** When the last short home press was released, for the double press. See [homeDouble]. */
     private var homeTapAt = 0L
@@ -209,6 +209,7 @@ class ControlService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        recents = Recents(prefs)
         brightness = Brightness(this)
         readout = Readout(this)
         volumeHud = VolumeHud(this)
@@ -239,7 +240,9 @@ class ControlService : AccessibilityService() {
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
         colorMode = ColorMode(this, prefs)
+        recoverForeground()
         runCatching { colorMode.applyFor(foreground) }
+        scheduleColorReasserts()
         registerColorObserver()
         // The first-class version of "is the phone open", on the versions that have it. A listener
         // rather than only a broadcast, because ACTION_USER_PRESENT is the one signal in this
@@ -278,6 +281,33 @@ class ControlService : AccessibilityService() {
     }
 
     /**
+     * Guess which app is in front, for the moment right after this service starts.
+     *
+     * Every release of this app rebinds the service, and a fresh service has seen no
+     * window-state event — so `foreground` is null while something is plainly on screen. Per-app
+     * color is driven from that package name, and with no name the rule cannot be applied: the
+     * app on screen keeps whatever mode the phone was in until it is force-closed and reopened.
+     * That is the whole of the "each update my apps go back and forth as to whether the colours
+     * work, and force-closing brings them back" report, and it is not a colour bug at all.
+     *
+     * The guess is the last package the previous process saw, and it is only made while it is
+     * **fresh** and the phone is **awake**. An app update happens with that app, or the store, in
+     * front seconds earlier; a name from yesterday morning is not evidence of anything. Being
+     * wrong costs one wrong colour rule until the next window change corrects it, which is why
+     * this is allowed to guess at all — [ColorMode.applyFor] states the desired state rather than
+     * toggling, so nothing here can be stranded.
+     */
+    private fun recoverForeground() {
+        val (pkg, at) = prefs.lastFront() ?: return
+        if (System.currentTimeMillis() - at > FRONT_MEMORY_MS) return
+        val power = runCatching { getSystemService(PowerManager::class.java) }.getOrNull()
+        if (power != null && !power.isInteractive) return
+        foreground = pkg
+        foregroundAt = SystemClock.uptimeMillis()
+        log("service up · assuming ${pkg.substringAfterLast('.')} in front")
+    }
+
+    /**
      * Only to learn which app is in front. `event.packageName` rides along with the event
      * itself, so this costs no content access.
      *
@@ -296,6 +326,8 @@ class ControlService : AccessibilityService() {
             // so a row for it could only ever be the slower way to do the same thing. Our own
             // settings screen is left out for the same reason it is ignored above.
             if (!pkg.startsWith(LIGHTOS) && pkg != packageName) recents.note(pkg)
+            // Written down for the next process. See [Prefs.lastFront] and [recoverForeground].
+            runCatching { prefs.setLastFront(pkg, System.currentTimeMillis()) }
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
             if (pkg == coverTarget) dropCover()
         }
@@ -791,6 +823,16 @@ class ControlService : AccessibilityService() {
 
         val button = LightKeys.buttonOf(key) ?: return false
 
+        // Our own settings screen, with the wheel driving its rows: the click is how you open the
+        // highlighted one, so it has to reach the activity. It did not — this app resolves to the
+        // scroll-aware rule, which passes turns through and keeps the press, and the press's
+        // default binding is the torch. So the wheel moved the highlight and the click turned on
+        // the flashlight. Declining the key here is the whole fix; the activity reads it.
+        if (button == Button.WheelClick && prefs.wheelCursor && OwnWindow.resumed) {
+            if (isFreshDown(event)) log("WheelClick · ours to select with")
+            return false
+        }
+
         // The lock face is up and armed -- the phone is already unlocked and the face is being
         // held open to be read. A home press there means "go in now", exactly like finishing the
         // touch hold. Take the whole press (down and the release) so LightOS does not get a lone
@@ -1033,6 +1075,10 @@ class ControlService : AccessibilityService() {
         homeTapAt = now
         if (first == 0L || now - first >= HOME_DOUBLE_MS) return false
         homeTapAt = 0L
+        // Logged with the gap. A double press that does not open the list has three possible
+        // causes — the second press fell outside the window, the phone was not awake, or the
+        // window failed to be added — and from the phone they are indistinguishable without this.
+        log("HOME double · ${now - first}ms")
         return openSwitcher()
     }
 
@@ -1051,10 +1097,6 @@ class ControlService : AccessibilityService() {
         val list = runCatching {
             recents.entries(packageManager, skip, SWITCHER_MAX) { appName(this, it) }
         }.getOrDefault(emptyList())
-        if (list.isEmpty()) {
-            log("HOME double · nothing to switch to")
-            return false
-        }
         // Anything the lock face is holding up has to come down first, the same as for a launch:
         // layer 31 is layer 31, and two windows there is a coin toss nobody wins.
         if (lockFace.showing) runCatching { lockFace.dismiss() }
@@ -1897,6 +1939,14 @@ class ControlService : AccessibilityService() {
          * the wheel's window — a whole press sits inside it, not just a second click.
          */
         const val HOME_DOUBLE_MS = 600L
+
+        /**
+         * How long a remembered front app is worth acting on. See [recoverForeground].
+         *
+         * Two minutes covers an app update, which is the case this exists for, and rules out a
+         * phone that has been in a pocket since last night.
+         */
+        const val FRONT_MEMORY_MS = 2 * 60_000L
 
         /** How many recent apps the switcher lists. More than this is a launcher. */
         const val SWITCHER_MAX = 8

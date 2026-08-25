@@ -11,10 +11,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * The switcher's controls, applied to this app's own screens: the wheel moves a highlight from
@@ -71,20 +73,35 @@ class WheelCursor {
     private var state: ScrollableState? = null
     private var scope: CoroutineScope? = null
     private var viewTop = 0f
-    private var viewBottom = 0f
+
+    /**
+     * The bottom of the window, asked for rather than stored.
+     *
+     * A View's height is not Compose state, so a value captured at composition is whatever it was
+     * before the first layout — usually zero, which makes every row look as though it is below
+     * the fold. Reading it at the moment it is needed is both simpler and always right.
+     */
+    private var viewBottomOf: () -> Float = { 0f }
 
     /** True when there is anything on this screen the wheel could select. */
     val hasItems: Boolean get() = items.isNotEmpty()
 
-    fun attach(state: ScrollableState, scope: CoroutineScope, top: Float, bottom: Float) {
+    fun attach(state: ScrollableState, scope: CoroutineScope, top: Float, bottom: () -> Float) {
         this.state = state
         this.scope = scope
         viewTop = top
-        viewBottom = bottom
+        viewBottomOf = bottom
     }
 
     fun register(key: Any, top: Float, bottom: Float, activate: () -> Unit) {
-        items[key] = Item(top, bottom, activate)
+        val item = Item(top, bottom, activate)
+        items[key] = item
+        // Checked on every layout pass, not only when the wheel moves. This is what keeps the
+        // highlight on screen: a row reports where it *actually* is after each scroll frame, so
+        // any error left over from an animation that was still running when the next notch
+        // arrived is corrected on the next pass instead of being carried. The first version
+        // measured once, at the notch, and a fast turn scrolled the selection clean off the end.
+        if (key === selected) ensureVisible(item)
     }
 
     fun unregister(key: Any) {
@@ -119,10 +136,10 @@ class WheelCursor {
         val next = when {
             current >= 0 -> (current + delta).coerceIn(0, rows.size - 1)
             delta > 0 -> rows.indexOfFirst { it.value.bottom > viewTop }.coerceAtLeast(0)
-            else -> rows.indexOfLast { it.value.top < viewBottom }.coerceAtLeast(0)
+            else -> rows.indexOfLast { it.value.top < viewBottomOf() }.coerceAtLeast(0)
         }
         selected = rows[next].key
-        ensureVisible(rows[next].value, delta)
+        ensureVisible(rows[next].value)
     }
 
     /** Open the highlighted row. False when nothing is highlighted, so the key can go elsewhere. */
@@ -139,17 +156,31 @@ class WheelCursor {
      * cursor sliding to the edge and dragging the page: you can always see where the next press
      * is going.
      */
-    private fun ensureVisible(item: Item, delta: Int) {
+    private fun ensureVisible(item: Item) {
         val scroller = state ?: return
         val runner = scope ?: return
-        val margin = (item.bottom - item.top).coerceAtLeast(1f)
+        val viewBottom = viewBottomOf()
+        if (viewBottom <= viewTop) return
+        // A row of air past the selection, so you can see where the next press is going — unless
+        // the row is so tall that asking for air on both sides is unsatisfiable, which is how a
+        // self-correcting scroller turns into one that oscillates forever.
+        val height = (item.bottom - item.top).coerceAtLeast(1f)
+        val air = if (height * 3f < viewBottom - viewTop) height else 0f
         val by = when {
-            item.bottom + margin > viewBottom && delta > 0 -> item.bottom + margin - viewBottom
-            item.top - margin < viewTop && delta < 0 -> item.top - margin - viewTop
+            item.bottom + air > viewBottom -> item.bottom + air - viewBottom
+            item.top - air < viewTop -> item.top - air - viewTop
             else -> return
         }
-        runner.launch { runCatching { scroller.animateScrollBy(by) } }
+        // Under a couple of pixels is not worth a frame, and it is the difference that rounding
+        // alone can produce — which would be a scroll on every layout pass, forever.
+        if (abs(by) < MIN_SCROLL_PX) return
+        // One scroll at a time. A second animation started over a live one fights it, and the
+        // loser is whichever set of coordinates was read first.
+        if (job?.isActive == true) return
+        job = runner.launch { runCatching { scroller.animateScrollBy(by) } }
     }
+
+    private var job: Job? = null
 }
 
 /** The cursor for the screen on show, or null when the feature is off. */
@@ -182,9 +213,15 @@ fun cursorStop(onActivate: (() -> Unit)?): CursorStop {
     // its words without changing its size does not re-lay-out — so a captured lambda would go on
     // flipping from a value that is one press old, which reads as a switch that will not stick.
     val latest = rememberUpdatedState(onActivate)
+    // Position and size, not `boundsInWindow()`. That answer is clipped to the parent, so a row
+    // scrolled under the top bar reports a sliver at the clip edge — which corrupts both the
+    // ordering and the arithmetic that decides whether the selection is still on screen.
     val modifier = Modifier.onGloballyPositioned { coords ->
-        val bounds = coords.boundsInWindow()
-        cursor.register(key, bounds.top, bounds.bottom) { latest.value.invoke() }
+        val top = coords.positionInWindow().y
+        cursor.register(key, top, top + coords.size.height) { latest.value.invoke() }
     }
     return CursorStop(cursor.selected === key, modifier)
 }
+
+/** Below this, a correction is rounding rather than a scroll. See [WheelCursor.ensureVisible]. */
+private const val MIN_SCROLL_PX = 2f

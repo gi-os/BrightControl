@@ -1,3 +1,38 @@
+## BrightControl v3.21 — three things about the new controls that did not work
+
+**The wheel click now opens the highlighted row.** It was doing nothing, and the reason was two
+features meeting: this app resolves to the scroll-aware rule, which passes turns through to the
+app and keeps the *press* for the service — whose default binding is the torch. So the wheel moved
+the highlight and the click turned on the flashlight, and the key never reached the activity at
+all. While our own settings are in front and the wheel is driving them, the service now declines
+that key.
+
+**The highlight can no longer scroll off the screen.** Two bugs, both about measurement. The
+viewport came from `screenHeightDp`, which excludes the system bars while the coordinates rows
+report are measured from the top of the window — that gap is exactly how far the last row could
+hide below the fold. And rows reported `boundsInWindow()`, which is *clipped to the parent*: a row
+scrolled under the top bar reported a sliver at the clip edge rather than where it actually was.
+Position and size, unclipped, against the window's real height. The check also runs on every
+layout pass now instead of only at the notch, so an error left over from a scroll that was still
+animating when the next notch arrived is corrected on the next frame rather than carried.
+
+**The double press shows the switcher even with nothing in it.** The list was held in memory, and
+every release of this app rebinds the service that holds it — so for the first minutes after every
+update the order was empty, and an empty list refused to appear. Which is to say the gesture
+looked broken in exactly the state everybody who has just updated is in. The order is now stored,
+so it survives the update, and an empty list still shows and says so. The key log also records the
+gap between the two presses, because a double press that does not fire has three possible causes
+and from the phone they look identical.
+
+**And per-app colour survives an update.** Reported from outside: "each update my apps go back and
+forth as to whether the colours work — force-closing brings them back." Not a colour bug. A fresh
+service has seen no window-state event, so it does not know which app is in front, and the rule is
+driven from that package name; the app on screen kept whatever mode the phone was in until it was
+force-closed and reopened, which is what produced an event. The service now writes down the front
+app and, on starting, acts on that name while it is fresh and the phone is awake. Being wrong costs
+one rule until the next window change corrects it — `ColorMode` states the desired state rather
+than toggling, so nothing here can be stranded.
+
 ## BrightControl v3.20 — the wheel drives the settings
 
 **The app switcher's controls, applied to this app's own screens.** Turn the wheel and a

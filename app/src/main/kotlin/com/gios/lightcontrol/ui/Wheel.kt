@@ -6,8 +6,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.LocalNotches
 import kotlinx.coroutines.channels.Channel
@@ -41,11 +41,14 @@ fun WheelScroll(state: ScrollableState) {
     // coordinates too and the two have to be in the same space. The top bar is 64dp on every
     // screen in this app; a row of slack at the bottom keeps the last stop clear of the edge.
     val density = LocalDensity.current
-    val screenHeight = LocalConfiguration.current.screenHeightDp
-    LaunchedEffect(cursor, state, screenHeight) {
+    // The window's own height, not the screen configuration's. `screenHeightDp` answers a
+    // different question — it excludes system bars, while the coordinates rows report are
+    // measured from the top of the window — and the gap between the two is exactly how far the
+    // last row of a list can hide below the fold.
+    val view = LocalView.current
+    LaunchedEffect(cursor, state, view) {
         val top = with(density) { TOP_BAR_DP.dp.toPx() }
-        val bottom = with(density) { screenHeight.dp.toPx() }
-        cursor?.attach(state, scope, top, bottom)
+        cursor?.attach(state, scope, top) { view.height.toFloat() }
     }
 
     LaunchedEffect(flow, cursor) {
