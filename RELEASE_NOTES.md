@@ -1,3 +1,23 @@
+## BrightControl v3.33 — the new key is withdrawn; this installs over what you have
+
+**No uninstall. This is an ordinary update.** v3.30 was signed with a brand-new certificate, which
+meant it could only be installed by removing the app first and losing every binding, the lock face layout and your per-app colour rules.
+That cost was not worth what it bought, so it has been withdrawn. v3.33 is signed with the same
+certificate every release before v3.30 used, and it installs straight over the copy on your phone.
+
+If you already uninstalled and installed v3.30, this one will not go over it — uninstall once more
+and install v3.33, and that is the end of it.
+
+**What this does and does not fix.** The signing key is no longer committed to this repository and
+the file is gitignored, so a fresh clone does not hand it out. But it is still in this repository's
+git history and always will be, so treat it as public: anyone determined enough can still build an
+APK this phone would accept as an update. Closing that for real needs an APK Signature Scheme v3
+rotation — signing with a new key while carrying a proof-of-rotation signed by the old one, which
+Android accepts as a normal update — and that is a separate change, done carefully, not bundled in
+behind an uninstall.
+
+Everything else in v3.30 stands and is still here.
+
 ## BrightControl v3.32 — it stops standing itself down
 
 **Four presses of one binding no longer shut the service off.** The guard was written for somebody
@@ -27,7 +47,10 @@ deliberately cannot be finger-scrolled. The count is worked out from the panel's
 it is drawn in, floored at three and capped at twelve.
 
 ## BrightControl v3.30 — a dialog is not an app you switched to
+
 ## BrightControl v3.30 — a new signing key, and the reports it closes
+
+**Withdrawn.** The key change described below was reverted in v3.33; see the top of this file. The reports this release closes are unaffected and still fixed.
 
 **This release is signed with a different key, so it will not install over the last one.** Uninstall
 BrightControl and install this build fresh. It is a nuisance exactly once and it is worth it: the
