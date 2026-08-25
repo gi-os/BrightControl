@@ -75,12 +75,28 @@ class PolicyTest {
         assertEquals(ColorRule.Passthrough, Policy.builtInColorRuleFor("com.lightos"))
     }
 
+    /**
+     * The one app on the table that holds the grant *and* is forced anyway.
+     *
+     * It asks for the whole app, the whole time it is in front, rather than having a per-screen
+     * opinion — so this and the notebook are asking for the same thing and cannot fight over it.
+     * Stating it here is what makes the notebook come up in colour on a phone where the notebook
+     * itself was never granted anything; without a row it resolved to Default, and Default forces
+     * the baseline, which is mono.
+     */
+    @Test
+    fun `BrightNotebook is color out of the box`() {
+        assertEquals(ColorRule.Color, Policy.builtInColorRuleFor("com.gios.lightnotebook"))
+    }
+
     @Test
     fun `everything else stays mono, including the rest of our own apps`() {
-        // The whole point of the table being ids rather than the com.gios. prefix. A notebook
-        // going color because it shares a package prefix with a camera would undo the phone.
-        assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.lightnotebook"))
+        // The whole point of the table being ids rather than the com.gios. prefix: sharing a
+        // package prefix with a camera is not a reason to go colour. The notebook used to be the
+        // example here and is now a deliberate entry above, so the recorder makes the point — it
+        // has a tape and a level meter on screen and no use for a hue.
         assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.brightrecorder"))
+        assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.lightauth"))
         assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.example.whatever"))
     }
 }
