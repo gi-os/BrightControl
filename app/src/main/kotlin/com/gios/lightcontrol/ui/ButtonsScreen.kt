@@ -140,9 +140,10 @@ fun ButtonsScreen(
                         label = "On LightOS screens",
                         detail = if (cameraLightOs) "ON" else "OFF",
                         sub = if (cameraLightOs) {
-                            "the binding fires on Light's home and lock screens too, which is " +
-                                "where this button is actually pressed. Only this button — the " +
-                                "wheel and its click still belong to LightOS there."
+                            "if you point a gesture above at an app, it fires on Light's home " +
+                                "and lock screens too — which is where this button is actually " +
+                                "pressed. Left on CAMERA, LightOS keeps the key and opens its " +
+                                "own camera, because ours would have to ask which one you meant."
                         } else {
                             "off, so LightOS answers the camera button on its own screens and " +
                                 "whatever you bind here only applies inside other apps."

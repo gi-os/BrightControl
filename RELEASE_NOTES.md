@@ -1,3 +1,30 @@
+## BrightControl v3.28 — the camera key only leaves LightOS when it has somewhere to go
+
+**Pressing the camera button on LightOS's home screen no longer raises Android's "which app?"
+dialog.** v3.25 let the camera button's binding fire on Light's own screens, which was right for
+the case it was built for — a rebound button that could only ever fire where nobody presses it.
+It was wrong for the default binding. `CAMERA` fires `INTENT_ACTION_STILL_IMAGE_CAMERA`, and on a
+phone with two camera apps installed and no default chosen, Android answers that with a chooser.
+So a key that used to open a camera started opening a dialog.
+
+**So the key is claimed there only when a gesture names an app.** Point the tap or the hold at
+Roll, or anything else, and it fires on the dashboard and the lock screen as it should. Leave it on
+CAMERA and LightOS keeps the key and opens its own camera, which it does perfectly well — the only
+thing LightOS cannot do is open *your* camera, and that is the whole of what this switch is for.
+
+Reported alongside two things that are working as intended and are worth writing down:
+
+**AUTO is missing from the stock camera's cycle because AUTO and COLOR are the same answer for it.**
+`com.android.camera2` ships with a Color preset — a viewfinder in grey misrepresents a photograph
+that comes out colour regardless — so a stored nothing already resolves to COLOR. The cycle skips
+any step that would redraw the row unchanged, which is what stops presets from looking frozen.
+
+**Setting the Light layer to COLOUR colours all of it, and cannot do otherwise.** The dashboard,
+the lock screen, the camera, the album and directions are one package. Nothing outside it can tell
+its screens apart, so one row is one decision for all of them. In practice the layer is drawn in
+greys, so what changes is the content that was colour to begin with: a viewfinder, photographs, a
+map.
+
 ## BrightControl v3.27 — LightOS's own layer gets a colour row
 
 **The per-app colour list now offers LightOS.** It could not before, and the reason is a detail of

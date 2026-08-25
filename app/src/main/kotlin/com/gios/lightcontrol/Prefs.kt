@@ -308,6 +308,19 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("camera_on_lightos", v).apply()
 
     /**
+     * Whether either camera gesture names an app of its own.
+     *
+     * The gate on [cameraOnLightOs], and it exists because of what the *default* binding does on
+     * those screens. `OpenCamera` fires `INTENT_ACTION_STILL_IMAGE_CAMERA`, and on a phone with
+     * two camera apps and no default chosen, Android answers that with its own "which app?"
+     * dialog — so taking the key on LightOS's home screen replaced a camera that opened with a
+     * chooser that had to be dismissed. LightOS answers its own camera key perfectly well; the
+     * only thing it cannot do is open *your* camera. So the key is claimed there only when a
+     * gesture points somewhere specific, which is the only case where claiming it adds anything.
+     */
+    fun cameraNamesApp(): Boolean = Gesture.entries.any { action(Button.Camera, it) is Action.Launch }
+
+    /**
      * The master switch. Off means this app does nothing to any key, anywhere.
      *
      * Not a convenience. An accessibility service that filters keys is the one kind of app that can
@@ -993,7 +1006,8 @@ object Policy {
             // Blocking turns is its own switch, so it applies even with the buttons left alone,
             // and so is the camera button — see [Behavior.cameraActive]. Hands-off for everything
             // else, which is what the table would have said anyway.
-            val camera = prefs.cameraOnLightOs
+            // Only when a gesture names an app. See [Prefs.cameraNamesApp].
+            val camera = prefs.cameraOnLightOs && prefs.cameraNamesApp()
             if (turn == TurnAction.Consume || camera) {
                 return Behavior(bareTurn = turn, buttonsActive = false, cameraActive = camera)
             }
