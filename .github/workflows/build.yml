@@ -8,6 +8,8 @@ on:
   # everything up to the publish and nothing after it.
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
 
 permissions:
