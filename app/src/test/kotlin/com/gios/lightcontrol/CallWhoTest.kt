@@ -70,6 +70,16 @@ class CallWhoTest {
     }
 
     @Test
+    fun `the plus survives`() {
+        // URLDecoder is a form decoder and reads a literal plus as a space, which quietly turned
+        // +1 555... into 1 555... -- a number you cannot call back. Both spellings land in the
+        // same place.
+        assertEquals("+15551234567", CallWho.fromUri("tel:+1 555 123 4567".replace(" ", "")))
+        assertEquals("+441234567890", CallWho.fromUri("tel:%2B441234567890"))
+        assertEquals("+441234567890", CallWho.fromUri("tel:+441234567890"))
+    }
+
+    @Test
     fun `a contacts uri is a row id and is dropped`() {
         // An id on a lock screen is worse than nothing: it is not a caller, and it looks like one.
         assertNull(CallWho.fromUri("content://com.android.contacts/contacts/lookup/2814i7b"))

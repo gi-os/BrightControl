@@ -406,7 +406,13 @@ object CallWho {
             raw.startsWith("sip:", ignoreCase = true) -> raw.substring(4).substringBefore('@')
             else -> return null
         }
-        val decoded = runCatching { java.net.URLDecoder.decode(body, "UTF-8") }.getOrDefault(body)
+        // The plus is escaped before decoding, not after. `URLDecoder` is a *form* decoder: it
+        // reads a literal `+` as a space, so `tel:+15551234567` came back as a number with the
+        // country code silently removed and a space where it had been. Escaping it first means the
+        // decoder never sees one, and a real `%2B` still decodes, because `%2B` contains no plus.
+        val decoded = runCatching {
+            java.net.URLDecoder.decode(body.replace("+", "%2B"), "UTF-8")
+        }.getOrDefault(body)
         return decoded.trim().takeIf { it.isNotEmpty() }
     }
 }
