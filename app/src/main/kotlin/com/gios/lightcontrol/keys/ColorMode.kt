@@ -54,7 +54,7 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
      * and a screen off/on did it again. Not knowing which app is in front is a reason to do
      * nothing, not a reason to override.
      */
-    fun applyFor(pkg: String?) {
+    fun applyFor(pkg: String?, realScreen: Boolean = true) {
         if (!prefs.colorAutoSwitch) return
         if (pkg.isNullOrBlank()) return
         // A nudge deliberately writes a value it is about to take back, and the service's settings
@@ -62,6 +62,16 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         // middle of the nudge, sees a difference, writes, and nudges again — forever.
         if (nudging) return
         val rule = prefs.colorRuleFor(pkg)
+        // A floating window from a package with no opinion is not a reason to repaint the screen
+        // somebody is looking at. This is the general form of the Edge Gestures bug: an overlay
+        // app raises a window-state event, has no rule, and Default means *restore the baseline* —
+        // which on this phone is monochrome. Named packages are still filtered upstream
+        // ([Policy.isTransientWindow]); this catches the next one, which will not be on any list.
+        //
+        // Deliberately narrow. It refuses only the write that has no opinion behind it: a package
+        // with a real rule is applied whatever kind of window it raised, and a genuine app switch
+        // arrives as an activity.
+        if (skipBaseline(rule, realScreen)) return
         // Passthrough leaves before the baseline is captured, not just before the write. Capturing
         // here would record whatever the app in front had set for itself as this phone's idea of
         // normal, and every app with no rule would inherit it from then on.
@@ -231,6 +241,20 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         runCatching { Settings.Secure.getInt(context.contentResolver, key) }.getOrDefault(fallback)
 
     companion object {
+
+        /**
+         * Whether this is a write to decline: the baseline, asked for by a window that is not an
+         * app screen.
+         *
+         * The general form of the Edge Gestures bug. `Default` means *restore the baseline*, and
+         * on this phone the baseline is monochrome — so an overlay app with no rule of its own,
+         * raising a window-state event over whatever you were reading, repainted it mono. Named
+         * packages are filtered upstream ([Policy.isTransientWindow]); this catches the next one,
+         * which will not be on any list. Pure, so it can be tested without a `Context`.
+         */
+        fun skipBaseline(rule: ColorRule, realScreen: Boolean): Boolean =
+            rule == ColorRule.Default && !realScreen
+
         /**
          * The mode int that means "no filter at all". `0` is monochromacy, `11`/`12`/`13` are the
          * color-blindness corrections, and `-1` is the only value that is not a filter — which is
@@ -247,4 +271,5 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         const val ENABLED = "accessibility_display_daltonizer_enabled"
         const val MODE = "accessibility_display_daltonizer"
     }
+
 }

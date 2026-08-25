@@ -1,3 +1,22 @@
+## BrightControl v3.26 — the next overlay app cannot drop your colour either
+
+**v3.24 named Edge Gestures; this stops the class of bug.** `Default` means *restore the
+baseline*, and on this phone the baseline is monochrome — so any app with no colour rule that
+raises a window-state event over what you are reading repaints it mono. Ryan's log showed exactly
+that, alternating: `com.gios.lightchat COLOR want 0/-1 got 1/0 superseded`, and one line later
+`com.ss.edgegestures DEFAULT want 1/0 got 1/0 ok`. Whether a colour app opened in colour came down
+to whether the overlay happened to fire after it, which is why going back through the same apps
+flipped which half looked broken.
+
+**So a floating window with no opinion is no longer allowed to write.** The rule: a package with a
+real rule is applied whatever kind of window it raised, and a genuine app switch arrives as an
+activity — but the *baseline* write, the one with no opinion behind it, is refused when the window
+is not an app screen. Named packages are still filtered upstream; this catches the next one, which
+will not be on any list.
+
+The delayed re-asserts inherit the same answer. Refusing the write on the event and then allowing
+the identical write 250 ms later is a bug that looks like a race and is not.
+
 ## BrightControl v3.25 — hold a row to stop the app, and the camera button works where you press it
 
 **Hold an app in the switcher to force stop it.** A long press on a row, or holding the wheel click

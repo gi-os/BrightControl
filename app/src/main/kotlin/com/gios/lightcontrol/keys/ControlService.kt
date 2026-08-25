@@ -97,6 +97,16 @@ class ControlService : AccessibilityService() {
     @Volatile
     private var visitingLightOs = false
 
+    /**
+     * Whether the last window-state event came from an actual app screen.
+     *
+     * Carried so the delayed re-asserts inherit it. Without that, the guard in
+     * [ColorMode.skipBaseline] would refuse the write on the event itself and then allow the
+     * identical write 250 ms later, which is a bug that looks like a race and is not.
+     */
+    @Volatile
+    private var lastWindowWasActivity = true
+
     /** When a wheel click went down while the switcher was up, for its hold. */
     private var switcherDownAt = 0L
 
@@ -322,7 +332,8 @@ class ControlService : AccessibilityService() {
      */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
-        if (Policy.isTransientWindow(pkg, isInputMethodPackage(pkg), classIsActivity(event, pkg))) return
+        val activityWindow = classIsActivity(event, pkg)
+        if (Policy.isTransientWindow(pkg, isInputMethodPackage(pkg), activityWindow)) return
         if (pkg != foreground) {
             previous = foreground
             foreground = pkg
@@ -344,7 +355,11 @@ class ControlService : AccessibilityService() {
         // What it buys: anything that moves the daltonizer while an app stays in front no longer
         // strands it. Before, color was strictly edge-triggered, so a single missed edge lasted
         // until you switched apps and back, and there was no way for the app to notice.
-        runCatching { colorMode.applyFor(pkg) }
+        // The window's own kind is passed along: a floating window from a package with no color
+        // rule must not be allowed to restore the baseline over the app in front. See
+        // [ColorMode.skipBaseline].
+        lastWindowWasActivity = activityWindow
+        runCatching { colorMode.applyFor(pkg, realScreen = activityWindow) }
         // ...and again, shortly. A window-state event is raised when the app's window arrives,
         // which is *before* whatever LightOS does about color on the way out of its own shell.
         // Whoever writes last wins, and on the LightOS -> app path that was not this app: the
@@ -1341,7 +1356,9 @@ class ControlService : AccessibilityService() {
     private var colorObserver: ContentObserver? = null
 
     /** Re-assert the front app's color rule. Posted, so it can be cancelled and coalesced. */
-    private val colorReassert = Runnable { runCatching { colorMode.applyFor(foreground) } }
+    private val colorReassert = Runnable {
+        runCatching { colorMode.applyFor(foreground, realScreen = lastWindowWasActivity) }
+    }
 
     /**
      * Watch the two daltonizer settings and put the front app's rule back whenever anything else
