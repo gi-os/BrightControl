@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -52,6 +53,8 @@ class SwitcherOverlay(private val context: Context) {
     private val type = LightType(context)
 
     private var root: FrameLayout? = null
+    private var backdrop: DitherBackdrop? = null
+    private var content: View? = null
     private var column: LinearLayout? = null
     private var rows: List<TextView> = emptyList()
     private var entries: List<Entry> = emptyList()
@@ -79,6 +82,7 @@ class SwitcherOverlay(private val context: Context) {
         index = 0
         if (root != null) {
             column?.let { runCatching { fill(it) } }
+            runCatching { enter() }
             arm()
             return true
         }
@@ -98,6 +102,7 @@ class SwitcherOverlay(private val context: Context) {
         val added = runCatching { wm.addView(view, params); true }.getOrDefault(false)
         if (!added) return false
         root = view
+        runCatching { enter() }
         arm()
         return true
     }
@@ -130,12 +135,37 @@ class SwitcherOverlay(private val context: Context) {
         val gone = runCatching { wm.removeView(view); true }
             .getOrElse { runCatching { wm.removeViewImmediate(view); true }.getOrDefault(false) }
         if (!gone) return false
+        runCatching { backdrop?.stop() }
         root = null
+        backdrop = null
+        content = null
         column = null
         rows = emptyList()
         entries = emptyList()
         index = 0
         return true
+    }
+
+    /**
+     * The entrance: the ground dithers in, and the list arrives a beat behind it.
+     *
+     * The order is the point. Text drawn at the same moment as the pattern is text competing with
+     * it, and the pattern is the thing that says the screen has changed. So the background fills
+     * first, and the list rises into a ground that is already there — a little under a grid unit
+     * of travel, which is enough to read as movement and not enough to be a slide.
+     */
+    private fun enter() {
+        backdrop?.ditherIn()
+        val view = content ?: return
+        view.animate().cancel()
+        view.alpha = 0f
+        view.translationY = type.gridPx(1.5f).toFloat()
+        view.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setStartDelay(CONTENT_DELAY_MS)
+            .setDuration(CONTENT_MS)
+            .start()
     }
 
     private fun arm() {
@@ -147,11 +177,21 @@ class SwitcherOverlay(private val context: Context) {
 
     private fun build(): FrameLayout? = runCatching {
         val frame = FrameLayout(context).apply {
+            // Black underneath the dither, so the window is opaque from its first frame — the
+            // pattern is *drawn* onto black rather than fading up out of whatever is behind it.
             background = ColorDrawable(Color.BLACK)
             // Anywhere that isn't a row means "no thanks".
             isClickable = true
             setOnClickListener { hide() }
         }
+        val ground = DitherBackdrop(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        }
+        frame.addView(ground)
+        backdrop = ground
         val scroll = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             layoutParams = FrameLayout.LayoutParams(
@@ -173,6 +213,7 @@ class SwitcherOverlay(private val context: Context) {
             ),
         )
         frame.addView(scroll)
+        content = scroll
         column = col
         fill(col)
         frame
@@ -234,5 +275,9 @@ class SwitcherOverlay(private val context: Context) {
 
         /** How long it waits with nothing pressed before closing itself. */
         const val IDLE_MS = 6_000L
+
+        /** How far behind the dither the list comes in, and how long it takes. */
+        const val CONTENT_DELAY_MS = 90L
+        const val CONTENT_MS = 220L
     }
 }

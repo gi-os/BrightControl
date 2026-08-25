@@ -1,3 +1,29 @@
+## BrightControl v3.16 — the switcher fills in
+
+**The app switcher's background is a dither now, and it arrives.** Press home twice and the
+screen fills with an 8x8 Bayer pattern of grey on black, sweeping top to bottom, while the grain
+itself grows from an eighth of a cell to twice one. So the texture resolves towards you instead
+of appearing at rest, and the list rises into a ground that is already there rather than landing
+with it.
+
+**A dither rather than a fade, because of the panel.** The LPIII is black and white and LightOS
+pins the whole phone to monochrome through the accessibility daltonizer, so the greys in a
+cross-fade get quantised on the way to the glass — a smooth ramp arrives as two or three visible
+steps in a direction nobody chose. A dither is the same idea in the panel's own language: the
+grey is made of black and grey cells, every frame is already in tones the screen can hold, and
+what animates is how many cells are lit.
+
+**It is drawn as a shader, not per pixel.** The obvious version — one `IntArray` the size of the
+screen, thresholded every frame — is a few million writes a frame at the fine end of that zoom,
+which is a stutter on the one animation whose whole job is to feel immediate. Each coverage level
+is baked once into an 8x8 tile and painted with a `REPEAT` shader under a scale matrix, so
+growing the grain is a number in a `Matrix` and a frame is a couple of dozen `drawRect` calls.
+The sweep is horizontal bands, one per grain row, with the tiles cached — there are only 65 of
+them possible.
+
+Nothing about the gesture changed. Home still fires the instant you let go, the second press
+still opens the list, and the wheel still moves the selection.
+
 ## BrightControl v3.15 — press home twice for the apps you were just in
 
 **A double press of the home button opens an app switcher.** LightOS has no recents screen and
