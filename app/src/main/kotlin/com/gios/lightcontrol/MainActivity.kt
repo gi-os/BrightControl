@@ -2,6 +2,7 @@ package com.gios.lightcontrol
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -247,6 +248,18 @@ class MainActivity : ComponentActivity() {
         OwnWindow.resumed = false
     }
 
+    /**
+     * A finger on the glass ends wheel selection. See [WheelCursor.selecting].
+     *
+     * Read here rather than in the composition because it has to be every touch, on every screen,
+     * before anything else has a chance to consume it — including the row that is about to be
+     * clicked, which is the one touch that most needs the highlight gone.
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) cursor.touched()
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         when (LightKeys.of(event)) {
             LightKey.WheelUp -> {
@@ -261,8 +274,10 @@ class MainActivity : ComponentActivity() {
             // highlighted: with nothing selected the key belongs to whoever wanted it next,
             // which on this phone is the flashlight.
             LightKey.WheelClick -> {
-                if (!cursor.enabled || cursor.selected == null) return super.dispatchKeyEvent(event)
-                if (event.action == KeyEvent.ACTION_UP) cursor.activate()
+                if (!cursor.enabled) return super.dispatchKeyEvent(event)
+                if (event.action == KeyEvent.ACTION_UP) {
+                    if (!cursor.click()) return super.dispatchKeyEvent(event)
+                }
                 return true
             }
             else -> Unit

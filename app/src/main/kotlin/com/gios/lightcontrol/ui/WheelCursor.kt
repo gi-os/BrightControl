@@ -69,6 +69,22 @@ class WheelCursor {
      */
     var enabled by mutableStateOf(true)
 
+    /**
+     * Whether the wheel is driving rows right now, as opposed to scrolling the page.
+     *
+     * Two modes, and **touching the screen is what leaves this one**. A highlight is a claim
+     * about where your attention is, and the moment a finger lands on the glass that claim is
+     * wrong: the row under the highlight is not the row under the thumb, and a click aimed at
+     * one would open the other. So a touch drops the selection and hands the wheel back to
+     * scrolling, which is what a phone with a working touchscreen should do anyway.
+     *
+     * A wheel click is the way back in — it highlights the first row on screen rather than
+     * opening anything, because there is nothing selected for it to open. That makes the click
+     * mean one consistent thing: *take the wheel seriously*, first by selecting, then by opening.
+     */
+    var selecting by mutableStateOf(true)
+        private set
+
     /** Set by [WheelScroll] for whichever list is on screen. */
     private var state: ScrollableState? = null
     private var scope: CoroutineScope? = null
@@ -115,10 +131,40 @@ class WheelCursor {
      */
     private fun ordered(): List<Map.Entry<Any, Item>> = items.entries.sortedBy { it.value.top }
 
-    /** Wipe the selection. Called when the screen changes — the rows under it are gone. */
+    /**
+     * Wipe the selection. Called when the screen changes — the rows under it are gone.
+     *
+     * [selecting] deliberately survives. Which input you are using is a fact about you, not about
+     * the screen you happen to be on: somebody navigating by thumb does not want the wheel to
+     * start selecting again every time a new screen opens.
+     */
     fun reset() {
         items.clear()
         selected = null
+    }
+
+    /** A finger landed. Drop the highlight and give the wheel back to the page. */
+    fun touched() {
+        if (!selecting && selected == null) return
+        selecting = false
+        selected = null
+    }
+
+    /**
+     * The wheel click: select, or open what is selected.
+     *
+     * False means it did neither and the key belongs to whoever wanted it next.
+     */
+    fun click(): Boolean {
+        if (!enabled) return false
+        if (!selecting || selected == null) {
+            if (!hasItems) return false
+            selecting = true
+            // Down the list, which from nothing means the first row on screen. See [move].
+            move(1)
+            return true
+        }
+        return activate()
     }
 
     /**

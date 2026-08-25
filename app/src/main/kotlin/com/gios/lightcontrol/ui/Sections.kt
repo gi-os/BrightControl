@@ -76,8 +76,9 @@ fun WheelScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
         MenuRow(
             label = "Wheel selects rows",
             detail = if (cursorOn) "ON" else "OFF",
-            sub = "in this app's own screens: a turn moves the highlight, a click opens it — " +
-                "the app switcher's controls, everywhere in here. Off goes back to scrolling.",
+            sub = "in this app's own screens: a turn moves the highlight, a click opens it. " +
+                "Touching the screen drops the highlight and gives the wheel back to scrolling; " +
+                "a click picks it up again. Off means scrolling only.",
             onClick = {
                 cursorOn = !cursorOn
                 prefs.wheelCursor = cursorOn

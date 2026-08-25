@@ -78,7 +78,7 @@ fun WheelScroll(state: ScrollableState) {
             // thumb and moving a cursor up are the same motion with opposite results. Selection
             // wins, because a highlight that goes down when the wheel goes up is the version
             // people get wrong every time.
-            if (cursor != null && cursor.enabled && cursor.hasItems) {
+            if (cursor != null && cursor.enabled && cursor.selecting && cursor.hasItems) {
                 cursor.move(if (n > 0) -1 else 1)
                 return@collect
             }

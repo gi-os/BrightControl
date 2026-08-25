@@ -1,3 +1,23 @@
+## BrightControl v3.23 — touch the screen and the wheel gives the page back
+
+**A finger on the glass drops the highlight.** A highlight is a claim about where your attention
+is, and the moment a thumb lands the claim is wrong: the row under the highlight is not the row
+under the thumb, and a click aimed at one would have opened the other. So a touch clears the
+selection and hands the wheel back to scrolling the page, which is what a phone with a working
+touchscreen should be doing anyway. Everything then behaves exactly as it did before v3.20 —
+scroll with the wheel, tap what you want.
+
+**A wheel click is the way back in.** With nothing selected the click highlights the first row on
+screen instead of opening anything, so the click means one consistent thing: take the wheel
+seriously, first by selecting, then by opening. Turn to move, click again to open.
+
+**Which input you are using survives a screen change.** Somebody navigating by thumb does not want
+the wheel to start selecting again every time a new screen opens, so the mode is a fact about you
+rather than about the screen. The selection itself is still dropped at every screen change.
+
+The touch is read in `dispatchTouchEvent`, before anything else can consume it — including the row
+that is about to be clicked, which is the one touch that most needs the highlight gone first.
+
 ## BrightControl v3.22 — the switcher just appears
 
 **No animation on the app switcher.** It was fading and rising into place over about a fifth of a
