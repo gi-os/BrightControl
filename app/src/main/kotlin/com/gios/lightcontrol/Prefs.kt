@@ -925,6 +925,17 @@ object Policy {
         "com.gios.lightchat" to ColorRule.Passthrough,
         // The stock LightOS camera, which holds no grant and cannot speak for itself.
         "com.android.camera2" to ColorRule.Color,
+        // LightOS itself, and the strongest case in this table for [ColorRule.Passthrough]: it is
+        // the daltonizer's actual owner, and it has a colour setting *per tool* of its own —
+        // camera, album and directions in colour, the rest of the layer grey. Every tool it draws
+        // is the same package, so this app cannot tell those screens apart; `Default` therefore
+        // meant one answer for all of them, and the answer was the baseline. Which is mono. So
+        // every window LightOS raised wrote mono over the choice LightOS had just made, and the
+        // log read `com.lightos DEFAULT want 1/0 got 1/0 ok` a dozen times over while somebody
+        // wondered why the album would not stay in colour.
+        //
+        // Nothing here can improve on LightOS's own answer, so it is left to give it.
+        "com.lightos" to ColorRule.Passthrough,
     )
 
     /**

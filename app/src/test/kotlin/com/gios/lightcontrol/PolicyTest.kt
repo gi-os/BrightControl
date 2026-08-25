@@ -69,6 +69,13 @@ class PolicyTest {
     }
 
     @Test
+    fun `LightOS drives its own colour`() {
+        // It owns the daltonizer and has a per-tool colour setting; Default would flatten every
+        // tool it draws to the baseline, which is mono. See colorPresets.
+        assertEquals(ColorRule.Passthrough, Policy.builtInColorRuleFor("com.lightos"))
+    }
+
+    @Test
     fun `everything else stays mono, including the rest of our own apps`() {
         // The whole point of the table being ids rather than the com.gios. prefix. A notebook
         // going color because it shares a package prefix with a camera would undo the phone.

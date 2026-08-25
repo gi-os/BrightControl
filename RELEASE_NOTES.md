@@ -1,3 +1,28 @@
+## BrightControl v3.29 — LightOS drives its own colour
+
+**This app no longer has an opinion about the Light layer.** `com.lightos` joins Roll and BrightChat
+on [ColorRule.Passthrough], and it is the strongest case in that table: LightOS *is* the
+daltonizer's owner, and it has a colour setting per tool of its own — camera, album and directions
+in colour, the rest of the layer grey.
+
+**What was happening is plain in the log.** Every tool LightOS draws is the same package, so nothing
+outside it can tell those screens apart, and `Default` meant one answer for all of them — the
+baseline, which on this phone is monochrome. So every window LightOS raised wrote mono over the
+choice LightOS had just made:
+
+```
+12:00:23 com.lightos DEFAULT want 1/0 got 1/0 ok
+12:00:20 com.waze    COLOR   want 0/-1 got 0/-1 ok
+12:00:17 com.lightos DEFAULT want 1/0 got 1/0 ok
+```
+
+Twelve writes, none overwritten, every one of them correct by its own rule and wrong for the phone.
+Third-party rules were holding perfectly the whole time, which is why this looked like it was about
+LightOS "not picking up its own defaults": it was picking them up, and then losing them to us.
+
+Nothing here can improve on LightOS's own answer, so it is left to give it. Setting the row by hand
+still wins, for anyone who wants the whole layer forced one way.
+
 ## BrightControl v3.28 — the camera key only leaves LightOS when it has somewhere to go
 
 **Pressing the camera button on LightOS's home screen no longer raises Android's "which app?"
