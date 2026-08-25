@@ -757,13 +757,19 @@ class Prefs(context: Context) {
 object Policy {
 
     /**
-     * Windows that appear over an app without replacing it. The notification shade and this
-     * app's own readout overlay both raise window-state events, and treating either as "the
-     * app in front" would swap the key mapping — and the color — mid-turn.
+     * Windows that appear over an app without replacing it. The notification shade, this
+     * app's own readout overlay, and Edge Gestures all raise window-state events, and
+     * treating any of them as "the app in front" would swap the key mapping — and the
+     * color — mid-turn.
      */
     private val transientPackages = setOf(
         "com.gios.lightcontrol",
         "com.android.systemui",
+        // Edge Gestures floats invisible swipe zones over every app. Its window-state
+        // events were being read as a real app arriving, and with no color rule that
+        // fired Default — dropping the panel back to monochrome under the app the user
+        // was actually looking at.
+        "com.ss.edgegestures",
     )
 
     /**

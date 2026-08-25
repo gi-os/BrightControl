@@ -1,3 +1,21 @@
+## BrightControl v3.24 — an edge-gesture overlay no longer drops the color
+
+**Edge Gestures was quietly turning the panel monochrome.** The report counted five writes
+`superseded`, and every one of them had the same shape: an app with a Color rule — Waze,
+Spotify, BrightChat — asked for color, got it, and read it back gone a second later. The culprit
+sat one line above each `superseded`: `com.ss.edgegestures`, an overlay that floats invisible
+swipe zones over every app. It raises a window-state event, the service took that for "a new app
+is in front", it has no color rule, and no rule means Default — put the panel back to the
+monochrome baseline. The color dropped out from under the app you were actually looking at.
+
+**An overlay is not the front app.** The service already refuses to let the notification shade,
+the keyboard, and its own readout overlay stand in for the app in front, because any of them
+would swap the color — and the key mapping — mid-turn. Edge Gestures is the same shape of thing
+and was not on that list. It is now, so its window-state events are ignored and the Color rule of
+whatever sits underneath holds.
+
+Fixes [light-reports#43](https://github.com/gi-os/light-reports/issues/43) — per-app color: 7 held, 0 overwritten, 5 superseded.
+
 ## BrightControl v3.23 — touch the screen and the wheel gives the page back
 
 **A finger on the glass drops the highlight.** A highlight is a claim about where your attention

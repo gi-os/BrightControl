@@ -49,6 +49,20 @@ class TransientWindowTest {
     }
 
     @Test
+    fun `an edge-gesture overlay is not a new app in front`() {
+        // Edge Gestures floats invisible swipe zones over every app; its window-state
+        // events must not count as the front app, or they reset the panel to mono under
+        // whatever app actually has focus.
+        assertTrue(
+            Policy.isTransientWindow(
+                pkg = "com.ss.edgegestures",
+                isInputMethodPackage = false,
+                classIsActivity = false,
+            ),
+        )
+    }
+
+    @Test
     fun `an ordinary app is a new app in front`() {
         assertFalse(
             Policy.isTransientWindow("com.gios.roll", isInputMethodPackage = false, classIsActivity = true),
