@@ -367,6 +367,19 @@ speaker, the keypad and hang up on its own in-call screen, and all of it sits un
 face comes back by itself when the call ends. Switch the card off and the face stands down for the
 whole call instead. It is never allowed to sit on top of a ringing phone.
 
+**The controls follow what is playing.** The row reads three answers off the media session and
+draws a different set for each: music gets previous, play/pause and next; a podcast gets back 15,
+play/pause and forward 15; a live stream gets play/pause and stop. It is read off what the session
+declares it can do — a queue, a position, a step, a stop, a length — and never off the package name,
+because one app is a music player and a podcast player in the same process and next year's player
+has a name this app has not heard of. Fast-forward with no queue is spoken word. No length with no
+queue is a stream. Seekable and over twenty minutes is spoken word. Anything else gets skip
+buttons, which are wrong in the fewest ways when the answer is unknown.
+
+The fifteen seconds are a real `seekTo` from an extrapolated position, not the platform's
+`fastForward`, whose step is whatever each player decided. Stop takes the row down with it, which is
+what stop on a station means.
+
 The background is a photo with a filter stack you assemble yourself. It offers ordered Bayer
 dither to halftone at a chosen cell size, black and white, opacity, corner blur and corner fade.
 You can reorder and repeat them, with a live preview at the panel aspect ratio.
@@ -654,6 +667,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.37 | **The lock face knows what it is playing.** One control set for three kinds of thing was wrong twice: previous and next on an hour-long podcast mean lose the hour, and on a live stream they are two dead buttons. Podcasts get back 15 and forward 15, as a real `seekTo` from an extrapolated position rather than the platform's whatever-the-player-decided `fastForward`. Streams get a stop. The kind comes off what the session declares — a queue, a position, a step, a length — so it works for any player and needs no list of package names |
 | v3.17 | **What is playing, on the lock face.** Cover, track and skip controls under the notifications. A player cannot draw this itself. An app window sits at layer 11 and the face sits at 31, so BrightMusic's own controls were painted underneath it. The row reads the platform media session, so it works for any player and needs no new grant |
 | v3.14 | **Wi-Fi login and Hotspot are labelled unfinished, in the app and here.** Both shipped looking like finished features and neither one is. The portal needs a system WebView this phone may not have. The hotspot depends on a BLE identity key, a shell that survives a reboot, and an iPad that chooses to join. A feature that might not work is fine. One that does not say so is not. Also a README rewritten around what the app now is, six subsystems rather than the wheel and two buttons, with a Quick start that no longer opens by telling you to find a computer |
 | v3.13 | **The apps that ship on PASS could not be tapped off it.** Roll and BrightChat both hold the daltonizer grant and set their own color, so both ship as PASS. Both rows sat unchanged however often anyone tapped them. The step after PASS is AUTO, AUTO stores nothing, and storing nothing resolves back through the preset table to PASS. Two correct rules cancelled out, on exactly the two apps the feature is for. The step now follows what it resolves to |

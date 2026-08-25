@@ -1,3 +1,42 @@
+## BrightControl v3.37 — the lock face knows what it is playing
+
+**A podcast gets fifteen seconds, not a skip.** The now-playing row shipped with one control set:
+previous, play, next. On a song that is right. On an hour-long episode, previous means back to the
+start of the hour and next means the episode is gone — and the thing you actually reach for on a
+locked phone, the fifteen seconds you missed while somebody talked to you, was not on the screen at
+all. Podcasts now get **back 15, play/pause, forward 15**, with the number drawn on the arrows.
+
+The step is a real `seekTo`, not the platform's `fastForward`. That call moves whatever the player
+decided it moves — thirty seconds in one app, ten in the next, a whole file in a third — and a
+button with **15** on it has to move fifteen seconds. `fastForward` is the fallback for a session
+that will not take a position, and only there is the number a promise the player is making rather
+than this app.
+
+Seeking also has to know where the playhead is, which is not what the session reports.
+`PlaybackState.position` is a reading taken at a timestamp and never touched again until the next
+state change, so on a track two minutes in it is two minutes stale, and minus fifteen seconds off
+that number is a jump back to near the beginning. The position is extrapolated from the
+elapsed-realtime clock and the reported speed, which is how the platform means it to be read.
+
+**A radio station gets a stop.** A stream has no previous, no next and no inside, so two of the
+three buttons on it were dead. Live playback now draws **play/pause and stop**. Stop takes the row
+away with it, because `STATE_STOPPED` was never a state worth a row: stop on a station means done,
+not paused at a position that no longer exists. On a session that declares only pause, the stop
+button pauses — the nearest true thing beats a button that does nothing.
+
+**The kind is read off the session, never off the package name.** Spotify is a music player and a
+podcast player in the same process, a radio feed and a podcast feed are the same code in the same
+reader, and whatever gets installed next year has a name nothing here has heard of. What a session
+declares it can do — a queue, a position, a step, a stop, a length — is the one signal that is right
+for all of them and needs no list to maintain. Fast-forward with no queue is spoken word. No length
+with no queue is a stream. Seekable and over twenty minutes is spoken word. Everything else, and
+anything that has told us nothing, gets previous/play/next, because those three are wrong in the
+fewest ways when the answer is unknown.
+
+**The row never changes size.** Three buttons are built once and re-marked, and the stream's left
+button goes invisible rather than away. A control set that grew or shrank when a podcast followed a
+song would move the notifications above it, and movement on a lock face reads as a fault.
+
 ## BrightControl v3.36 — BrightMusic states one colour, and so does this
 
 **A COLOR preset for BrightMusic.** With no rule it resolved to AUTO, which behind the table is

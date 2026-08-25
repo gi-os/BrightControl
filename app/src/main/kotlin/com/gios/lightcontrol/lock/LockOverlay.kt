@@ -109,6 +109,8 @@ class LockOverlay(private val context: Context) {
     private var mediaTitle: TextView? = null
     private var mediaArtist: TextView? = null
     private var mediaPlay: MediaGlyph? = null
+    private var mediaLeft: MediaGlyph? = null
+    private var mediaRight: MediaGlyph? = null
 
     // ---- the call card. See [LockCall] for why the face has to draw this itself.
     private var callRow: LinearLayout? = null
@@ -798,27 +800,53 @@ class LockOverlay(private val context: Context) {
             media.track?.pkg?.let { pkg -> runCatching { onOpenPlayer?.invoke(pkg) } }
         }
 
-        val previous = glyph(MediaGlyph.Kind.PREVIOUS) { media.previous() }
+        // The two outer buttons are one button each, whose mark and whose meaning both follow what
+        // is playing -- see [MediaKind]. Three views built once and re-labelled beats three sets of
+        // views swapped in and out: nothing is added to or removed from the row after it is built,
+        // so the row cannot change width or height when a podcast follows a song.
+        val left = glyph(MediaGlyph.Kind.PREVIOUS) { pressLeft() }
         val play = glyph(MediaGlyph.Kind.PLAY) { media.playPause() }
-        val next = glyph(MediaGlyph.Kind.NEXT) { media.next() }
+        val right = glyph(MediaGlyph.Kind.NEXT) { pressRight() }
 
         row.addView(cover)
         row.addView(words)
-        row.addView(previous)
+        row.addView(left)
         row.addView(play)
-        row.addView(next)
+        row.addView(right)
 
         mediaRow = row
         mediaArt = cover
         mediaTitle = title
         mediaArtist = artist
         mediaPlay = play
+        mediaLeft = left
+        mediaRight = right
         return row
+    }
+
+    /**
+     * The outer buttons, dispatched on what is playing rather than bound at build time.
+     *
+     * Read off [LockMedia.track] at the moment of the press, not off whatever the glyph was last
+     * drawn as. The two can differ for one frame -- a track can change under a thumb already on its
+     * way down -- and of the two answers, what is playing now is the one the user meant.
+     */
+    private fun pressLeft() = when (media.track?.kind) {
+        MediaKind.SPOKEN -> media.back()
+        // Nothing. A stream has no previous, and the button is not on screen to be pressed.
+        MediaKind.LIVE -> Unit
+        else -> media.previous()
+    }
+
+    private fun pressRight() = when (media.track?.kind) {
+        MediaKind.SPOKEN -> media.forward()
+        MediaKind.LIVE -> media.stopPlayback()
+        else -> media.next()
     }
 
     /** Three grid units of tap target around one and a half of mark. See [MediaGlyph]. */
     private fun glyph(kind: MediaGlyph.Kind, press: () -> Unit) =
-        MediaGlyph(context, kind).apply {
+        MediaGlyph(context, kind, type.medium).apply {
             layoutParams = LinearLayout.LayoutParams(type.gridPx(3.2f), type.gridPx(3.2f))
             isClickable = true
             setOnClickListener { runCatching { press() } }
@@ -848,6 +876,27 @@ class LockOverlay(private val context: Context) {
             visibility = if (second.isBlank()) View.GONE else View.VISIBLE
         }
         mediaPlay?.show(if (track.playing) MediaGlyph.Kind.PAUSE else MediaGlyph.Kind.PLAY)
+        // The controls follow the kind. A podcast gets the fifteen seconds it is always missing, a
+        // stream gets a stop instead of two buttons that would do nothing, and music keeps skip.
+        when (track.kind) {
+            MediaKind.MUSIC -> {
+                mediaLeft?.show(MediaGlyph.Kind.PREVIOUS)
+                mediaLeft?.visibility = View.VISIBLE
+                mediaRight?.show(MediaGlyph.Kind.NEXT)
+            }
+            MediaKind.SPOKEN -> {
+                mediaLeft?.show(MediaGlyph.Kind.SEEK_BACK)
+                mediaLeft?.visibility = View.VISIBLE
+                mediaRight?.show(MediaGlyph.Kind.SEEK_FORWARD)
+            }
+            MediaKind.LIVE -> {
+                // INVISIBLE, not GONE. The words beside it are the weighted child, so removing a
+                // button from the layout would stretch the title and slide the play button across
+                // the moment a station replaced a song. The gap stays; only the mark goes.
+                mediaLeft?.visibility = View.INVISIBLE
+                mediaRight?.show(MediaGlyph.Kind.STOP)
+            }
+        }
         mediaArt?.setImageBitmap(track.art)
     }
 

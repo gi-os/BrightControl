@@ -9,6 +9,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 
 /** What is playing, flattened to the things the lock face draws. */
 data class LockTrack(
@@ -17,6 +18,8 @@ data class LockTrack(
     val artist: String,
     val art: Bitmap?,
     val playing: Boolean,
+    /** Which three buttons to draw. See [MediaKind]. */
+    val kind: MediaKind,
 )
 
 /**
@@ -127,6 +130,77 @@ class LockMedia(private val context: Context) {
 
     fun previous() = command { it.transportControls.skipToPrevious() }
 
+    /** Fifteen seconds on, for a podcast. */
+    fun forward() = step(STEP_MS)
+
+    /** Fifteen seconds back. */
+    fun back() = step(-STEP_MS)
+
+    /**
+     * Move [delta] inside what is playing.
+     *
+     * `seekTo` rather than `fastForward()`, wherever the session allows it, because the platform's
+     * step is whatever the player decided -- thirty seconds in one app, ten in the next, a whole
+     * track in a third. A button drawn with **15** on it has to move fifteen seconds. `fastForward`
+     * is only the fallback for a session that will not take a position, and there the number on the
+     * glyph is a promise the player is making, not this app.
+     */
+    private fun step(delta: Long) = command { c ->
+        val state = c.playbackState
+        val actions = state?.actions ?: 0L
+        if (actions and PlaybackState.ACTION_SEEK_TO != 0L) {
+            val duration = runCatching {
+                c.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+            }.getOrDefault(0L)
+            var target = (position(state) + delta).coerceAtLeast(0L)
+            if (duration > 0L) target = target.coerceAtMost(duration)
+            c.transportControls.seekTo(target)
+        } else if (delta >= 0L) {
+            c.transportControls.fastForward()
+        } else {
+            c.transportControls.rewind()
+        }
+    }
+
+    /**
+     * End it, for a stream.
+     *
+     * Falls back to pause on a session that does not accept `stop`, which is most of them: half the
+     * players on Android declare only pause and treat it as a stop for a stream anyway. A button
+     * that does nothing would be worse than one that does the nearest thing.
+     *
+     * Stopping takes the row away with it -- `STATE_STOPPED` is not a state worth a row, see
+     * [active] -- which is the point. Stop on a radio means done, not paused at a position that no
+     * longer exists.
+     */
+    fun stopPlayback() = command { c ->
+        val actions = c.playbackState?.actions ?: 0L
+        if (actions and PlaybackState.ACTION_STOP != 0L) {
+            c.transportControls.stop()
+        } else {
+            c.transportControls.pause()
+        }
+    }
+
+    /**
+     * Where the playhead is *now*.
+     *
+     * `PlaybackState.position` is a reading taken at `lastPositionUpdateTime` and never updated
+     * again until the next state change, so on a track that has been playing for two minutes it is
+     * two minutes stale. Seeking to it minus fifteen seconds would jump backwards to somewhere
+     * near where the song started. The elapsed-realtime clock and the reported speed are how the
+     * platform expects this to be extrapolated.
+     */
+    private fun position(state: PlaybackState?): Long {
+        state ?: return 0L
+        val base = state.position.coerceAtLeast(0L)
+        val stamp = state.lastPositionUpdateTime
+        if (state.state != PlaybackState.STATE_PLAYING || stamp <= 0L) return base
+        val speed = if (state.playbackSpeed > 0f) state.playbackSpeed else 1f
+        val drift = ((SystemClock.elapsedRealtime() - stamp) * speed).toLong()
+        return (base + drift).coerceAtLeast(0L)
+    }
+
     private fun command(body: (MediaController) -> Unit) {
         val c = controller ?: return
         runCatching { body(c) }
@@ -176,6 +250,7 @@ class LockMedia(private val context: Context) {
         val state = runCatching { c.playbackState?.state }.getOrNull()
         if (!active(state)) return null
         val meta = runCatching { c.metadata }.getOrNull() ?: return null
+        val actions = runCatching { c.playbackState?.actions ?: 0L }.getOrDefault(0L)
         val title = meta.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
         // Three fallbacks because players disagree about which key carries the second line, and
         // the radio often fills only the album.
@@ -187,6 +262,9 @@ class LockMedia(private val context: Context) {
         val art = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+        val duration = runCatching {
+            meta.getLong(MediaMetadata.METADATA_KEY_DURATION)
+        }.getOrDefault(0L)
         return LockTrack(
             pkg = c.packageName,
             title = title,
@@ -196,10 +274,26 @@ class LockMedia(private val context: Context) {
             // is pause. A glyph that flips back for two seconds of buffering reads as a failure.
             playing = state == PlaybackState.STATE_PLAYING ||
                 state == PlaybackState.STATE_BUFFERING,
+            kind = MediaKind.of(
+                MediaCapabilities(
+                    canSkip = actions and
+                        (PlaybackState.ACTION_SKIP_TO_NEXT or
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0L,
+                    canSeek = actions and PlaybackState.ACTION_SEEK_TO != 0L,
+                    canStep = actions and
+                        (PlaybackState.ACTION_FAST_FORWARD or PlaybackState.ACTION_REWIND) != 0L,
+                    canStop = actions and PlaybackState.ACTION_STOP != 0L,
+                    durationMs = duration,
+                ),
+            ),
         )
     }
 
-    private companion object {
+    companion object {
+
+        /** What the two seek buttons move, and what is written on them. */
+        const val STEP_MS: Long = 15_000L
+
         /**
          * States worth a row.
          *
@@ -207,7 +301,7 @@ class LockMedia(private val context: Context) {
          * last song it played, with dead buttons, hours after it ended is worse than one that
          * shows nothing. A session that merely exists is not a session that is playing.
          */
-        fun active(state: Int?): Boolean = when (state) {
+        private fun active(state: Int?): Boolean = when (state) {
             PlaybackState.STATE_PLAYING,
             PlaybackState.STATE_PAUSED,
             PlaybackState.STATE_BUFFERING,
