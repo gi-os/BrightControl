@@ -4,6 +4,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,10 +100,22 @@ fun MenuRow(
     dim: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
+    // The wheel's highlight, when the wheel is driving this screen. Drawn as a bar and a shade
+    // rather than as a border or a padding change: anything that alters the row's size makes the
+    // whole list twitch as the selection passes down it, which is the one thing a cursor must
+    // never do.
+    val stop = cursorStop(onClick)
+    val barPx = with(LocalDensity.current) { 3.dp.toPx() }
     Row(
         Modifier
             .fillMaxWidth()
+            .then(stop.modifier)
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .drawBehind {
+                if (!stop.selected) return@drawBehind
+                drawRect(SelectedGround)
+                drawRect(Color.White, size = Size(barPx, size.height))
+            }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -255,3 +270,6 @@ fun SectionScaffold(
         }
     }
 }
+
+/** The ground under the highlighted row. Barely lighter than black, which is all it takes. */
+private val SelectedGround = Color(0xFF161616)

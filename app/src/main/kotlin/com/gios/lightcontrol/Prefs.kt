@@ -246,6 +246,22 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("double_tap", v).apply()
 
     /**
+     * Whether the wheel selects rows in this app's own screens instead of scrolling them.
+     *
+     * The switcher's controls, applied to the settings: a turn moves a highlight from row to row,
+     * a click opens the highlighted one. Off returns every screen to plain scrolling and a click
+     * to whatever it is bound to.
+     *
+     * Deliberately scoped to this app for now. The version worth having is system-wide, and that
+     * one needs `canRetrieveWindowContent="true"` on the service — the capability this app does
+     * not take, and the reason it can say it never reads what is on your screen. Worth proving
+     * the interaction before spending that.
+     */
+    var wheelCursor: Boolean
+        get() = sp.getBoolean("wheel_cursor", true)
+        set(v) = sp.edit().putBoolean("wheel_cursor", v).apply()
+
+    /**
      * Whether pressing home twice, quickly, opens the app switcher.
      *
      * Note what this does *not* do: it does not delay the home button. The usual way to read a

@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,8 @@ import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
 import com.gios.lightcontrol.ui.VolumeScreen
+import com.gios.lightcontrol.ui.LocalCursor
+import com.gios.lightcontrol.ui.WheelCursor
 import com.gios.lightcontrol.ui.WheelScreen
 import com.gios.lightcontrol.ui.HotspotScreen
 import com.gios.lightcontrol.ui.WifiLoginScreen
@@ -92,14 +95,26 @@ class MainActivity : ComponentActivity() {
 
     private val notches = MutableSharedFlow<Int>(extraBufferCapacity = 64)
 
+    /**
+     * The wheel's highlight, held by the activity rather than by the composition.
+     *
+     * [dispatchKeyEvent] is where the wheel click arrives, and it is not a composable — so the
+     * one object both halves need lives out here. See [WheelCursor].
+     */
+    private val cursor = WheelCursor()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashLog.install(this)
         setContent {
             LightControlTheme {
-                CompositionLocalProvider(LocalNotches provides notches.asSharedFlow()) {
+                CompositionLocalProvider(
+                    LocalNotches provides notches.asSharedFlow(),
+                    LocalCursor provides cursor,
+                ) {
                     val context = LocalContext.current
                     val prefs = remember { Prefs(context) }
+                    LaunchedEffect(Unit) { cursor.enabled = prefs.wheelCursor }
                     // A grant request arriving by intent opens straight onto it, ahead of the
                     // intro: the user did not come here to read a guide, they tapped a button in
                     // another app and expected this one to answer for it.
@@ -110,6 +125,11 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val home = { screen = Screen.Home }
+
+                    // Every screen starts with nothing highlighted. The rows behind it are gone,
+                    // and a selection carried across a screen change is a click aimed at whatever
+                    // now happens to be in that position.
+                    LaunchedEffect(screen) { cursor.reset() }
 
                     BackHandler(enabled = screen != Screen.Home && screen != Screen.Intro) {
                         screen = parentOf(screen)
@@ -235,6 +255,14 @@ class MainActivity : ComponentActivity() {
             }
             LightKey.WheelDown -> {
                 if (event.action == KeyEvent.ACTION_DOWN) notches.tryEmit(-1)
+                return true
+            }
+            // The click opens whatever the wheel has highlighted. Only when something *is*
+            // highlighted: with nothing selected the key belongs to whoever wanted it next,
+            // which on this phone is the flashlight.
+            LightKey.WheelClick -> {
+                if (!cursor.enabled || cursor.selected == null) return super.dispatchKeyEvent(event)
+                if (event.action == KeyEvent.ACTION_UP) cursor.activate()
                 return true
             }
             else -> Unit

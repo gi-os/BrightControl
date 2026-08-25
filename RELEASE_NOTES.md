@@ -1,3 +1,38 @@
+## BrightControl v3.20 — the wheel drives the settings
+
+**The app switcher's controls, applied to this app's own screens.** Turn the wheel and a
+highlight moves from row to row; press the wheel in and the highlighted row opens. The list
+scrolls to follow, keeping a row's worth of air past the selection so you can always see where
+the next press is going. Touch still works exactly as it did.
+
+**Nothing is highlighted until you turn the wheel**, and the highlight is dropped on every screen
+change. A screen that opens with a selection is a screen where a click does something you did not
+ask for, and a selection carried across a screen change is a press aimed at whatever now happens
+to be in that position. With nothing highlighted, the click goes back to being the flashlight.
+
+**Rows register themselves.** Nothing walks the layout: a row with something to do reports where
+it landed, and the cursor sorts what it holds by vertical position — the reading order of every
+screen in this app. So rows that come and go, like the ones that only appear once a binding is
+set to Resume, join and leave the order by existing. A screen with nothing selectable, like the
+ADB log, falls through to plain scrolling, so the wheel is never dead.
+
+**The highlight is a bar and a shade, not a border.** Anything that changes a row's size makes
+the whole list twitch as the selection passes down it, which is the one thing a cursor must not
+do.
+
+**Turning towards the top of the phone moves up the list** — the switcher's convention, and the
+opposite of what a turn does when it is scrolling. Dragging a page down with a thumb and moving a
+cursor up are the same motion with opposite results, and selection wins: a highlight that goes
+down when the wheel goes up is the version people get wrong every time.
+
+Switch it off under **The wheel → Wheel selects rows**.
+
+**Why only this app.** The version worth having is system-wide — the service walking the
+accessibility node tree of whatever app is in front and clicking what is focused. That needs
+`canRetrieveWindowContent="true"` on `ControlService`, which is false today and is the reason
+this app can say it never reads what is on your screen. It is worth proving the interaction on
+our own rows before spending that.
+
 ## BrightControl v3.19 — the lock face reads the Wi-Fi, not the tower
 
 **On Wi-Fi, the bars are the Wi-Fi's.** They were meant to be already, and in the common case they

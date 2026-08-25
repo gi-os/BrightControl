@@ -20,6 +20,8 @@ fun WheelScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
 
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
     var doubleTap by remember { mutableStateOf(prefs.doubleTapSwitchesTurn) }
+    val cursor = LocalCursor.current
+    var cursorOn by remember { mutableStateOf(prefs.wheelCursor) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
     var lightOs by remember { mutableStateOf(prefs.lightOsScreens) }
     var lightOsBright by remember { mutableStateOf(prefs.lightOsBrightness) }
@@ -69,6 +71,17 @@ fun WheelScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
                     else -> 48
                 }
                 prefs.swipeDp = swipeDp
+            },
+        )
+        MenuRow(
+            label = "Wheel selects rows",
+            detail = if (cursorOn) "ON" else "OFF",
+            sub = "in this app's own screens: a turn moves the highlight, a click opens it — " +
+                "the app switcher's controls, everywhere in here. Off goes back to scrolling.",
+            onClick = {
+                cursorOn = !cursorOn
+                prefs.wheelCursor = cursorOn
+                cursor?.enabled = cursorOn
             },
         )
         MenuRow(
