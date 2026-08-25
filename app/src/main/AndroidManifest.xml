@@ -102,6 +102,14 @@
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!--
+      The switcher's hold-to-stop, when there is no adb shell to do it properly. A *normal*
+      permission, granted at install with nothing to ask for, and genuinely weaker than a force
+      stop: it kills background processes and leaves a foreground app and its scheduled work
+      alone. The real thing goes over this app's own adb shell instead. See switcher/ForceStop.kt.
+    -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
     <application
         android:name=".App"
         android:allowBackup="false"

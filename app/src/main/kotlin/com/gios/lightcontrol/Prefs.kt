@@ -91,6 +91,18 @@ data class Behavior(
     val bareTurn: TurnAction,
     /** False for hands-off apps: no binding fires, nothing is consumed. */
     val buttonsActive: Boolean,
+    /**
+     * Whether the *camera button* fires anyway, with everything else left alone.
+     *
+     * One exception to hands-off, for one key, because that key is different: the camera button
+     * exists to open something from wherever you are standing, and where people stand is LightOS's
+     * home screen. Gating it with the rest meant a rebound camera button could only fire in the
+     * places nobody presses it — the setting saved, and then never applied. It has its own switch
+     * ([Prefs.cameraOnLightOs]) rather than riding on `buttonsActive`, so turning it on does not
+     * also hand LightOS's screens the wheel click, which is the change that once made LightOS
+     * unstable.
+     */
+    val cameraActive: Boolean = false,
 )
 
 /**
@@ -276,6 +288,24 @@ class Prefs(context: Context) {
     var homeDoubleSwitcher: Boolean
         get() = sp.getBoolean("home_double_switcher", true)
         set(v) = sp.edit().putBoolean("home_double_switcher", v).apply()
+
+    /**
+     * Whether the camera button's binding applies on LightOS's own screens.
+     *
+     * The one key that needed its own answer. Everything else on those screens is gated behind
+     * [lightOsScreens], which ships off because the last time this service claimed LightOS's keys
+     * wholesale it made LightOS unstable — and that gate is correct for the wheel and its click.
+     * It was wrong for the camera button, because the camera button is pressed *from the home
+     * screen*: rebinding it to another camera app looked like a setting that saved and then did
+     * nothing, since the only places the binding could fire were the places nobody presses it.
+     *
+     * On by default. With the default binding it changes nothing anybody can see — the tap already
+     * resolves to the same camera LightOS would have opened — and with a binding, it is the whole
+     * point of having set one.
+     */
+    var cameraOnLightOs: Boolean
+        get() = sp.getBoolean("camera_on_lightos", true)
+        set(v) = sp.edit().putBoolean("camera_on_lightos", v).apply()
 
     /**
      * The master switch. Off means this app does nothing to any key, anywhere.
@@ -960,10 +990,12 @@ object Policy {
             // the screen; or dropped on the floor, and its brightness ramp never runs.
             val turn = if (prefs.lightOsBrightness) TurnAction.PassThrough else TurnAction.Consume
             if (prefs.lightOsScreens) return Behavior(bareTurn = turn, buttonsActive = true)
-            // Blocking turns is its own switch, so it applies even with the buttons left alone.
-            // Hands-off for everything else, which is what the table would have said anyway.
-            if (turn == TurnAction.Consume) {
-                return Behavior(bareTurn = turn, buttonsActive = false)
+            // Blocking turns is its own switch, so it applies even with the buttons left alone,
+            // and so is the camera button — see [Behavior.cameraActive]. Hands-off for everything
+            // else, which is what the table would have said anyway.
+            val camera = prefs.cameraOnLightOs
+            if (turn == TurnAction.Consume || camera) {
+                return Behavior(bareTurn = turn, buttonsActive = false, cameraActive = camera)
             }
         }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)

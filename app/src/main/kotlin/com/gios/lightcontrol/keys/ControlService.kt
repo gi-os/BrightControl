@@ -32,6 +32,7 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockOverlay
+import com.gios.lightcontrol.switcher.ForceStop
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
 import com.gios.lightcontrol.switcher.appName
@@ -95,6 +96,9 @@ class ControlService : AccessibilityService() {
      */
     @Volatile
     private var visitingLightOs = false
+
+    /** When a wheel click went down while the switcher was up, for its hold. */
+    private var switcherDownAt = 0L
 
     /** When the previous visiting tap's release landed, for the double press. */
     private var visitTapAt = 0L
@@ -230,6 +234,7 @@ class ControlService : AccessibilityService() {
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
+        switcher.onStop = { pkg -> runCatching { stopApp(pkg) } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
@@ -875,7 +880,13 @@ class ControlService : AccessibilityService() {
         // should have opened your launcher belonged to LightOS alone — the idle face again, with
         // nothing left anywhere to leave it by. See [onHome].
         if (button == Button.Home) return onHome(front, behavior, event)
-        if (!behavior.buttonsActive) {
+        // Hands off — with one exception, and it has its own switch. The camera button is the
+        // one key whose whole purpose is to open something *from the home screen*, which on this
+        // phone is LightOS: gating it there meant the binding could only fire in the places
+        // nobody presses it. "I rebound the camera button and it refuses to acknowledge my
+        // change" is the report this exists for, and it was right — the setting saved, and then
+        // never applied where the thumb was. See [Behavior.cameraActive].
+        if (!behavior.buttonsActive && !(button == Button.Camera && behavior.cameraActive)) {
             if (fresh) log("${button.name} hands off")
             return false
         }
@@ -1106,6 +1117,37 @@ class ControlService : AccessibilityService() {
     }
 
     /**
+     * Force stop an app from the switcher, off the main thread.
+     *
+     * A thread rather than the handler, because the adb path opens a socket and waits for a
+     * command to exit — and this service's main thread is the one key events are dispatched on.
+     * An accessibility filter that blocks is a phone whose buttons have stopped answering.
+     *
+     * What comes back is reported rather than assumed. [ForceStop] can do the real thing or only
+     * the weaker fallback, and the difference matters to somebody stopping an app *because* it is
+     * misbehaving: "stopped" and "backgrounded" are not the same promise.
+     */
+    private fun stopApp(pkg: String) {
+        val label = appName(this, pkg)
+        Thread {
+            val result = runCatching { ForceStop.stop(this, pkg) }
+                .getOrDefault(ForceStop.Result.Failed)
+            handler.post {
+                val note = when (result) {
+                    ForceStop.Result.Stopped -> "STOPPED $label"
+                    ForceStop.Result.Backgrounded -> "BACKGROUNDED $label · no adb for a full stop"
+                    ForceStop.Result.Failed -> "COULD NOT STOP $label"
+                }
+                log("switcher stop ${pkg.substringAfterLast('.')} · ${result.name}")
+                if (result != ForceStop.Result.Failed) recents.forget(pkg)
+                runCatching {
+                    switcher.stopped(pkg, note, gone = result != ForceStop.Result.Failed)
+                }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    /**
      * The keys, while the switcher is up.
      *
      * Consuming here is safe in the way it usually is not: this window covers the screen, so the
@@ -1123,8 +1165,20 @@ class ControlService : AccessibilityService() {
             // Turning towards the top of the phone moves the selection up the list.
             LightKey.WheelUp -> { if (down) runCatching { switcher.move(-1) }; true }
             LightKey.WheelDown -> { if (down) runCatching { switcher.move(1) }; true }
+            // Tap opens the selection; holding it stops that app — the same pair the rows offer
+            // a thumb. Timed at the release like every other hold in this service: one that fired
+            // mid-press would stop an app while the button was still down and then hand the rest
+            // of the press to a list that had changed underneath it.
             LightKey.WheelClick -> {
-                if (up) runCatching { switcher.choose() }
+                if (down && event.repeatCount == 0) switcherDownAt = SystemClock.uptimeMillis()
+                if (up) {
+                    val started = switcherDownAt
+                    switcherDownAt = 0L
+                    val held = started != 0L && SystemClock.uptimeMillis() - started >= HOLD_MS
+                    val pkg = switcher.selected
+                    if (held && pkg != null) runCatching { stopApp(pkg) }
+                    else runCatching { switcher.choose() }
+                }
                 true
             }
             LightKey.Home -> {

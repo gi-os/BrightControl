@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -57,11 +58,18 @@ class SwitcherOverlay(private val context: Context) {
     private var content: View? = null
     private var column: LinearLayout? = null
     private var rows: List<TextView> = emptyList()
+    private var status: TextView? = null
     private var entries: List<Entry> = emptyList()
     private var index = 0
 
     /** Told which package was chosen. The service does the launching — it owns the throttle. */
     var onPick: ((String) -> Unit)? = null
+
+    /**
+     * Told which package was held down on. The service does the stopping — it owns the thread the
+     * adb call needs, and this window has no business blocking on a socket.
+     */
+    var onStop: ((String) -> Unit)? = null
 
     val showing: Boolean get() = root != null
 
@@ -253,19 +261,71 @@ class SwitcherOverlay(private val context: Context) {
                     hide()
                     onPick?.invoke(pkg)
                 }
+                // Hold to force stop. The list stays up: stopping an app is something you do
+                // *about* an app, not instead of switching to one, and the answer to whether it
+                // worked belongs on the screen you asked from.
+                setOnLongClickListener {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    arm()
+                    onStop?.invoke(entry.pkg)
+                    true
+                }
                 col.addView(this)
             }
         }
         col.addView(
             TextView(context).apply {
-                text = "Wheel to move · click to open · home to close"
+                text = "Wheel to move · click to open · hold to stop · home to close"
                 setTextColor(DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.regular
                 setPadding(0, type.gridPx(2f), 0, 0)
             },
         )
+        status = TextView(context).apply {
+            text = ""
+            visibility = View.GONE
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
+            typeface = type.medium
+            letterSpacing = type.buttonTracking
+            setPadding(0, type.gridPx(1f), 0, 0)
+            col.addView(this)
+        }
         paint()
+    }
+
+    /**
+     * Say what became of a stop, and take the row away if it worked.
+     *
+     * The row goes because the list is "apps you can go back to", and an app that has just been
+     * stopped is not one of those in the sense anybody means — going back to it would start it
+     * again, which is the opposite of what the hold asked for. A failure keeps the row and says so:
+     * a screen that removes a row for an app that is still running has lied about the one thing
+     * this gesture is for.
+     */
+    fun stopped(pkg: String, note: String, gone: Boolean) {
+        status?.let {
+            it.text = note
+            it.visibility = View.VISIBLE
+        }
+        arm()
+        if (!gone) return
+        val remaining = entries.filterNot { it.pkg == pkg }
+        val keep = status?.text?.toString().orEmpty()
+        entries = remaining
+        index = index.coerceIn(0, (remaining.size - 1).coerceAtLeast(0))
+        val col = column ?: return
+        val chosen = entries.getOrNull(index)?.pkg
+        runCatching { fill(col) }
+        if (chosen != null) index = entries.indexOfFirst { it.pkg == chosen }.coerceAtLeast(0)
+        paint()
+        // fill() rebuilt the status line along with everything else, so the message it was
+        // rebuilt without has to be put back.
+        status?.let {
+            it.text = keep
+            it.visibility = if (keep.isBlank()) View.GONE else View.VISIBLE
+        }
     }
 
     /** The selection is drawn as brightness, not as a box — this phone has no color to spend. */

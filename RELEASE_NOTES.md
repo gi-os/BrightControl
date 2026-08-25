@@ -1,3 +1,32 @@
+## BrightControl v3.25 — hold a row to stop the app, and the camera button works where you press it
+
+**Hold an app in the switcher to force stop it.** A long press on a row, or holding the wheel click
+on the selection, stops that app and takes its row out of the list — going back to an app you just
+stopped would start it again, which is the opposite of what the hold asked for.
+
+**It says which of two things it did, because they are not the same promise.** With this app's adb
+shell paired it runs `am force-stop`, the same command Settings' own Force stop button runs: every
+process killed, alarms and jobs cancelled. Without it, the fallback is `killBackgroundProcesses`,
+whose permission is *normal* and needs nothing granted — but which leaves a foreground app and its
+scheduled work alone. So the line under the list reads STOPPED or BACKGROUNDED, never whichever
+sounds better. Somebody stopping an app because it is misbehaving needs to know which happened.
+
+The stop runs on its own thread. The adb path opens a socket and waits for a command to exit, and
+this service's main thread is the one key events are dispatched on — a filter that blocks is a
+phone whose buttons have stopped answering.
+
+**The camera button now fires on LightOS's own screens, and has its own switch for it.** Reported
+from outside: "I rebound the camera button to Roll and it refuses to acknowledge my settings
+change." The setting saved. It just never applied where the thumb was — button bindings are gated
+on Light's home and lock screens behind **Buttons on LightOS screens**, which ships off, and the
+camera button is pressed *from the home screen* almost by definition. So the only places a rebound
+camera button could fire were the places nobody presses it.
+
+That gate stays correct for the wheel and its click: claiming those on LightOS's screens is what
+once made LightOS unstable. The camera button gets its own answer instead — **Buttons → Camera
+button → On LightOS screens**, on by default. With the default binding nothing visible changes,
+since the tap already resolves to the same camera LightOS would have opened. With a binding, it is
+the whole point of having set one.
 ## BrightControl v3.24 — an edge-gesture overlay no longer drops the color
 
 **Edge Gestures was quietly turning the panel monochrome.** The report counted five writes

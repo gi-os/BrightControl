@@ -49,6 +49,7 @@ fun ButtonsScreen(
 
     var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
     var switcher by remember { mutableStateOf(prefs.homeDoubleSwitcher) }
+    var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -135,6 +136,22 @@ fun ButtonsScreen(
                     }
                 }
                 if (button == Button.Camera) {
+                    MenuRow(
+                        label = "On LightOS screens",
+                        detail = if (cameraLightOs) "ON" else "OFF",
+                        sub = if (cameraLightOs) {
+                            "the binding fires on Light's home and lock screens too, which is " +
+                                "where this button is actually pressed. Only this button — the " +
+                                "wheel and its click still belong to LightOS there."
+                        } else {
+                            "off, so LightOS answers the camera button on its own screens and " +
+                                "whatever you bind here only applies inside other apps."
+                        },
+                        onClick = {
+                            cameraLightOs = !cameraLightOs
+                            prefs.cameraOnLightOs = cameraLightOs
+                        },
+                    )
                     MenuRow(
                         label = "Inside a camera",
                         detail = "PASS",
