@@ -1,3 +1,14 @@
+## BrightControl v3.22 — the switcher just appears
+
+**No animation on the app switcher.** It was fading and rising into place over about a fifth of a
+second, which is a fifth of a second in which the row you are reaching for is not yet where it is
+going to end up. This window opens on a double press of the home button — a gesture people make
+while they are already moving — and a switcher is somewhere you pass through, not somewhere you
+look at. It is now at rest on the first frame it exists.
+
+That is the last of the entrance effects: the dithered background went in v3.18 and the list's own
+fade goes here.
+
 ## BrightControl v3.21 — three things about the new controls that did not work
 
 **The wheel click now opens the highlighted row.** It was doing nothing, and the reason was two

@@ -145,25 +145,23 @@ class SwitcherOverlay(private val context: Context) {
     }
 
     /**
-     * The entrance: black, and the list rising into it.
+     * Show the list, at rest, on the first frame it exists.
      *
-     * v3.16 filled the background with an animated Bayer dither instead — grey cells on black,
-     * sweeping down the screen while the grain grew. It read as noise on the device rather than
-     * as texture, so it is gone and the ground is plain black again. What is left is the list's
-     * own arrival: a little under a grid unit of travel, enough to read as movement and not
-     * enough to be a slide.
+     * There is deliberately no animation left here. v3.16 dithered the background in and v3.20
+     * had the list fade and rise into place; both are gone for the same reason. This window opens
+     * on a double press of the home button, which is a gesture people make when they are already
+     * moving — and every millisecond of arrival is time the row you are reaching for is not yet
+     * where it is going to be. A switcher is not somewhere you look at, it is somewhere you pass
+     * through.
+     *
+     * The reset is still worth doing: a window that is being re-shown may be carrying the
+     * transform an earlier animation left on it.
      */
     private fun enter() {
         val view = content ?: return
         view.animate().cancel()
-        view.alpha = 0f
-        view.translationY = type.gridPx(1.5f).toFloat()
-        view.animate()
-            .alpha(1f)
-            .translationY(0f)
-            .setStartDelay(CONTENT_DELAY_MS)
-            .setDuration(CONTENT_MS)
-            .start()
+        view.alpha = 1f
+        view.translationY = 0f
     }
 
     private fun arm() {
@@ -286,9 +284,5 @@ class SwitcherOverlay(private val context: Context) {
          * the room to spend.
          */
         const val SCALE = 1.15f
-
-        /** How far behind the entrance the list comes in, and how long it takes. */
-        const val CONTENT_DELAY_MS = 90L
-        const val CONTENT_MS = 220L
     }
 }
