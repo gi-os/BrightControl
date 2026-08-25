@@ -28,6 +28,7 @@ fun LockScreenScreen(
     var lockFault by remember { mutableStateOf(prefs.lockFault()) }
     var lockPrompt by remember { mutableStateOf(prefs.lockPrompt) }
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
+    var lockMedia by remember { mutableStateOf(prefs.lockMedia) }
     var lockHold by remember { mutableStateOf(prefs.lockHoldToEnter) }
     val notesGranted = LockNotes.granted(context)
     val hasBackground = LockBackground.has(context)
@@ -152,6 +153,26 @@ fun LockScreenScreen(
                 onClick = {
                     lockNotes = !lockNotes
                     prefs.lockNotes = lockNotes
+                },
+            )
+            MenuRow(
+                label = "Now playing",
+                detail = when {
+                    !lockMedia -> "OFF"
+                    notesGranted -> "ON"
+                    else -> "NO GRANT"
+                },
+                dim = lockMedia && !notesGranted,
+                sub = if (lockMedia && !notesGranted) {
+                    "same grant as Notifications: adb shell cmd notification allow_listener " +
+                        "com.gios.lightcontrol/.lock.LockNotifications"
+                } else {
+                    "cover, track and skip controls on the face, for whatever is playing. " +
+                        "LightOS draws these for its own player only."
+                },
+                onClick = {
+                    lockMedia = !lockMedia
+                    prefs.lockMedia = lockMedia
                 },
             )
         }

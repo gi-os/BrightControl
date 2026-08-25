@@ -26,7 +26,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 |---|---|
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
-| **Lock screen** | A Light-style lock face with notifications, signal, battery and a photo background |
+| **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without |
 | **ADB and grants** | The phone grants itself every permission it needs, over its own wireless debugging |
 | **Wi-Fi login** | A captive-portal sign-in page. **In development. It may not work** |
@@ -349,7 +349,8 @@ the power button, so the face switched the sensor off by existing. A window at
 The keyguard shows, stays visible and keeps listening exactly as always, and the power button
 unlocks the phone untouched.
 
-The face draws the clock and date, notifications, four signal bars and a battery outline. Both
+The face draws the clock and date, notifications, what is playing, four signal bars and a
+battery outline. Both
 of those last two are glyphs rather than text. You read "T-MOBILE" and "85%". You glance at bars
 and a fill. Type comes from the LightOS scale ported from `light-sdk`: named sizes scaled by
 screen height, spacing in 27-wide grid units, and no hardcoded sp or dp anywhere on the screen.
@@ -546,6 +547,8 @@ keys/VolumeHud.kt          the volume level; reports, never adjusts
 keys/Grants.kt             what is granted, and the volatile own-window flag
 
 lock/LockOverlay.kt        the Light face as a service-owned window at layer 31
+lock/LockMedia.kt          what is playing, read off the platform media session
+lock/MediaGlyph.kt         the transport marks, drawn rather than shipped as drawables
 lock/LockBackground.kt     the photo and its filter stack
 lock/LockGallery.kt        DCIM walked directly, because MediaStore is never current here
 lock/LightType.kt          the light-sdk type scale and grid, for plain Views
@@ -620,6 +623,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.17 | **What is playing, on the lock face.** Cover, track and skip controls under the notifications. A player cannot draw this itself. An app window sits at layer 11 and the face sits at 31, so BrightMusic's own controls were painted underneath it. The row reads the platform media session, so it works for any player and needs no new grant |
 | v3.14 | **Wi-Fi login and Hotspot are labelled unfinished, in the app and here.** Both shipped looking like finished features and neither one is. The portal needs a system WebView this phone may not have. The hotspot depends on a BLE identity key, a shell that survives a reboot, and an iPad that chooses to join. A feature that might not work is fine. One that does not say so is not. Also a README rewritten around what the app now is, six subsystems rather than the wheel and two buttons, with a Quick start that no longer opens by telling you to find a computer |
 | v3.13 | **The apps that ship on PASS could not be tapped off it.** Roll and BrightChat both hold the daltonizer grant and set their own color, so both ship as PASS. Both rows sat unchanged however often anyone tapped them. The step after PASS is AUTO, AUTO stores nothing, and storing nothing resolves back through the preset table to PASS. Two correct rules cancelled out, on exactly the two apps the feature is for. The step now follows what it resolves to |
 | v3.12 | **The ADB connection reconnects itself.** The daemon TLS listener does not survive leaving the Wireless-debugging screen and comes back on a new port. The connection made during setup was therefore dead by the time anyone walked back to the button that needed it: six grants, six `Stream closed`. Pairing needs a human. The port is discovery. Every batch now reconnects in front of itself |

@@ -232,6 +232,9 @@ class ControlService : AccessibilityService() {
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
+        // The now-playing row on the face reports a tap here rather than starting anything itself.
+        // Every activity start in this app goes through one throttle, one log line and one cover.
+        lockFace.onOpenPlayer = { pkg -> runCatching { openFromLock(pkg) } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
@@ -477,6 +480,28 @@ class ControlService : AccessibilityService() {
             return
         }
         coverTarget = target
+        handler.removeCallbacks(coverTimeout)
+        handler.postDelayed(coverTimeout, LOCK_COVER_MAX_MS)
+    }
+
+    /**
+     * The now-playing row was tapped. Open the player it named.
+     *
+     * Simpler than [homeFromLock] because there is no rule to resolve: the row says which package
+     * is making the sound, and that is the app the tap means. Reached only on an unlocked face --
+     * the row checks the arming before it calls -- so this is an ordinary launch, held under the
+     * same cover as every other way out of the face so LightOS does not flash between the two.
+     */
+    private fun openFromLock(pkg: String) {
+        Lock.pending = null
+        if (slept == pkg) slept = null
+        val ok = launch(pkg)
+        log("lock media \u2192 " + pkg.substringAfterLast('.') + if (ok) "" else " \u00b7 FAILED")
+        if (!ok || !lockFace.showing) {
+            dropCover()
+            return
+        }
+        coverTarget = pkg
         handler.removeCallbacks(coverTimeout)
         handler.postDelayed(coverTimeout, LOCK_COVER_MAX_MS)
     }

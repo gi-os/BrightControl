@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.ColorDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -16,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.telephony.TelephonyManager
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -97,6 +100,29 @@ class LockOverlay(private val context: Context) {
     private var notes: LinearLayout? = null
     private var enterHint: TextView? = null
     private var progressLine: View? = null
+
+    // ---- now playing. See [LockMedia] for why the player cannot draw this itself.
+    private val media = LockMedia(context)
+    private var mediaRow: LinearLayout? = null
+    private var mediaArt: ImageView? = null
+    private var mediaTitle: TextView? = null
+    private var mediaArtist: TextView? = null
+    private var mediaPlay: MediaGlyph? = null
+
+    /**
+     * Asked to open the player, with its package.
+     *
+     * The face never starts an activity. Same seam as [onEnter] and for the same reason: every
+     * launch in this app goes through the service's one throttle, its one log line and its cover
+     * handling, and a window that started its own would sit outside all three.
+     */
+    var onOpenPlayer: ((String) -> Unit)? = null
+
+    init {
+        // The row is driven by the session, not by the minute ticker -- a track changes when it
+        // changes, and repainting the clock is no reason to redraw a cover.
+        media.onChange = { track -> runCatching { renderMedia(track) } }
+    }
 
     /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
     private var enterArmed = false
@@ -262,6 +288,11 @@ class LockOverlay(private val context: Context) {
             .onSuccess {
                 root = view
                 startTicking()
+                // Only when the row was actually built. Started here rather than in the
+                // constructor because the listener it registers outlives the window otherwise,
+                // and a session callback firing all day for a face that is not up is exactly the
+                // battery bug the screen-on poll already had once.
+                if (mediaRow != null) media.start()
                 runCatching { refresh() }
             }
     }
@@ -277,6 +308,7 @@ class LockOverlay(private val context: Context) {
      */
     fun hide(): Boolean {
         stopTicking()
+        media.stop()
         handler.removeCallbacks(fadeIn)
         handler.removeCallbacks(holdEnter)
         holdAnimator?.cancel()
@@ -290,6 +322,11 @@ class LockOverlay(private val context: Context) {
         if (!gone) return false
         root = null
         face = null
+        mediaRow = null
+        mediaArt = null
+        mediaTitle = null
+        mediaArtist = null
+        mediaPlay = null
         enterHint = null
         progressLine = null
         clock = null
@@ -410,6 +447,11 @@ class LockOverlay(private val context: Context) {
         middle.addView(noteList)
         column.addView(middle)
 
+        // Under the clock and the shade, above the hints. The foot of the screen is where a phone
+        // puts what is playing, and it is also the only place a control can go without the notes
+        // shifting position every time a song starts.
+        if (prefs.lockMedia) column.addView(buildMedia())
+
         // `detail`, not `button`. This is a caption telling you the sensor is live, not a control
         // to press — sized like one it shouted over the clock.
         val hint = TextView(context).apply {
@@ -514,6 +556,127 @@ class LockOverlay(private val context: Context) {
         frame
     }.getOrNull()
 
+    // ------------------------------------------------------------------------ now playing
+
+    /**
+     * The now-playing row: cover, what it is, and three controls.
+     *
+     * Built once with the face and left `GONE` until a session says otherwise, rather than added
+     * and removed as music starts and stops. A row that appears by being inserted into the column
+     * moves everything above it a few pixels the moment a track begins, and on a lock screen that
+     * reads as the face glitching.
+     *
+     * **The buttons are the only touchable things on this face.** Everything else falls through to
+     * the frame's listener, which is what the swipe and the hold-to-enter are read from -- a child
+     * with a click listener consumes the gesture before the frame ever sees it, so pressing skip
+     * cannot half-start a hold, and dragging up from anywhere else still reaches the keypad.
+     */
+    private fun buildMedia(): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(0, type.gridPx(1f), 0, type.gridPx(0.6f))
+        }
+
+        val cover = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(type.gridPx(4f), type.gridPx(4f))
+            // Grey, like the rest of the face. LightOS is a three-colour phone and a colour
+            // photograph the size of a stamp beside white text reads as a foreign element -- and
+            // the panel is matte, so the colour was never worth much at this size anyway.
+            colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
+            // Shown even with no artwork. A square that is sometimes there and sometimes not
+            // moves the title, and the radio has no cover for whole shows at a time.
+            setBackgroundColor(EMPTY_ART)
+        }
+
+        val words = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f,
+            ).apply {
+                marginStart = type.gridPx(0.8f)
+                marginEnd = type.gridPx(0.5f)
+            }
+        }
+        val title = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(Color.WHITE)
+            textSize = type.copy
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val artist = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(DIM)
+            textSize = type.detail
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        words.addView(title)
+        words.addView(artist)
+        // Opening the player is a deliberate act on an unlocked phone, so it is gated on the same
+        // arming as the hold: while the keyguard is still up this does nothing at all, because a
+        // lock screen that launches an app on one tap is not a lock screen.
+        words.setOnClickListener {
+            if (!enterArmed) return@setOnClickListener
+            media.track?.pkg?.let { pkg -> runCatching { onOpenPlayer?.invoke(pkg) } }
+        }
+
+        val previous = glyph(MediaGlyph.Kind.PREVIOUS) { media.previous() }
+        val play = glyph(MediaGlyph.Kind.PLAY) { media.playPause() }
+        val next = glyph(MediaGlyph.Kind.NEXT) { media.next() }
+
+        row.addView(cover)
+        row.addView(words)
+        row.addView(previous)
+        row.addView(play)
+        row.addView(next)
+
+        mediaRow = row
+        mediaArt = cover
+        mediaTitle = title
+        mediaArtist = artist
+        mediaPlay = play
+        return row
+    }
+
+    /** Three grid units of tap target around one and a half of mark. See [MediaGlyph]. */
+    private fun glyph(kind: MediaGlyph.Kind, press: () -> Unit) =
+        MediaGlyph(context, kind).apply {
+            layoutParams = LinearLayout.LayoutParams(type.gridPx(3.2f), type.gridPx(3.2f))
+            isClickable = true
+            setOnClickListener { runCatching { press() } }
+        }
+
+    /**
+     * Put [track] on screen, or take the row away when there is nothing playing.
+     *
+     * Called from the session callback and again from [refresh], so a face rebuilt on the next
+     * sleep shows what is playing without waiting for the next track change.
+     */
+    private fun renderMedia(track: LockTrack?) {
+        val row = mediaRow ?: return
+        if (track == null) {
+            row.visibility = View.GONE
+            mediaArt?.setImageDrawable(null)
+            return
+        }
+        row.visibility = View.VISIBLE
+        // A radio stream often fills only one of the two. Whichever it filled goes on the top
+        // line, so the row is never a blank headline over a subtitle.
+        val headline = track.title.ifBlank { track.artist }
+        val second = if (track.title.isBlank()) "" else track.artist
+        mediaTitle?.text = headline
+        mediaArtist?.apply {
+            text = second
+            visibility = if (second.isBlank()) View.GONE else View.VISIBLE
+        }
+        mediaPlay?.show(if (track.playing) MediaGlyph.Kind.PAUSE else MediaGlyph.Kind.PLAY)
+        mediaArt?.setImageBitmap(track.art)
+    }
+
     /** `superfine` — the top bar is glanced at, not read. */
     private fun barLabel(pad: Int = 0) = TextView(context).apply {
         typeface = type.medium
@@ -598,6 +761,7 @@ class LockOverlay(private val context: Context) {
             icon.charging = batteryCharging()
         }
         fillNotes()
+        renderMedia(media.track)
     }
 
     private fun fillNotes() {
@@ -734,6 +898,9 @@ class LockOverlay(private val context: Context) {
         const val FADE_MS = 320L
 
         const val MAX_NOTES = 4
+
+        /** The square behind a missing cover. Dark enough to be a shape, not a hole. */
+        val EMPTY_ART = Color.rgb(0x22, 0x22, 0x22)
 
         /** How long a press-and-hold on the unlocked face must last to go in. */
         const val HOLD_ENTER_MS = 1000L

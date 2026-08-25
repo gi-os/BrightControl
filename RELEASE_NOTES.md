@@ -1,3 +1,43 @@
+## BrightControl v3.17 — what is playing, on the lock face
+
+**The lock face carries a now-playing row.** Cover, track, artist, and previous / play-pause /
+next, sitting under the notifications. It appears when something is playing and is not there when
+nothing is. Tapping the track opens the player, once the phone is unlocked.
+
+**This had to be built here, and that is the whole point of the release.** BrightMusic already
+draws its own controls over LightOS's lock screen, and that row is a `TYPE_APPLICATION_OVERLAY`
+— layer 11 in AOSP's `getWindowLayerFromTypeLw`. The Light face is a `TYPE_ACCESSIBILITY_OVERLAY`
+at layer 31. So with the face on, the player's controls were painted underneath it: present,
+correct, invisible and untouchable. No flag, permission or window trick lifts an ordinary app
+above 31. Whatever draws over the face has to be the thing that owns the face.
+
+**It reads the platform media session, not BrightMusic.** `MediaSessionManager` already carries
+the title, the artist, the artwork and the transport controls of whatever is playing, for every
+app on the phone at once, and BrightMusic's session has always been registered and correct — it
+is only LightOS that ignores it. So there is no private contract between two apps to keep in step
+across two releases, and the row works the same for a podcast, for the radio, and for any player
+installed later.
+
+**No new grant.** `getActiveSessions` is refused unless the component asking is an enabled
+notification listener, and that is `LockNotifications`, which the face already needs for the
+shade. Without that grant the row is absent rather than broken, and the settings row says so.
+
+**Details that are deliberate.** A paused player still gets the row, because a lock screen you can
+press play on is the point; a stopped one does not, because dead buttons under the last song you
+played is worse than nothing. Buffering draws as playing, so two seconds of network does not flip
+the glyph and read as a failure. The cover is desaturated to match a face that is otherwise white
+and grey, and a missing cover is drawn as a square rather than as a gap, so the title does not
+move when the radio changes show. The row is built once and hidden, never inserted, because a row
+that arrives by insertion shifts everything above it the moment a track starts.
+
+**The buttons are the only touchable things on the face, and that is why the gestures still
+work.** A child with a click listener consumes the press before the frame's listener sees it, so
+pressing skip cannot half-start the hold-to-enter, and a drag from anywhere else still reaches the
+keypad. Opening the player is gated on the same arming as the hold: while the keyguard is up, the
+tap does nothing at all.
+
+On by default. Switch it off under Lock screen → Now playing.
+
 ## BrightControl v3.16 — the switcher fills in
 
 **The app switcher's background is a dither now, and it arrives.** Press home twice and the

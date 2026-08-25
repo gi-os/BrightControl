@@ -549,6 +549,19 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("lock_notes", v).apply()
 
     /**
+     * Whether the face carries what is playing, with controls.
+     *
+     * On. LightOS draws transport controls on its own lock screen for its own player and for
+     * nothing else, so with the Light face up a sideloaded player had no controls anywhere -- and
+     * it could not add its own, because an app window sits at layer 11 and this face sits at 31.
+     * Read off the platform media session, so it is whatever is playing rather than one named app.
+     * Shares the notification listener grant with [lockNotes]; without it the row is simply absent.
+     */
+    var lockMedia: Boolean
+        get() = sp.getBoolean("lock_media", true)
+        set(v) = sp.edit().putBoolean("lock_media", v).apply()
+
+    /**
      * Whether unlocking holds the face open until a deliberate press-and-hold, instead of
      * launching the resume app the instant the fingerprint authenticates.
      *
