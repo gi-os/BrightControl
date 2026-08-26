@@ -318,7 +318,14 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
                     com.gios.lightcontrol.Prefs(context).adbPort.toIntOrNull()
                 }.getOrNull()
                 if (saved != null) {
-                    up = runCatching { fresh.connectPort(context, saved) }.getOrDefault(false)
+                    // **On a thread we can walk away from.** `connectPort` opens a socket and a
+                    // TCP connect to a port nothing is listening on does not fail quickly — it
+                    // retries SYNs for minutes. A run that sat at "RUNNING 224s" was this call,
+                    // waiting on a stale port with no deadline of its own. Same discipline as a
+                    // command: bounded, and abandoned rather than awaited.
+                    up = withinDeadline(CONNECT_MS) {
+                        runCatching { fresh.connectPort(context, saved) }.getOrDefault(false)
+                    }
                 }
             }
             if (!up) return false
@@ -340,6 +347,32 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             }
             return false
         }
+
+        /**
+         * Run something that has no timeout of its own, and give up on it.
+         *
+         * A TCP connect is the case this exists for: it can sit in SYN retries for minutes, and
+         * there is no interrupting it from outside. So it runs on a daemon thread that is abandoned
+         * if it overruns — the attempt finishes into a value nobody reads, and the socket it was
+         * holding is closed by the next [reset].
+         */
+        private fun withinDeadline(timeoutMs: Long, work: () -> Boolean): Boolean {
+            var result = false
+            val worker = Thread { result = work() }
+            worker.isDaemon = true
+            worker.start()
+            worker.join(timeoutMs)
+            return if (worker.isAlive) false else result
+        }
+
+        /**
+         * How long to let a direct connect attempt run.
+         *
+         * A port that is listening answers in milliseconds on the phone's own loopback. Six seconds
+         * is generous for the case that works and short enough that the case that does not is not
+         * mistaken for a hung app.
+         */
+        private const val CONNECT_MS = 6_000L
 
         /** How many times to ask a new socket whether it can carry a command. */
         private const val PROBES = 3
