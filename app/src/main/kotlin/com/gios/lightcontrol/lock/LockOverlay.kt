@@ -23,6 +23,7 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -91,6 +92,15 @@ class LockOverlay(private val context: Context) {
     /** How far up counts as meaning it. Four grid units — a flick, not a graze. */
     private val swipeThreshold: Int get() = type.gridPx(4f)
 
+    /**
+     * How far right a row has to be pushed before letting go dismisses it.
+     *
+     * Longer than a flick and shorter than the panel: five grid units is far enough that the
+     * gesture cannot be a wobble on the way to the power button, and near enough that a thumb
+     * reaches it without a second grab.
+     */
+    private val swipeAwayThreshold: Int get() = type.gridPx(5f)
+
     private var root: FrameLayout? = null
     private var face: FrameLayout? = null
     private var clock: TextView? = null
@@ -98,7 +108,7 @@ class LockOverlay(private val context: Context) {
     private var bars: SignalBars? = null
     private var batteryIcon: BatteryIcon? = null
     private var alarm: TextView? = null
-    private var notes: LinearLayout? = null
+    private var notes: LockNoteList? = null
     private var enterHint: TextView? = null
     private var progressLine: View? = null
 
@@ -140,6 +150,15 @@ class LockOverlay(private val context: Context) {
      */
     var onOpenPlayer: ((String) -> Unit)? = null
 
+    /**
+     * A notification was swiped off the face, with its key.
+     *
+     * Same seam as every other verb here: the window draws and reports, the service acts. The
+     * cancel itself is one call to the bound listener ([LockNotes.dismiss]) and it goes through
+     * the service so it lands in the same log as everything else the face does.
+     */
+    var onDismissNote: ((String) -> Unit)? = null
+
     init {
         // The row is driven by the session, not by the minute ticker -- a track changes when it
         // changes, and repainting the clock is no reason to redraw a cover.
@@ -163,6 +182,30 @@ class LockOverlay(private val context: Context) {
 
     /** Hidden by a tap, and left hidden until the next sleep. */
     private var dismissedByTouch = false
+
+    /**
+     * Rows swiped away in the last second, filtered out until the listener catches up.
+     *
+     * `cancelNotification` is a request, not a removal: the row goes when the platform tells the
+     * listener it went, which is a round trip through another process. Without this the row
+     * sprang back under the finger for a frame or two and the swipe read as having failed. Cleared
+     * as each key stops appearing in the real list, so nothing is ever hidden on the strength of
+     * a cancel that did not happen.
+     */
+    private val dismissed = mutableSetOf<String>()
+
+    /**
+     * The track whose row was swiped away, if any.
+     *
+     * Swiping the player off the face is not a transport command — the music keeps playing, this
+     * is the card being put away. It stays away for that track and comes back the moment the
+     * session has something new to say: a different track, or play pressed again in the app, which
+     * is what asking for the player back looks like from here.
+     */
+    private var mediaHiddenKey: String? = null
+
+    /** Last known play state, for spotting the press that un-hides the row. */
+    private var mediaWasPlaying = false
 
     /**
      * The decoded picture, kept between lock cycles.
@@ -294,6 +337,15 @@ class LockOverlay(private val context: Context) {
      */
     fun show(prefs: Prefs) {
         dismissedByTouch = false
+        // A new lock cycle re-asks the platform what is in the shade, so last cycle's optimism is
+        // worth nothing and holding it would hide a notification that had come back.
+        dismissed.clear()
+        // The face repaints when the shade changes, not a minute later: a message arriving at
+        // 10:00:05 used to be on screen at 10:01, and a row swiped away sat there until the same
+        // tick. Registered with the face and dropped in [hide], so nothing posts to a main thread
+        // on behalf of a window that is not up. Set before the early return below, because a
+        // window that survived the last cycle is up and still needs telling.
+        LockNotes.onChange = { handler.post { runCatching { fillNotes() } } }
         if (root != null) {
             // Back to black. The phone is asleep at this point, so nothing is lost, and it means a
             // window that survived a lock cycle wakes the same way a fresh one does.
@@ -346,6 +398,7 @@ class LockOverlay(private val context: Context) {
     fun hide(): Boolean {
         stopTicking()
         media.stop()
+        LockNotes.onChange = null
         handler.removeCallbacks(fadeIn)
         handler.removeCallbacks(holdEnter)
         holdAnimator?.cancel()
@@ -402,7 +455,7 @@ class LockOverlay(private val context: Context) {
     // ------------------------------------------------------------------------ the view
 
     private fun build(prefs: Prefs): FrameLayout? = runCatching {
-        val frame = FrameLayout(context).apply {
+        val frame = LockFrame(context).apply {
             background = ColorDrawable(Color.BLACK)
         }
 
@@ -481,8 +534,10 @@ class LockOverlay(private val context: Context) {
             textSize = type.paragraph
             gravity = Gravity.CENTER
         }
-        val noteList = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
+        // Owned by the list rather than added and removed with the rows, because the list is
+        // what knows how many notifications did not make it onto the screen. See [LockNoteList].
+        val more = barLabel(type.gridPx(0.55f))
+        val noteList = LockNoteList(context, more).apply {
             setPadding(0, type.gridPx(2f), 0, 0)
         }
         middle.addView(time)
@@ -551,44 +606,9 @@ class LockOverlay(private val context: Context) {
         // **A tap does nothing.** This window covers the whole panel, and a phone in a pocket
         // presses its whole panel — a face that got out of the way on any touch is a face that
         // spends the day out of the way, and then the picture is a thing you see only when you
-        // meant to see something else. So the gesture has to be one nothing does by accident:
-        // a deliberate upward drag, which is also the gesture the lock screen underneath already
-        // answers to.
-        var downY = 0f
-        var downX = 0f
-        frame.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downY = event.rawY
-                    downX = event.rawX
-                    // Only after the phone is unlocked does a hold mean anything. Before that the
-                    // keyguard behind us is what a press has to reach.
-                    if (enterArmed) startHold()
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (enterArmed) {
-                        val moved = abs(event.rawY - downY) + abs(event.rawX - downX)
-                        // This is turning into a swipe, not a hold -- let the swipe win.
-                        if (moved > swipeThreshold) cancelHold()
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    cancelHold()
-                    val up = downY - event.rawY
-                    val sideways = abs(event.rawX - downX)
-                    // Up, far enough to be meant, and more up than across.
-                    if (up > swipeThreshold && up > sideways) {
-                        // Remembered, so screen-on does not raise it again. Swiping to reach the
-                        // keypad and having the face come straight back would make the keypad
-                        // unreachable, which is the one bug this feature must never have.
-                        dismissedByTouch = true
-                        hide()
-                    }
-                }
-                MotionEvent.ACTION_CANCEL -> cancelHold()
-            }
-            true
-        }
+        // meant to see something else. So every gesture here has to be one nothing does by
+        // accident: a deliberate drag, up for the keypad or right to dismiss a row. See
+        // [LockFrame], which is where all of it is read.
 
         face = content
         enterHint = enter
@@ -601,6 +621,220 @@ class LockOverlay(private val context: Context) {
         batteryIcon = battery
         frame
     }.getOrNull()
+
+    // ------------------------------------------------------------------------ the gestures
+
+    /**
+     * Every gesture the face answers to, read in one place.
+     *
+     * Three of them, and each one has to be impossible to perform by accident, because this window
+     * covers the whole panel and a phone in a pocket presses the whole panel:
+     *
+     *  - **Up** — put the face away and show the keypad underneath.
+     *  - **Right, on a row** — dismiss that notification, or put the player's card away.
+     *  - **Press and hold, once unlocked** — go in. See [startHold].
+     *
+     * ### Why this intercepts
+     *
+     * The row of media buttons and the track title are clickable children, and a clickable child
+     * takes the whole gesture from `ACTION_DOWN`: before this class the parent never saw a drag
+     * that began on one, so swiping right on the player did nothing and swiping up from the title
+     * did not reach the keypad. `onInterceptTouchEvent` is the standard answer — children keep
+     * their taps, and the moment a press turns into a drag the parent takes it over and the child
+     * is sent an `ACTION_CANCEL`, which is exactly right: a drag was never a tap.
+     *
+     * The axis is locked once, at the first movement past the touch slop, and never revisited. A
+     * gesture that changes its mind halfway is a gesture that dismisses a notification on the way
+     * to the keypad.
+     */
+    private inner class LockFrame(context: Context) : FrameLayout(context) {
+
+        /** The system's own idea of a tremor. Smaller than any threshold here, deliberately. */
+        private val slop = ViewConfiguration.get(context).scaledTouchSlop
+
+        private var downX = 0f
+        private var downY = 0f
+        private var drag = Drag.NONE
+
+        /** The row under the finger, while it is being pushed. */
+        private var target: View? = null
+
+        override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                // Always delivered here first, whatever a child goes on to do with it, which is
+                // what makes this the one reliable place to record where a gesture began.
+                MotionEvent.ACTION_DOWN -> begin(ev)
+                MotionEvent.ACTION_MOVE -> if (recognise(ev)) return true
+            }
+            return false
+        }
+
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                // Only reached when no child took the press. Which is the old rule, kept: a press
+                // on the skip button is not the beginning of a hold-to-enter.
+                MotionEvent.ACTION_DOWN -> {
+                    begin(ev)
+                    // Only after the phone is unlocked does a hold mean anything. Before that the
+                    // keyguard behind us is what a press has to reach.
+                    if (enterArmed) startHold()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    recognise(ev)
+                    if (drag == Drag.SIDEWAYS) push(ev.rawX - downX)
+                }
+                MotionEvent.ACTION_UP -> {
+                    cancelHold()
+                    finish(ev)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    cancelHold()
+                    settle()
+                }
+            }
+            return true
+        }
+
+        private fun begin(ev: MotionEvent) {
+            downX = ev.rawX
+            downY = ev.rawY
+            drag = Drag.NONE
+            settle()
+        }
+
+        /**
+         * Which gesture this is, decided once and kept. True once there is one to take over.
+         *
+         * A sideways drag that started over nothing dismissable is [Drag.DEAD] rather than falling
+         * through to the swipe up: the finger has already committed to an axis, and reading a
+         * lazy diagonal as "keypad" is how a face disappears when somebody meant to wipe a row.
+         */
+        private fun recognise(ev: MotionEvent): Boolean {
+            if (drag != Drag.NONE) return true
+            val dx = ev.rawX - downX
+            val dy = ev.rawY - downY
+            if (abs(dx) < slop && abs(dy) < slop) return false
+            // This is a drag, not a hold. Whatever it turns out to be, it is not that.
+            cancelHold()
+            drag = if (abs(dx) > abs(dy)) {
+                val row = if (dx > 0) rowAt(downX, downY) else null
+                if (row == null) {
+                    Drag.DEAD
+                } else {
+                    target = row
+                    Drag.SIDEWAYS
+                }
+            } else {
+                Drag.UPWARD
+            }
+            return true
+        }
+
+        /** The row follows the finger, and fades as it goes. Right only; left is not a gesture. */
+        private fun push(dx: Float) {
+            val row = target ?: return
+            val amount = dx.coerceAtLeast(0f)
+            val span = (width.takeIf { it > 0 } ?: 1).toFloat()
+            row.translationX = amount
+            row.alpha = 1f - (amount / span).coerceIn(0f, 1f) * 0.8f
+        }
+
+        private fun finish(ev: MotionEvent) {
+            val dx = ev.rawX - downX
+            val up = downY - ev.rawY
+            when (drag) {
+                Drag.SIDEWAYS -> {
+                    val row = target
+                    if (row != null && dx > swipeAwayThreshold) away(row) else settle()
+                }
+                // Up, far enough to be meant. Remembered, so screen-on does not raise the face
+                // again: swiping to reach the keypad and having it come straight back would make
+                // the keypad unreachable, which is the one bug this feature must never have.
+                Drag.UPWARD -> if (up > swipeThreshold) {
+                    dismissedByTouch = true
+                    hide()
+                }
+                else -> settle()
+            }
+            drag = Drag.NONE
+        }
+
+        /** Off the right-hand edge, and only then is anything actually dismissed. */
+        private fun away(row: View) {
+            val span = (width.takeIf { it > 0 } ?: row.width).toFloat()
+            target = null
+            row.animate()
+                .translationX(span)
+                .alpha(0f)
+                .setDuration(SWIPE_OUT_MS)
+                .withEndAction {
+                    // Put back before the row is either rebuilt or hidden. The media row is the
+                    // same View for the life of the face, so a translation left behind here is one
+                    // that is still there the next time a song starts.
+                    row.translationX = 0f
+                    row.alpha = 1f
+                    val key = row.tag as? String
+                    if (key != null) dismissNote(key) else dismissMedia()
+                }
+                .start()
+        }
+
+        /** Nothing was meant by it. Back where it was. */
+        private fun settle() {
+            val row = target ?: return
+            target = null
+            row.animate().translationX(0f).alpha(1f).setDuration(SWIPE_BACK_MS).start()
+        }
+
+        /**
+         * What is under the point the gesture started at, or null for the rest of the face.
+         *
+         * Notifications first, then the player. Screen coordinates because the rows sit several
+         * layouts deep and `rawX`/`rawY` are the only two numbers that mean the same thing at
+         * every depth.
+         */
+        private fun rowAt(x: Float, y: Float): View? {
+            notes?.visibleRows()?.forEach { row -> if (hits(row, x, y)) return row }
+            val player = mediaRow
+            if (player != null && hits(player, x, y)) return player
+            return null
+        }
+
+        private fun hits(view: View, x: Float, y: Float): Boolean {
+            if (view.visibility != View.VISIBLE || view.height == 0) return false
+            val at = IntArray(2)
+            view.getLocationOnScreen(at)
+            return x >= at[0] && x <= at[0] + view.width && y >= at[1] && y <= at[1] + view.height
+        }
+    }
+
+    /**
+     * Cancel it, and take the row off the face now rather than when the platform says so.
+     *
+     * See [LockNotes.dismiss] for why this is a real cancel and not a list of things this face has
+     * decided not to show.
+     */
+    private fun dismissNote(key: String) {
+        dismissed += key
+        runCatching { fillNotes() }
+        runCatching { onDismissNote?.invoke(key) }
+    }
+
+    /**
+     * Put the player's card away. The music is not touched.
+     *
+     * A card is not a transport control: swiping it off is "not now", and stopping the audio
+     * because somebody tidied the screen would be the face acting on its own. What comes back is
+     * decided in [renderMedia] — a new track, or play pressed again in the app.
+     */
+    private fun dismissMedia() {
+        mediaHiddenKey = mediaKey(media.track) ?: return
+        mediaRow?.visibility = View.GONE
+    }
+
+    /** What counts as "the same thing playing", for [dismissMedia]. */
+    private fun mediaKey(track: LockTrack?): String? =
+        track?.let { "${it.pkg}|${it.title}|${it.artist}" }
 
     // ------------------------------------------------------------------------ the call card
 
@@ -863,8 +1097,21 @@ class LockOverlay(private val context: Context) {
         if (track == null) {
             row.visibility = View.GONE
             mediaArt?.setImageDrawable(null)
+            mediaWasPlaying = false
             return
         }
+        // Play pressed somewhere else -- in the app, on a speaker, on the headphones -- is
+        // somebody asking for the player back, and it is the only signal for it that reaches this
+        // process. A track that merely carried on playing does not qualify; this is the edge.
+        if (track.playing && !mediaWasPlaying) mediaHiddenKey = null
+        mediaWasPlaying = track.playing
+        if (mediaHiddenKey != null && mediaKey(track) == mediaHiddenKey) {
+            row.visibility = View.GONE
+            return
+        }
+        // Anything else playing clears the hold, so the marker cannot outlive the track it was
+        // set for and silence the row for something the user never swiped.
+        mediaHiddenKey = null
         row.visibility = View.VISIBLE
         // A radio stream often fills only one of the two. Whichever it filled goes on the top
         // line, so the row is never a blank headline over a subtitle.
@@ -992,8 +1239,12 @@ class LockOverlay(private val context: Context) {
         val list = notes ?: return
         // Wrapped by every caller, but named here too: this runs on a broadcast, on the main
         // thread, behind the lock screen. A throw here is the phone appearing to freeze.
-        list.removeAllViews()
-        val current = LockNotes.notes.value
+        list.clearRows()
+        val all = LockNotes.notes.value
+        // A key the platform has stopped reporting is a cancel that landed. Dropping it here is
+        // what keeps the optimistic filter from outliving the round trip it is covering for.
+        dismissed.retainAll(all.mapTo(HashSet()) { it.key })
+        val current = all.filter { it.key !in dismissed }
         val pad = type.gridPx(0.55f)
         // The SDK's list row is `copy` over `detail`; the app name above it is the small tracked
         // label the rest of the phone uses for a section.
@@ -1001,6 +1252,11 @@ class LockOverlay(private val context: Context) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, pad, 0, pad)
+                // What a swipe on this row dismisses. Read back off the View in [LockFrame],
+                // because the row a finger landed on is found by hit test, not by index -- an
+                // index would be a promise that the list has not been rebuilt since, and it is
+                // rebuilt on every notification the phone receives.
+                tag = note.key
             }
             row.addView(
                 TextView(context).apply {
@@ -1039,9 +1295,9 @@ class LockOverlay(private val context: Context) {
             }
             list.addView(row)
         }
-        if (current.size > MAX_NOTES) {
-            list.addView(barLabel(pad).apply { text = "+${current.size - MAX_NOTES} MORE" })
-        }
+        // Everything past MAX_NOTES was never built; the list adds to this whatever it then had to
+        // drop for want of room, and puts the total on the `+N MORE` line itself.
+        list.extra = (current.size - MAX_NOTES).coerceAtLeast(0)
         list.visibility = if (current.isEmpty()) View.GONE else View.VISIBLE
     }
 
@@ -1162,7 +1418,18 @@ class LockOverlay(private val context: Context) {
         /** The fade itself. Slow enough to read as arriving, not as a repaint. */
         const val FADE_MS = 320L
 
-        const val MAX_NOTES = 4
+        /**
+         * The most rows worth building. What actually appears is decided by [LockNoteList], which
+         * measures against the room left under the clock -- this is only the point past which
+         * building more would be work for rows nothing could ever show.
+         */
+        const val MAX_NOTES = 6
+
+        /** A row leaving. Quick, because the decision was already made when the finger lifted. */
+        const val SWIPE_OUT_MS = 180L
+
+        /** A row that was not pushed far enough, going back. Quicker still. */
+        const val SWIPE_BACK_MS = 140L
 
         /** The square behind a missing cover. Dark enough to be a shape, not a hole. */
         val EMPTY_ART = Color.rgb(0x22, 0x22, 0x22)
@@ -1180,3 +1447,12 @@ class LockOverlay(private val context: Context) {
         const val MIN_SANE_RSSI = -127
     }
 }
+
+/**
+ * What a drag on the face turned out to mean, decided once at the first movement past the slop.
+ *
+ * [DEAD] is not an absence: it is a sideways drag that began over nothing dismissable, and it has
+ * to be a decision rather than a fall-through, or a lazy diagonal across the middle of the screen
+ * would take the face away when somebody meant to wipe a row.
+ */
+private enum class Drag { NONE, DEAD, SIDEWAYS, UPWARD }

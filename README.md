@@ -370,6 +370,26 @@ of those last two are glyphs rather than text. You read "T-MOBILE" and "85%". Yo
 and a fill. Type comes from the LightOS scale ported from `light-sdk`: named sizes scaled by
 screen height, spacing in 27-wide grid units, and no hardcoded sp or dp anywhere on the screen.
 
+**Swipe a row right to clear it.** A notification goes with a real `cancelNotification`, so it
+is gone from the shade and from Glance too rather than only from here — a face that kept its own
+private list of things you had waved away would disagree with the rest of the phone and hand the
+same message back at the next unlock. The player's card is the exception: swiping it away puts the
+card away and does not touch the music, and it comes back when the session has something new to
+say — a different track, or play pressed again in the app.
+
+**And the shade is clamped to the room it has.** The list used to draw four rows into whatever
+space was left under the clock and draw them whether they fit or not, so a busy morning showed two
+notifications and the top half of a third, with nothing to scroll — this window holds no focus, and
+every drag on it already means something else. It now measures against the space it is actually
+given, draws only whole rows, and says how many are missing on the `+N MORE` line. Clearing the top
+ones brings the rest up.
+
+Three gestures on the face, and each one has to be impossible to do by accident, because this
+window covers the whole panel and a pocket presses the whole panel: **up** for the keypad,
+**right** on a row to clear it, **press and hold** to go in once the phone is unlocked. The axis is
+locked at the first movement past the touch slop and never revisited, so a lazy diagonal cannot
+take the face away while you are wiping a row.
+
 **A ringing call gets a card on the face.** This is a fix, not an addition. The face is a window
 at layer 31, so it paints over the dialer's incoming-call screen the same way it once painted over
 the camera. A call that arrived while the phone was locked rang behind a clock. The card shows who
@@ -716,6 +736,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.47 | **Swipe right to clear a row, and no more half-notifications.** A notification swiped off the face is really cancelled, so it goes from the shade too; the player's card can be swiped away without touching the music and returns on the next track or the next play. The list now measures the space it is given and draws only whole rows — it was drawing four regardless and clipping the last one against a window nothing can scroll. The face also repaints when the shade changes instead of on the next minute tick |
 | v3.42 | **Hold a row for App info, by thumb or by wheel.** The hold used to force stop the app over adb and background it where there was no shell — one gesture, two outcomes, and a message to say which one happened. Settings' App info page carries AOSP's own Force stop, which needs no shell and no permission, so the hold opens that instead and `ForceStop` and `KILL_BACKGROUND_PROCESSES` are gone. The bottom button is tap-only again: a gesture about an app belongs on the app's row, not on the control furthest from it |
 | v3.41 | **A way out to the system's own screens, under the switcher.** SYSTEM SWITCHER asks the platform for its recents and then checks whether anything actually came forward, because `performGlobalAction` reports injection rather than appearance — nothing came up means the list returns with a line saying so. Holding it opens App info for the selected app, where AOSP's own Force stop is, which is what a hold on a row can only approximate without a paired adb shell |
 | v3.40 | **The caller's name comes from telephony, and the call screen is fetched rather than hoped for.** v3.38 fixed how a call notification is read; on this phone there is no call notification — LightOS's dialer is a system app that shows its own activity and posts nothing. The card now reads the number off the `PHONE_STATE` broadcast and the name out of contacts, behind two new grants in the one-tap ADB run. And `showInCallScreen`, which returns nothing and reports nothing, is no longer treated as a hand-off: when no intent could be sent, the face resumes the dialer's own task, which during a call is the call screen. A log line now says what the phone actually told us, per ring |
