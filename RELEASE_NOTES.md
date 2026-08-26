@@ -1,22 +1,23 @@
-## BrightControl v3.50 — the screen stays on while adb is working
+## BrightControl v3.51 — a command that cannot run files itself
 
-The adb work here is slow by design: a reconnect looks for the daemon for twelve seconds, a pairing
-confirmation waits three quarters of a minute for the platform to raise its request, and a batch of
-nine grants is all of that in a row. Long enough for a phone with a short timeout to go dark in the
-middle — and going dark is not just a result nobody sees:
+**`Stream closed` is the failure this app produces most, and the one least likely to get reported.**
+It names nothing, it looks like a phone being a phone, and by the time anybody thinks to mention it
+the log line that would have explained it has scrolled off a screen they already left. Two evenings
+of this were diagnosed by reading a log over somebody's shoulder.
 
-- **The pairing dialog this app reads its code from belongs to Settings**, and Settings *pausing* is
-  what tears the pairing session down. A screen that sleeps while you are still finding Wireless
-  debugging has already killed the pairing you were trying to make.
-- **Which branch a Bluetooth pairing request takes is decided by whether the phone is interactive.**
-  A screen that changes state mid-attempt changes the answer — that is the whole reason a bond can
-  be made with the screen off and not with it on.
-- **A run whose result nobody saw gets pressed again**, and for a bond that means starting over with
-  an address that has rotated since.
+So an adb command that cannot be run now says so through the same report chip everything else uses.
+One tap files it — the failure, the reason, and *which* command stalled, which is the whole
+diagnosis: a stalled `pm grant` and a stalled `app_process` are different bugs with different fixes.
 
-So the ADB screen holds the screen on for the whole of setup — not only while a command is in
-flight, but while the pairing session is waiting, pairing or granting — and the request screen holds
-it for the length of a run.
+Two things it does not do. It does not nag: the same failure asks once an hour, so nine grants dying
+on one dead socket asks once rather than nine times, which is how somebody turns reporting off for
+good. And it does not carry an address: any MAC in the command becomes `<address>` before it goes
+anywhere, because these are public issues and a device address is nobody else's business.
 
-It is a per-view attribute rather than a window flag, which means it lifts itself when the screen
-goes away and cannot be left switched on by something that navigated off mid-run.
+Also in this build, from the previous push that GitHub never built: **the screen stays on while adb
+is working.** Not a nicety — the pairing dialog this app reads its code from belongs to Settings, and
+Settings *pausing* is what tears the pairing session down, so a screen that sleeps while you are
+still finding Wireless debugging has already killed the pairing. And whether the phone is interactive
+decides which branch a Bluetooth pairing request takes, so a screen changing state mid-attempt
+changes the answer. Held across all of setup and for the length of any run, as a per-view attribute
+that lifts itself if you navigate away.

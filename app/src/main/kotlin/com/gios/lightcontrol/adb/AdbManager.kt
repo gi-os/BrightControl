@@ -327,14 +327,49 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             if (!first.startsWith(DEAD)) return first
             reset()
             if (!ensureAlive(context)) {
-                return "error: the connection is gone and could not be picked back up"
+                return failed(command, "the connection is gone and could not be picked back up")
             }
             val second = bounded(context, command, timeoutMs)
             if (second.startsWith(DEAD)) {
-                return "error: ${second.removePrefix(DEAD)}"
+                return failed(command, second.removePrefix(DEAD))
             }
             return second
         }
+
+        /**
+         * Report a command that could not be run, and offer to file it.
+         *
+         * ### Why the app files this rather than waiting to be told
+         *
+         * `Stream closed` is the failure this app produces most, and it is the one least likely to
+         * be reported: it names nothing, it looks like a phone being a phone, and by the time
+         * anybody thinks to mention it the log line that would explain it has scrolled off a screen
+         * they have already left. Two evenings of this were diagnosed by reading a log over
+         * somebody's shoulder.
+         *
+         * [Trouble] throttles the same failure to once an hour, so a batch of nine grants dying on
+         * a dead socket asks once — not nine times, which is how somebody switches reporting off.
+         *
+         * The command is carried, because *which* command stalled is the whole diagnosis: a stalled
+         * `pm grant` and a stalled `app_process` are different bugs. It is trimmed to its shape
+         * first — any MAC address in it becomes `<address>`, because these reports are public
+         * issues and a device address is nobody else's business.
+         */
+        private fun failed(command: String, why: String): String {
+            runCatching {
+                com.gios.lightcontrol.report.Trouble.record(
+                    "run \"${shape(command)}\" on the phone's own shell",
+                    why,
+                )
+            }
+            return "error: $why"
+        }
+
+        /** A command reduced to what is worth showing a stranger. */
+        private fun shape(command: String): String =
+            command.replace(MAC, "<address>").trim().take(60)
+
+        private val MAC = Regex("""(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}""")
 
         /**
          * One attempt, with a deadline, because the read behind a command has none of its own.
