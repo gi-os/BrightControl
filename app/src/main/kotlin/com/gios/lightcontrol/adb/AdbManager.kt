@@ -172,6 +172,18 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
     /**
      * Run one shell command and return everything it prints, stdout and stderr merged the way
      * a `shell:` service already merges them. Blocks until the command exits.
+     *
+     * ### Stream closed
+     *
+     * The commonest failure here is not a command that fails, it is a socket that has already
+     * died: `Stream closed` on the first command and on every command after it, because the
+     * manager keeps reusing the connection it is holding. The daemon's listener does not survive
+     * leaving the Wireless-debugging screen, and a phone that has been to Settings and back — which
+     * is *every* phone that has just been set up — is holding one of these.
+     *
+     * That is a connection problem wearing a command's clothes, and it has a fix that needs nobody
+     * asked: throw the socket away, reconnect, run the command once more. See [runVia], which is
+     * where callers who have a Context get that for free.
      */
     fun runCommand(command: String): String {
         val stream = openStream("shell:$command")
@@ -274,6 +286,31 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * hanging, and one that merely needs looking for gets looked for.
          */
         const val RECONNECT_MS = 12_000L
+
+        /**
+         * Run a command, and if the socket turns out to be dead, reconnect and run it once more.
+         *
+         * One retry, and only for the failure a retry fixes. `Stream closed` — and the IOExceptions
+         * that read like it — mean the connection went away while nobody was looking, which is the
+         * normal state of things after a trip through Settings. A command that genuinely fails
+         * prints its reason and is returned as-is: nothing is retried on the strength of its
+         * output, because the `shell:` service carries no exit status and "it printed something"
+         * is not an error.
+         */
+        fun runVia(context: Context, command: String): String {
+            val first = runCatching { getInstance(context).runCommand(command) }
+            first.getOrNull()?.let { return it }
+            val why = first.exceptionOrNull()
+            val dead = why is java.io.IOException ||
+                (why?.message?.contains("closed", ignoreCase = true) == true)
+            if (!dead) return "error: ${why?.message ?: why?.javaClass?.simpleName ?: "unknown"}"
+            reset()
+            if (!ensureAlive(context)) {
+                return "error: the connection is gone and could not be picked back up"
+            }
+            return runCatching { getInstance(context).runCommand(command) }
+                .getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
+        }
 
         /**
          * Drop the connection and the cached manager. A failed connect can leave the manager

@@ -174,8 +174,10 @@ object AdbPairSession {
         }
 
         val results = SelfGrant.steps.map { step ->
-            val out = runCatching { adb.runCommand(step.command) }
-                .getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
+            // Through [AdbManager.runVia]: the connection made a second ago is the one most likely
+            // to have been reported up before the daemon settled, and `Stream closed` on the first
+            // grant of the batch used to be reported as the grant failing.
+            val out = AdbManager.runVia(context, step.command)
             val ok = out.isBlank() || out.contains("done") || out.contains("already")
             "${if (ok) "OK" else "??"}  ${step.label}${if (out.isBlank()) "" else " — ${out.take(80)}"}"
         }

@@ -451,7 +451,7 @@ fun AdbScreen(
                     modifier = Modifier.weight(1f).padding(end = 4.dp),
                 ) {
                     run("nfc enable") {
-                        AdbManager.getInstance(context).runCommand("svc nfc enable")
+                        AdbManager.runVia(context, "svc nfc enable")
                         "NFC enabled"
                     }
                 }
@@ -461,7 +461,7 @@ fun AdbScreen(
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 ) {
                     run("nfc disable") {
-                        AdbManager.getInstance(context).runCommand("svc nfc disable")
+                        AdbManager.runVia(context, "svc nfc disable")
                         "NFC disabled"
                     }
                 }
@@ -483,8 +483,10 @@ fun AdbScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 run("start shizuku") {
-                    val out = AdbManager.getInstance(context)
-                        .runCommand("sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh")
+                    val out = AdbManager.runVia(
+                        context,
+                        "sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh",
+                    )
                     // Shizuku's script says nothing on success and a good deal on failure, and
                     // the commonest failure is the one worth naming: it is not installed, so the
                     // path does not exist.
@@ -510,7 +512,7 @@ fun AdbScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 val c = command.trim()
-                run(c) { AdbManager.getInstance(context).runCommand(c).ifBlank { "(no output)" } }
+                run(c) { AdbManager.runVia(context, c).ifBlank { "(no output)" } }
             }
             Rule()
 

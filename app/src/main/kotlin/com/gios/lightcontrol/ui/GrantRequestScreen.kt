@@ -83,6 +83,8 @@ fun GrantRequestScreen(
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf(listOf<StepResult>()) }
     var ran by remember { mutableStateOf(false) }
+    /** The last press could not reach the daemon. Not the same thing as never having had one. */
+    var dropped by remember { mutableStateOf(false) }
     // Success is every step read back and confirmed. Nothing weaker: reaching the end of the list
     // is what the old DONE meant, and a run where the socket died on the first command reached
     // the end of the list too.
@@ -95,6 +97,13 @@ fun GrantRequestScreen(
     LaunchedEffect(Unit) {
         if (!connected) {
             connected = withContext(Dispatchers.IO) { AdbManager.ensureAlive(context) }
+        }
+        // Set aside as soon as it is known that it cannot run yet, rather than when somebody taps
+        // GO TO ADB SETUP. People leave with Home, or the phone takes them somewhere, and a
+        // request lost that way is one the app that sent it has to be asked for all over again —
+        // which for a Bluetooth address means a rescan, because it has rotated by then.
+        if (!connected && parsed is GrantRequest.Parsed.Ok) {
+            prefs.holdGrantRequest(pkg, lines)
         }
     }
 
@@ -204,11 +213,22 @@ fun GrantRequestScreen(
                             },
                         )
                     } else {
+                        if (dropped) {
+                            SectionLabel("THE CONNECTION WENT AWAY")
+                            GuideText(
+                                "Nothing ran. The phone's debugging service drops its listener " +
+                                    "when you leave the Wireless-debugging screen, so the first " +
+                                    "press after setting up often lands on a socket that is " +
+                                    "already gone. The pairing is kept and the port is found " +
+                                    "again on its own — press TRY AGAIN. If it says this twice, " +
+                                    "wireless debugging has been switched off.",
+                            )
+                        }
                         BigButton(
                             label = when {
                                 busy -> "RUNNING…"
                                 allHeld -> "DONE"
-                                ran -> "TRY AGAIN"
+                                dropped || ran -> "TRY AGAIN"
                                 else -> "RUN THESE ${parsed.steps.size}"
                             },
                             filled = true,
@@ -231,13 +251,20 @@ fun GrantRequestScreen(
                                     AdbManager.ensureAlive(context)
                                 }
                                 if (!live) {
+                                    // **Do not take the button away.** This used to set
+                                    // `connected = false` and clear the results, which swapped the
+                                    // one thing left to try — pressing it again — for a trip to
+                                    // ADB setup that has nothing to do. A dead socket after a trip
+                                    // through Settings is the ordinary case, not a broken setup:
+                                    // the pairing is on disk and the port is discoverable, so the
+                                    // next press usually just works. Say what happened and leave
+                                    // TRY AGAIN where it is.
                                     AdbManager.reset()
-                                    connected = false
-                                    results = emptyList()
-                                    ran = false
+                                    dropped = true
                                     busy = false
                                     return@launch
                                 }
+                                dropped = false
                                 val out = withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.map { step ->

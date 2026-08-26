@@ -108,6 +108,28 @@ class MainActivity : ComponentActivity() {
      */
     private val cursor = WheelCursor()
 
+    /**
+     * A grant request that arrived by intent while this activity was already on screen.
+     *
+     * `launchMode="singleTop"` means a second launch does not run [onCreate] again — it calls
+     * [onNewIntent], and until this existed nothing was listening. So an app tapping "set me up"
+     * while BrightControl happened to be open got BrightControl's **home page**, on the page
+     * whoever used it last had left it on, and the request was never parsed at all. It looked
+     * exactly like the request being ignored, because it was.
+     *
+     * State rather than a callback: the composition reads it, acts on it, and clears it, which
+     * works whether the intent lands before or after the first composition.
+     */
+    private var arrived by mutableStateOf<Screen?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        // Kept as *the* intent, because [callerOf] reads the referrer off it and [grantRequestFrom]
+        // is asked again on rotation and on any later recomposition.
+        setIntent(intent)
+        grantRequestFrom(intent)?.let { arrived = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The crash handler is installed by [App], which runs before this and before the
@@ -132,6 +154,17 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     val home = { screen = Screen.Home }
+
+                    // A request that arrived while this was already open. Answered here rather than
+                    // in [onNewIntent] because the screen state lives in the composition, and a
+                    // request is the one thing that always wins the page: nobody pressed a button
+                    // in another app in order to look at this one's home screen.
+                    LaunchedEffect(arrived) {
+                        arrived?.let {
+                            screen = it
+                            arrived = null
+                        }
+                    }
 
                     // Every screen starts with nothing highlighted. The rows behind it are gone,
                     // and a selection carried across a screen change is a click aimed at whatever
