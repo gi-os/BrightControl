@@ -209,24 +209,62 @@ object AdbPairSession {
     }
 
     private fun pairAndGrant(context: Context, code: String) {
+        val prefs = com.gios.lightcontrol.Prefs(context)
         val adb = AdbManager.getInstance(context)
+        // Every step, on disk. See [com.gios.lightcontrol.Prefs.pairTrail] — this whole sequence
+        // runs while the app is in the background, so anything held in memory is a diagnosis
+        // nobody will ever read.
+        prefs.notePairStep("code read, pairing")
 
         val paired = runCatching { adb.pairViaMdns(context, code, 60_000L) }.getOrDefault(false)
+        prefs.notePairStep(if (paired) "pairing accepted" else "pairing REFUSED")
         if (!paired) {
             main.post {
                 phase = Phase.Failed
                 message = "read the code but pairing failed — the dialog may have closed. " +
                     "Reopen it and try again; the code is fresh each time."
             }
+            com.gios.lightcontrol.report.Trouble.record(
+                "pair with the code it read off the dialog",
+                "the daemon refused the pairing. The code is fresh each time the box opens, so a " +
+                    "refusal usually means the box had closed — but a stale key on this phone can " +
+                    "also be refused, which FORGET THE PAIRING clears.",
+            )
             return
         }
 
         val connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
+        prefs.notePairStep(if (connected) "connected" else "connect FAILED after pairing")
         if (!connected) {
             main.post {
                 phase = Phase.Failed
                 message = "paired, but could not connect — use CONNECT below"
             }
+            com.gios.lightcontrol.report.Trouble.record(
+                "connect after a pairing the daemon accepted",
+                "the pairing was accepted and mDNS then found nothing to connect to. Wireless " +
+                    "debugging may have been switched off by the trip through Settings.",
+            )
+            return
+        }
+
+        // **Proven, not assumed.** A connection that is up and refuses every command is the exact
+        // state that has been reported all evening as "Stream closed", and it is indistinguishable
+        // from success at this point unless something asks. So something asks, here, once.
+        val usable = runCatching { adb.alive() }.getOrDefault(false)
+        prefs.notePairStep(if (usable) "shell answers" else "shell REFUSED a command")
+        if (!usable) {
+            main.post {
+                phase = Phase.Failed
+                message = "paired and connected, but the phone will not run anything — the key is " +
+                    "not trusted. Use FORGET THE PAIRING, then pair again."
+            }
+            com.gios.lightcontrol.report.Trouble.record(
+                "run anything after pairing and connecting",
+                "the daemon accepted both the pairing and the connection and then refused a shell " +
+                    "stream, which means the key it accepted is not one it trusts. This is the " +
+                    "state FORGET THE PAIRING exists for.",
+            )
             return
         }
 
@@ -261,6 +299,7 @@ object AdbPairSession {
             }
         }
 
+        prefs.notePairStep("granted ${done.count { it.startsWith("OK") }} of ${SelfGrant.steps.size}")
         main.post {
             phase = Phase.Done
             message = "paired, connected, and granted. You can turn the pairing reader back off."

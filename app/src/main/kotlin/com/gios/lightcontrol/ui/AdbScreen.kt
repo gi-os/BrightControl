@@ -364,6 +364,8 @@ fun AdbScreen(
                         lines.append("wireless debugging was already on\n")
                     }
                     withContext(Dispatchers.Main) {
+                        prefs.clearPairTrail()
+                        prefs.notePairStep("armed — waiting for the pairing box")
                         AdbPairSession.arm()
                         runCatching {
                             context.startActivity(
@@ -475,6 +477,8 @@ fun AdbScreen(
                 ),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
+                prefs.clearPairTrail()
+                prefs.notePairStep("armed — waiting for the pairing box")
                 AdbPairSession.arm()
                 say("armed — open the pairing box and leave it up")
                 runCatching {
@@ -515,6 +519,29 @@ fun AdbScreen(
                         )
                     }
                 }
+            }
+
+            // **What the last attempt actually did.** Written to disk as it happens, because all of
+            // it happens while this app is in the background and behind the Settings screen the
+            // user was sent to. Hours went by tonight with plenty of reports about commands failing
+            // and none about the pairing, which is the step every one of them depends on.
+            val trail = prefs.pairTrail()
+            if (trail.isNotEmpty()) {
+                SectionLabel("LAST PAIRING ATTEMPT")
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    trail.forEach { line ->
+                        Text(
+                            line,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                            color = if (line.contains("REFUSED") || line.contains("FAILED")) {
+                                Color.White
+                            } else {
+                                Dim
+                            },
+                        )
+                    }
+                }
+                Rule()
             }
 
             SectionLabel("STEP 3 — BRIGHTCONTROL'S OWN GRANTS")

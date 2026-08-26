@@ -1147,9 +1147,39 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(AUTO_SEND, true)
         set(v) = sp.edit().putBoolean(AUTO_SEND, v).apply()
 
+    /**
+     * What the last automatic pairing attempt did, one line per step, oldest first.
+     *
+     * ### Why this is on disk
+     *
+     * The attempt spans a trip through Settings: the reader is armed here, the code is read over
+     * there, and the pairing, connect and grants all happen while this app is in the background. Its
+     * progress lived in memory on an object, which survives a recomposition and not much else — and
+     * the one screen that shows it is the screen nobody is looking at while it runs.
+     *
+     * So hours went by tonight with plenty of reports about commands failing and **not one** about
+     * the pairing itself, which is the step everything else depends on. A trail on disk is read back
+     * on the next launch, whatever happened in between.
+     */
+    fun pairTrail(): List<String> =
+        (sp.getString(PAIR_TRAIL, "") ?: "").split('\n').filter { it.isNotBlank() }
+
+    fun notePairStep(line: String) {
+        val at = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+        val kept = (pairTrail() + "$at  $line").takeLast(PAIR_TRAIL_MAX)
+        sp.edit().putString(PAIR_TRAIL, kept.joinToString("\n")).apply()
+    }
+
+    fun clearPairTrail() {
+        sp.edit().remove(PAIR_TRAIL).apply()
+    }
+
     private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
+        const val PAIR_TRAIL = "pairTrail"
+        const val PAIR_TRAIL_MAX = 24
         const val AUTO_SEND = "autoSendFailures"
         const val PENDING_PKG = "pendingGrantPkg"
         const val PENDING_LINES = "pendingGrantLines"
