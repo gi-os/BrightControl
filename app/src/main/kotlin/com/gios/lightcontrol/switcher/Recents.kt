@@ -60,7 +60,12 @@ class Recents(private val prefs: Prefs) {
         .filter { it !in excluding }
         .filter { openable(pm, it) }
         .take(limit)
-        .map { SwitcherOverlay.Entry(it, label(it)) }
+        .map { pkg ->
+            // Both halves of "this is Home, not an app" are decided here, in the one place that
+            // already holds the preference, so the window only has to draw what it is handed.
+            val home = HomeApp.isHome(pkg) && prefs.switcherLumaAsHome
+            SwitcherOverlay.Entry(pkg, if (home) "Home" else label(pkg), home)
+        }
         .toList()
 
     private fun openable(pm: PackageManager, pkg: String): Boolean = runCatching {

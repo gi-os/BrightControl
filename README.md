@@ -191,6 +191,23 @@ privileged and `UsageStatsManager` needs a grant LightOS has no screen for. So t
 empty at boot, is as long as the phone has been awake, is never written to disk, and leaves out
 LightOS's own shell, which one press of home already reaches.
 
+**Each row carries the app's own icon, inline, ahead of its name.** A switcher is passed through
+rather than looked at, and the icon is the part of an app you already know by shape. It is drawn
+exactly one line tall, tied to the type beside it, so a row with an icon is the same height as one
+without and the same number of apps still fit — an icon a few pixels taller pushes the app furthest
+back below a fold this list deliberately cannot be scrolled past. The icon dims with the name it
+belongs to, because brightness is the only thing this screen has to say *here*.
+
+**Luma is listed as Home, with a drawn house instead of its own icon.** Every other row is somewhere
+you were; the launcher is how you leave wherever you were, and a name and an app icon like the rest
+of the list makes the one row that is not an app look like one. The house is a thin outline among
+solid squares, which is the distinction doing the work. Matched by package (`app.luma`) rather than
+by whichever app holds the HOME role — on this phone that is always LightOS, which has to keep the
+role or it crash-loops, so the role says nothing about the launcher a person actually uses. Off
+under **Buttons → Home button → Luma is Home**, where the row only appears if Luma is installed. The
+switcher only: the bindings picker still names it Luma, because a picker that renames its own
+options is a picker you cannot search.
+
 Switch it off under **Buttons → Home button → Double press**. A right-edge swipe opens the same
 window, if you would rather not spend a button on it. See **Edge gestures**.
 
@@ -878,7 +895,12 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.78 | **Luma is Home in the switcher, not an app.** The launcher is listed as Home behind a drawn house instead of its own name and icon — every other row is somewhere you were, and the one row that is how you *leave* was dressed as one more app. A thin outline among solid squares is the whole distinction. Matched by package rather than by the HOME role, which on this phone is always LightOS. Off under Buttons → Home button, and the setting stays off the screen entirely when Luma is not installed |
 | v3.77 | **The switcher stays after a wheel hold, and ADB commands are readable.** The switcher opened by a wheel hold no longer closes on release — the release key event was reaching `onSwitcherKey` after the hold-threshold change in v3.68 opened it mid-press. Tapping to show a grant's adb command now gives it six lines instead of two, so nothing is cut off with \"...\" |
+| v3.76 | **The pairing reader looks on a timer, not only when told.** It read on accessibility events, so a dialog that arrived while the app was settling was sometimes never seen at all |
+| v3.75 | **A pairing is not condemned on one probe.** Reports #116 and #119 both said a shell stream was refused after a good pairing; the check was wrong, not the key |
+| v3.74 | **BrightNotebook was drawing a second box.** Banners knew about two apps with a heads-up box of their own and there were three, so from v3.65 a reminder coming due drew BrightNotebook's box and then this app's over the top of it |
+| v3.73 | **The switcher shows each app's icon.** Inline, ahead of the name, on the row itself rather than in views of its own. Sized to exactly one line so the row height does not move — anything taller changes how many apps fit and pushes the one furthest back below a fold this list cannot be scrolled past. The icon dims with its row, because the selection on that screen is one thing being brighter than the rest |
 | v3.63 | **The left edge goes back out of the box.** It shipped off, on the reasoning that this is the one feature here that takes a touch rather than a key. That was right about the cost and wrong about the conclusion: a phone with no back button is broken in a way that a phone with a 14 dp strip down one edge is not, and a default nobody discovers is a feature nobody has. The right edge stays off, because the recents list is already a double press of home — an absence is worth filling, convenience is worth opting into. Turning it off writes a real false, so no existing choice is overridden |
 | v3.62 | **STOP gives the buttons back immediately.** Stopping a run in flight no longer waits to be noticed: the buttons come back the moment you press it |
 | v3.61 | **Every edge has two swipes, and both are bound like a button.** A short drag inwards does one thing and a long one does another, and all four are ordinary actions picked from the same screen the buttons use. `Go back` and `App switcher` are actions now rather than behaviour the strips owned privately, so the camera button can go back too. The indicator grew a tick for where the long binding takes over — without one the only way to find the second stage is to drag until the word changes, which is a gesture you learn by overshooting the one you wanted |

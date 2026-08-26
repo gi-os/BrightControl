@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The switcher's Home row, drawn rather than borrowed.
+
+  A stroked house, not a filled glyph, and that is the whole point of it: every other row in the
+  list carries the app's own icon, which on Android is a solid square of artwork. A thin outline
+  among them reads immediately as a different kind of thing — a destination rather than an app —
+  which is the distinction the setting exists to make.
+
+  Line weight and the 24dp box follow LightOS's own icon set (light-sdk, MIT). White, so the row
+  can dim it with its label by setting the drawable's alpha; nothing here is tinted per-state.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- The roof, drawn from the eaves so the apex sits on the box's centre line. -->
+    <path
+        android:pathData="M3.5,10.2 L12,3.6 L20.5,10.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- The walls, open at the top so the roof line is the only thing crossing there. -->
+    <path
+        android:pathData="M5.6,11.6 L5.6,20 L18.4,20 L18.4,11.6"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- The door: enough to say house at 20px, and nothing more. -->
+    <path
+        android:pathData="M9.9,20 L9.9,14.4 L14.1,14.4 L14.1,20"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

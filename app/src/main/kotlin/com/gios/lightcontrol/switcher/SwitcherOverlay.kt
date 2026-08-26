@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.gios.lightcontrol.R
 import com.gios.lightcontrol.lock.LightType
 
 /**
@@ -56,8 +57,14 @@ import com.gios.lightcontrol.lock.LightType
  */
 class SwitcherOverlay(private val context: Context) {
 
-    /** One recent app: the package, and the name a person recognizes it by. */
-    data class Entry(val pkg: String, val label: String)
+    /**
+     * One recent app: the package, the name a person recognizes it by, and whether it is the
+     * launcher being shown as Home rather than as itself.
+     *
+     * [home] is decided by `Recents`, which holds the preference — this window draws the answer
+     * and does not have an opinion about it.
+     */
+    data class Entry(val pkg: String, val label: String, val home: Boolean = false)
 
     private val handler = Handler(Looper.getMainLooper())
     private val type = LightType(context)
@@ -351,7 +358,7 @@ class SwitcherOverlay(private val context: Context) {
                 // on a list rebuilt every time the window opens.
                 gravity = Gravity.CENTER_VERTICAL
                 compoundDrawablePadding = type.gridPx(0.75f)
-                setCompoundDrawablesRelative(art(entry.pkg), null, null, null)
+                setCompoundDrawablesRelative(art(entry), null, null, null)
                 isClickable = true
                 setOnClickListener {
                     val pkg = entry.pkg
@@ -445,7 +452,7 @@ class SwitcherOverlay(private val context: Context) {
     private fun iconPx(): Int = (sp(type.copy * SCALE) * LINE_SPACING).toInt()
 
     /**
-     * The icon for [pkg], sized and ready to hang off a row.
+     * The icon for [entry], sized and ready to hang off a row.
      *
      * Never null: an app whose icon cannot be loaded gets an empty box of the same size, so its
      * name still lines up with every other name. A row that shuffles left because its icon was
@@ -454,12 +461,20 @@ class SwitcherOverlay(private val context: Context) {
      * `mutate()` because the alpha is set per row — see [paint]. Without it, dimming one row's
      * icon dims every row that shares the same constant-state drawable.
      */
-    private fun art(pkg: String): Drawable {
+    private fun art(entry: Entry): Drawable {
         if (icons.size > CACHE) icons.clear()
-        val loaded = icons.getOrPut(pkg) {
+        // The launcher shown as Home gets the drawn house instead of its own artwork. Cached
+        // under a key of its own, so the same package still has its real icon available to any
+        // row that wants it -- turning the setting off must not leave a house behind.
+        val key = if (entry.home) HOME_KEY else entry.pkg
+        val loaded = icons.getOrPut(key) {
             runCatching {
-                val pm = context.packageManager
-                pm.getApplicationIcon(pm.getApplicationInfo(pkg, 0)).mutate()
+                if (entry.home) {
+                    context.getDrawable(R.drawable.ic_switcher_home)?.mutate()
+                } else {
+                    val pm = context.packageManager
+                    pm.getApplicationIcon(pm.getApplicationInfo(entry.pkg, 0)).mutate()
+                }
             }.getOrNull()
         }
         val box = iconPx()
@@ -493,6 +508,10 @@ class SwitcherOverlay(private val context: Context) {
 
         /** Icons held before the map is dropped. Comfortably more than the list can show. */
         const val CACHE = 32
+
+        /** The house's slot in the icon cache. Not a package, so it can never collide with one. */
+        const val HOME_KEY = "\u0000home"
+
 
         /** Fewer than this and the gesture is not worth making. */
         const val FLOOR = 3

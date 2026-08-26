@@ -305,6 +305,27 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("home_double_switcher", v).apply()
 
     /**
+     * Whether the switcher calls Luma "Home" and draws it as a house.
+     *
+     * Luma is an app to `PackageManager` and is not one to a hand reaching for the home button.
+     * Every other row in the switcher is somewhere you *were*; the launcher is where you go to
+     * leave wherever you were, and giving it a name and an icon like the rest of the list makes
+     * the one row that is not a destination-among-apps look exactly like the apps.
+     *
+     * A preference and not a rule, because it is a claim about how somebody uses their phone.
+     * Anyone who treats Luma as an app — who switches to it the way they switch to anything else,
+     * or who runs two launchers and needs to tell them apart — is better served by its real name.
+     * The row is hidden entirely when Luma is not installed; see [HomeApp.installed].
+     *
+     * Scoped to the switcher on purpose. The bindings picker names packages so you can choose
+     * between them, and a picker that renames one of its own options is a picker you cannot
+     * search.
+     */
+    var switcherLumaAsHome: Boolean
+        get() = sp.getBoolean("switcher_luma_as_home", true)
+        set(v) = sp.edit().putBoolean("switcher_luma_as_home", v).apply()
+
+    /**
      * The shortest gap between two rows while the switcher is up, in milliseconds.
      *
      * The wheel sends a whole key pair per detent, 35–60 ms apart, and one row per pair against

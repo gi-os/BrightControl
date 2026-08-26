@@ -29,6 +29,7 @@ import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.switcher.HomeApp
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -51,6 +52,10 @@ fun ButtonsScreen(
     var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
     var switcher by remember { mutableStateOf(prefs.homeDoubleSwitcher) }
     var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
+    var lumaAsHome by remember { mutableStateOf(prefs.switcherLumaAsHome) }
+    // Asked once. Whether Luma is installed cannot change while this screen is open without the
+    // process being rebuilt around it, and it is a package query per composition otherwise.
+    val hasLuma = remember { HomeApp.installed(context.packageManager) }
     var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
@@ -124,6 +129,26 @@ fun ButtonsScreen(
                                 prefs.switcherStepMs = stepMs
                             },
                         )
+                        if (hasLuma) {
+                            MenuRow(
+                                label = "Luma is Home",
+                                detail = if (lumaAsHome) "ON" else "OFF",
+                                sub = if (lumaAsHome) {
+                                    "Luma is listed as Home, with a drawn house instead of its " +
+                                        "own icon. Every other row is somewhere you were; the " +
+                                        "launcher is how you leave, and it stops reading as one " +
+                                        "more app in the list."
+                                } else {
+                                    "off, so Luma is listed by its own name and icon like any " +
+                                        "other app. The switcher only — nothing else in here " +
+                                        "renames it."
+                                },
+                                onClick = {
+                                    lumaAsHome = !lumaAsHome
+                                    prefs.switcherLumaAsHome = lumaAsHome
+                                },
+                            )
+                        }
                     }
                     MenuRow(
                         label = "Timing the hold takes the key",
