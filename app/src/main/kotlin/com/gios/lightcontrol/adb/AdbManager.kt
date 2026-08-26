@@ -540,10 +540,16 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
         /**
          * For the one command that is *supposed* to take its time: a pairing confirmation, which
-         * sits there answering a request the platform raises several seconds after the bond starts.
-         * Anything shorter cuts off the thing it was asked to do.
+         * sits there answering a request the platform raises several seconds after the bond starts —
+         * and then waits for the bond itself, which is slower still.
+         *
+         * Two and a half minutes, because 45 seconds killed one. The transcript read `RESULT gave up
+         * in state BONDING (request was answered)` followed by `Killed`: the confirmation had gone
+         * through, the two ends were exchanging keys, and this deadline closed the socket underneath
+         * them. A deadline exists to stop a command that is stuck, and a bond in progress is the
+         * opposite of stuck.
          */
-        const val SLOW_COMMAND_MS = 45_000L
+        const val SLOW_COMMAND_MS = 150_000L
 
         /**
          * Below this, a retry is not a retry, it is a second failure with a different message.

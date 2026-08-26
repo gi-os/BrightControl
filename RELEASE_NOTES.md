@@ -1,16 +1,19 @@
-## BrightControl v3.79 — the transcript is kept whether it worked or not
+## BrightControl v3.80 — a deadline that killed a working bond
 
-An unseen notification arriving 17 seconds into a ring pairing is the best news of the evening: it
-means `createBond` finally went through, the platform raised its consent request, and something was
-there to answer. And nothing was written down, because this app files a relayed command's transcript
-**only when the run fails** — so a run that ended `RESULT bonded` left no record at all.
+```
+setPairingConfirmation true
+RESULT gave up in state BONDING (request was answered)
+Killed
+```
 
-That is the wrong side to be silent on. A relayed command's transcript is the only place its own
-words exist, the app that asked for it mostly cannot file reports of its own, and *"RESULT bonded"* is
-worth keeping for exactly the reason *"RESULT gave up"* is: it answers a question somebody spent an
-evening on. So a transcript that mentions `RESULT` is filed too. Only one command prints that word,
-so this stays rare rather than becoming noise.
+That `Killed` is this app. The pairing confirmation had gone through, the ring and the phone were
+exchanging keys, and the 45-second command deadline closed the socket underneath them.
 
-**And there is a COPY WHAT IT SAID row**, because most of tonight's diagnosis actually happened by
-somebody reading a phone screen into a chat window by hand. One tap now puts the whole transcript on
-the clipboard.
+A deadline exists to stop a command that is **stuck**, and a bond in progress is the opposite of
+stuck. The slow-command allowance is two and a half minutes now, and the helper it runs is given 55
+seconds of its own with more granted while the state says BONDING — so the timeout can only fire on
+something that has actually stopped moving.
+
+Everything else about the deadline stays: 20 seconds for ordinary commands, one budget across
+attempt and retry, and STOP still ends a command instantly by closing the socket. This changes only
+the one command that is *supposed* to take its time.
