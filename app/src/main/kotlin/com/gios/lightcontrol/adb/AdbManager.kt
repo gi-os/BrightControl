@@ -384,19 +384,19 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             if (left < MIN_RETRY_MS) {
                 // Nothing useful can be attempted in what is left. Reporting the first failure
                 // beats spending another minute to report the same one.
-                return failed(command, first.removePrefix(DEAD))
+                return failed(context, command, first.removePrefix(DEAD))
             }
             reset()
             if (!ensureAlive(context, minOf(RECONNECT_MS, left))) {
-                return failed(command, "the connection is gone and could not be picked back up")
+                return failed(context, command, "the connection is gone and could not be picked back up")
             }
             val remaining = deadline - System.currentTimeMillis()
             if (remaining < MIN_RETRY_MS) {
-                return failed(command, "no time left after reconnecting")
+                return failed(context, command, "no time left after reconnecting")
             }
             val second = bounded(context, command, remaining, onLine)
             if (second.startsWith(DEAD)) {
-                return failed(command, second.removePrefix(DEAD))
+                return failed(context, command, second.removePrefix(DEAD))
             }
             return second
         }
@@ -420,7 +420,21 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * first — any MAC address in it becomes `<address>`, because these reports are public
          * issues and a device address is nobody else's business.
          */
-        private fun failed(command: String, why: String): String {
+        private fun failed(context: Context, command: String, why: String): String {
+            // A stream failure on a connection that is *up* is not a connection problem, and saying
+            // "the connection is gone" about it sends everybody to fix the wrong thing for an hour.
+            // See [forgetPairing].
+            val connected = runCatching { getInstance(context).connected() }.getOrDefault(false)
+            val reason = if (connected && why.contains("closed", ignoreCase = true)) {
+                "the phone accepted the connection and then refused to run anything, which means " +
+                    "it no longer trusts this app's pairing. Forget the pairing and pair again."
+            } else {
+                why
+            }
+            return record(command, reason)
+        }
+
+        private fun record(command: String, why: String): String {
             runCatching {
                 com.gios.lightcontrol.report.Trouble.record(
                     "run \"${shape(command)}\" on the phone's own shell",
@@ -569,6 +583,36 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
         private fun certFile(context: Context) = File(context.filesDir, "adb_cert.pem")
         private fun keyFile(context: Context) = File(context.filesDir, "adb_private.key")
+
+        /** Whether this app is holding a pairing at all. Both halves or neither. */
+        fun hasPairing(context: Context): Boolean =
+            certFile(context).exists() && keyFile(context).exists()
+
+        /**
+         * Throw the pairing away, so the next attempt makes a new one.
+         *
+         * ### The state this exists for
+         *
+         * light-reports#73 is the tell: `Stream closed` as the *final* answer, which means the
+         * reconnect in front of it **succeeded** — the daemon accepted the connection — and then
+         * refused to open a shell stream, twice. A connection that is accepted and then useless is
+         * a key the phone no longer trusts: the certificate and private key live in this app's
+         * files and survive everything, including the phone's side of the pairing being cleared by
+         * a reboot, a factory reset of Developer options, or somebody tapping the wireless
+         * debugging toggle off and on.
+         *
+         * Re-pairing without deleting these can hand the daemon the same rejected key, which is a
+         * pairing that appears to work and produces the same dead streams. So the files go first.
+         *
+         * Nothing else is lost: pairing again is one screen, and it is the screen the user is
+         * already on.
+         */
+        fun forgetPairing(context: Context): Boolean {
+            reset()
+            val cert = runCatching { certFile(context).delete() }.getOrDefault(false)
+            val key = runCatching { keyFile(context).delete() }.getOrDefault(false)
+            return cert || key
+        }
 
         private fun readCertificate(context: Context): Certificate? = runCatching {
             val file = certFile(context)

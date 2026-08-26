@@ -1,34 +1,37 @@
-## BrightControl v3.63 — the left edge goes back out of the box
+## BrightControl v3.64 — a pairing the phone has stopped trusting, and STOP that works more than once
 
-Swipe in from the left edge of the screen and the app goes back. **On, without being switched on.**
+**STOP worked once and then said STOPPING… forever.** The flag is cleared when a *request run*
+starts, and the ADB screen's buttons — GRANT ALL, NFC, Shizuku, the command box — are not request
+runs. So the flag survived into the next press, and the second GRANT ALL came up with its STOP button
+already reading STOPPING… and already disabled. Every button on that screen clears the last stop
+now, which is the only rule that keeps this honest.
 
-It shipped off, three releases ago, on the reasoning that this is the one feature in the app which
-takes a *touch* rather than a key: a key this service declines is a key the app still gets, and a
-touch that lands on the strip cannot be handed back. So it was framed as a decision to be made rather
-than a default to be discovered.
+**And report #73 named a state that has been hiding behind "Stream closed" all evening.** Look at
+the difference:
 
-That was right about the cost and wrong about the conclusion. **A phone with no back button is broken
-in a way that a phone with a 14 dp strip down one edge is not.** An app that pushes a screen and
-draws no arrow of its own is a dead end, and somebody who has just sideloaded their first app has no
-reason to know the way out is three screens deep in a settings app they have not opened. A default
-nobody discovers is a feature nobody has.
+| report | detail |
+|---|---|
+| #70–#72 | the connection is gone and could not be picked back up |
+| **#73** | **Stream closed.** |
 
-What keeps it honest is that the cost is small, visible and reversible:
+`Stream closed` as the *final* answer means the reconnect in front of it **succeeded** — the daemon
+accepted the connection — and then refused to open a shell stream, twice. A connection that is
+accepted and then useless is not a connection problem at all. It is **a key the phone no longer
+trusts**: the certificate and private key live in this app's own files and survive everything,
+including the phone's side of the pairing being cleared by a reboot or by the wireless-debugging
+toggle going off and on.
 
-- **14 dp**, and adjustable — 10, 20 or 28.
-- **Off in one tap**, on its own screen under Controls → Edge gestures.
-- **Excluded per app**, for anything whose left edge is a control of its own.
-- **Gone entirely** with the EVERYTHING OFF switch at the top of the app, like every other key and
-  gesture here.
-- **A long drag still opens the app switcher**, and both bindings are still yours to change.
+Two things follow.
 
-**The right edge stays off.** That is now a difference rather than a matching default, and the
-difference is the point: the left edge repairs an absence, and the right one adds convenience to
-something that already works, since a double press of home opens the same window. An absence is worth
-filling. Convenience is worth opting into.
+**It says so now.** A stream failure on a connection that is up no longer reports "the connection is
+gone" — it says the phone accepted the connection and then refused to run anything, which means the
+pairing is no longer trusted. Sending somebody to fix the connection was sending them to fix the
+wrong thing.
 
-**Nobody's setting is overridden.** Turning the edge off writes a real `false`, so this default only
-decides for a phone that has never had an opinion about it. If you switched it off, it stays off.
+**And there is a button for it.** The ADB screen shows whether a pairing is held at all, and
+**FORGET THE PAIRING** deletes the key and certificate so the next pairing makes new ones. That
+deletion matters: pairing again while those files exist can hand the daemon the same key it has
+already rejected, which produces a pairing that looks successful and streams that die exactly as
+before — which may well be what has been happening.
 
-The first-run guide now mentions it, because a gesture that is on and undocumented is a gesture that
-reads as the phone behaving oddly.
+**So the order to try is: FORGET THE PAIRING, then PAIR AUTOMATICALLY.** Not one or the other.

@@ -315,6 +315,7 @@ fun GrantRequestScreen(
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
                                 busy = true
+                                GrantRun.clearStop()
                                 scope.launch {
                                     val said = withContext(Dispatchers.IO) {
                                         val turned = com.gios.lightcontrol.adb.AdbWifi.turnOn(context)

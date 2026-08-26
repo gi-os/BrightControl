@@ -96,6 +96,25 @@ object GrantRun {
      * results are dropped on arrival by the generation check in [finished], so a stopped run can
      * never overwrite the one somebody starts a second later.
      */
+    /**
+     * Clear a stop, so the next thing somebody starts can be stopped too.
+     *
+     * ### Why this is separate from [start]
+     *
+     * [start] belongs to a request run, and the ADB screen's buttons — GRANT ALL, NFC, Shizuku, the
+     * command box — are not request runs. They share the stop machinery and shared none of the
+     * clearing, so the flag survived into the next press: a fresh GRANT ALL came up with its STOP
+     * button already reading STOPPING… and already disabled, which is a stop that worked once and
+     * then never again.
+     *
+     * Called at the start of anything that can be stopped, which is the only rule that keeps this
+     * honest.
+     */
+    fun clearStop() {
+        stopRequested = false
+        runCatching { AdbManager.clearAbort() }
+    }
+
     fun stop() {
         stopRequested = true
         // Over, as far as the screen is concerned. This is the line that gives the buttons back.

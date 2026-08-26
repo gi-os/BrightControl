@@ -95,6 +95,10 @@ fun AdbScreen(
 
     fun run(label: String, block: suspend () -> String) {
         if (busy) return
+        // Every button on this screen can be stopped, so every button clears the last stop. Without
+        // this the flag survives into the next press and the STOP button comes up already saying
+        // STOPPING… — stoppable exactly once per launch.
+        GrantRun.clearStop()
         busy = true
         say("> $label")
         scope.launch {
@@ -318,6 +322,45 @@ fun AdbScreen(
             Step("2", "Settings → System → Developer options → Wireless debugging → turn it ON. " +
                 "Keep Wi-Fi connected.")
 
+            // **What the phone thinks of the pairing we are holding.** Two different states have
+            // been reported as the same thing all evening: no pairing at all, and a pairing the
+            // phone has stopped trusting. The second one connects and then refuses every command,
+            // which reads as "Stream closed" and sends everybody to look at the connection.
+            val paired = AdbManager.hasPairing(context)
+            MenuRow(
+                label = "Pairing on this phone",
+                detail = if (paired) "HELD" else "NONE",
+                sub = if (paired) {
+                    "a key and certificate are stored — if commands still fail after connecting, " +
+                        "the phone has stopped trusting them and they need replacing"
+                } else {
+                    "nothing stored; pairing below will make one"
+                },
+                dim = !paired,
+            )
+            if (paired) {
+                Rule()
+                BigButton(
+                    label = "FORGET THE PAIRING",
+                    filled = false,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    run("forget the pairing") {
+                        // Deleted rather than reused. Pairing again while these files exist can
+                        // hand the daemon the same key it has already rejected, which produces a
+                        // pairing that looks successful and streams that die exactly as before.
+                        val gone = AdbManager.forgetPairing(context)
+                        if (gone) {
+                            "forgotten — pair again below, and the phone will trust the new key"
+                        } else {
+                            "there was nothing to forget"
+                        }
+                    }
+                }
+            }
+            Rule()
+
             SectionLabel("STEP 2 — PAIR (ONCE)")
             Guide(
                 "The phone's pairing box closes the moment you leave Settings — leaving with " +
@@ -445,9 +488,6 @@ fun AdbScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 run("grant all") {
-                    // A stop from an earlier run would otherwise cancel this one on its first
-                    // command, before anybody had pressed anything.
-                    AdbManager.clearAbort()
                     // Reconnect in front of the batch. The listener does not survive leaving
                     // the Wireless-debugging screen, so by the time anyone presses this the
                     // connection from step 3 is usually gone — and the port that replaced it is
