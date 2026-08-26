@@ -152,4 +152,41 @@ class AdbPairCodeTest {
         assertNull(AdbPairCode.extract("Pair device with pairing code\n1234567\n192.168.1.10:37103"))
     }
 
+
+    // ---- light-reports#65 and #68: the wrong window ------------------------
+
+    /** The Wireless debugging list, exactly as the reader flattened it on a real phone. */
+    private val theList = """
+        Wireless debugging
+        Navigate up
+        Wireless debugging
+        Use wireless debugging
+        Device name
+        Light Phone III
+        IP address & Port
+        192.168.10.220:43139
+        Pair device with QR code
+        Pair new devices using QR code scanner
+        Pair device with pairing code
+        Pair new devices using six digit code
+    """.trimIndent()
+
+    @Test
+    fun `the wireless debugging list is not the pairing dialog`() {
+        // It passes every test the dialog does: it says "pair", it says "code" — in the row labelled
+        // "Pair device with pairing code" — and it shows the ip:port. Two reports came in against
+        // this screen, complaining the reader could not find digits on a screen that never has any.
+        assertFalse(AdbPairCode.looksLikePairingDialog(theList))
+        assertNull(AdbPairCode.extract(theList))
+    }
+
+    @Test
+    fun `the dialog is still recognised`() {
+        assertTrue(
+            AdbPairCode.looksLikePairingDialog(
+                "Pair with device\n123456\nIP address & Port\n192.168.1.10:37103",
+            ),
+        )
+    }
+
 }

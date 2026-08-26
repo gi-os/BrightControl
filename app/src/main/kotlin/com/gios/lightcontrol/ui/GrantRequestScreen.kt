@@ -337,6 +337,19 @@ fun GrantRequestScreen(
                                     "says this twice, wireless debugging has been switched off.",
                             )
                         }
+                        // **A way out, always.** A command can be waiting three quarters of a
+                        // minute on a phone somebody has changed their mind about, and a screen
+                        // whose only affordance is waiting is a screen that gets force-quit —
+                        // which loses the transcript, the run, and any idea of what happened.
+                        if (working) {
+                            BigButton(
+                                label = "STOP",
+                                filled = false,
+                                enabled = !GrantRun.stopRequested,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) { GrantRun.stop() }
+                        }
                         BigButton(
                             label = when {
                                 // Seconds, because a wait that counts is a wait somebody can
@@ -391,6 +404,9 @@ fun GrantRequestScreen(
                                 withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.forEachIndexed { index, step ->
+                                        // Asked to stop: do not start another command. The one
+                                        // already running was ended by the socket closing.
+                                        if (GrantRun.stopRequested) return@forEachIndexed
                                         withContext(Dispatchers.Main) {
                                             GrantRun.at(index + 1, step.label)
                                         }

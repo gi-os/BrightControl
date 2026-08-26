@@ -42,8 +42,21 @@ object AdbPairCode {
      */
     fun looksLikePairingDialog(text: String): Boolean {
         if (!text.contains("pair", ignoreCase = true)) return false
+        if (looksLikeTheList(text)) return false
         return ADDRESS.containsMatchIn(text) || text.contains("code", ignoreCase = true)
     }
+
+    /**
+     * The Wireless debugging *list*, which is not the dialog and never carries a code.
+     *
+     * It matched every test the dialog does — it says "pair", it says "code" (in the row labelled
+     * "Pair device with pairing code"), and it shows the `ip:port` — so light-reports#65 and #68 both
+     * reported the reader failing to find digits on a screen that has never had any. Two phrases
+     * belong only to the list, and either of them settles it.
+     */
+    fun looksLikeTheList(text: String): Boolean =
+        text.contains("Use wireless debugging", ignoreCase = true) ||
+            text.contains("Pair device with QR code", ignoreCase = true)
 
     /**
      * The code, or null if this screen does not carry one.

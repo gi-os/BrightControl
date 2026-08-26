@@ -32,20 +32,41 @@ class AdbPairReader : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!AdbPairSession.armed) return
 
-        val root = rootInActiveWindow ?: return
+        // **Every window, not just the active one.**
+        //
+        // light-reports#65 and #68 carried the text this read, and it was the *Wireless debugging
+        // list* — "Use wireless debugging", "Device name", "Pair device with QR code" — with no code
+        // on it, because a dialog is its own window and `rootInActiveWindow` was handing back the
+        // activity behind it. So the one window that has ever contained the six digits was the one
+        // window never being looked at, and the failure was reported against the wrong screen.
+        //
+        // Each window is offered on its own rather than concatenated, because the strongest signal
+        // is a line that is *exactly* six digits, and joining the dialog to the list behind it
+        // surrounds those digits with a screenful of other numbers.
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        runCatching { windows.forEach { window -> window.root?.let { roots += it } } }
+        rootInActiveWindow?.let { roots += it }
+        if (roots.isEmpty()) return
         try {
-            val text = StringBuilder()
-            collect(root, text, 0)
-            val screen = text.toString()
-
-            if (AdbPairSession.offerScreen(this, screen)) return
-
-            // Not the dialog yet. Best-effort: walk the user there. Never depended on — the read
-            // above works just as well when they navigate by hand, and a forked Settings may
-            // label these rows differently or not expose them as clickable nodes at all.
-            if (!AdbPairCode.looksLikePairingDialog(screen)) advance(root, screen)
+            for (root in roots) {
+                val text = StringBuilder()
+                collect(root, text, 0)
+                if (AdbPairSession.offerScreen(this, text.toString())) return
+            }
+            // Nothing carried a code. Best-effort: walk the user towards the dialog from whichever
+            // window looks like the list. Never depended on — the read above works just as well
+            // when they navigate by hand, and a forked Settings may label these rows differently
+            // or not expose them as clickable nodes at all.
+            for (root in roots) {
+                val text = StringBuilder()
+                collect(root, text, 0)
+                val screen = text.toString()
+                if (!AdbPairCode.looksLikePairingDialog(screen)) {
+                    if (advance(root, screen)) return
+                }
+            }
         } finally {
-            runCatching { root.recycle() }
+            roots.forEach { runCatching { it.recycle() } }
         }
     }
 
@@ -80,25 +101,26 @@ class AdbPairReader : AccessibilityService() {
      * navigate — a fork that labels the row the same but handles it elsewhere — an undebounced
      * version would hammer it several times a second for the whole ninety-second window.
      */
-    private fun advance(root: AccessibilityNodeInfo, screen: String) {
+    private fun advance(root: AccessibilityNodeInfo, screen: String): Boolean {
         val target = when {
             screen.contains("Pair device with pairing code", true) -> "Pair device with pairing code"
             screen.contains("Wireless debugging", true) -> "Wireless debugging"
-            else -> return
+            else -> return false
         }
 
         val now = android.os.SystemClock.elapsedRealtime()
-        if (target == lastTarget && now - lastTapAt < TAP_DEBOUNCE_MS) return
+        if (target == lastTarget && now - lastTapAt < TAP_DEBOUNCE_MS) return true
         lastTarget = target
         lastTapAt = now
 
-        root.findAccessibilityNodeInfosByText(target)
+        val tapped = root.findAccessibilityNodeInfosByText(target)
             ?.firstOrNull { it.isClickable || it.parent?.isClickable == true }
             ?.let { node ->
                 val clickable = if (node.isClickable) node else node.parent
                 clickable?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             }
-    }
+        // True either way: this window was the one to act on, so no other window needs trying.
+        return tapped != null
 
     private companion object {
         const val TAP_DEBOUNCE_MS = 1_500L

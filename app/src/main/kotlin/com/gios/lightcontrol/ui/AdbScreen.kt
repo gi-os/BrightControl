@@ -41,6 +41,7 @@ import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.AdbPairSession
 import com.gios.lightcontrol.adb.AdbWifi
 import com.gios.lightcontrol.adb.GrantCheckRunner
+import com.gios.lightcontrol.adb.GrantRun
 import com.gios.lightcontrol.adb.Outcome
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.adb.StepResult
@@ -490,6 +491,10 @@ fun AdbScreen(
                         withContext(Dispatchers.Main) {
                             say("${index + 1}/${SelfGrant.steps.size}  ${r.label} — $state")
                         }
+                        if (GrantRun.stopRequested) {
+                            withContext(Dispatchers.Main) { say("stopped") }
+                            break
+                        }
                         val socketGone = r.outcome == Outcome.Failed &&
                             !runCatching { AdbManager.getInstance(context).connected() }
                                 .getOrDefault(false)
@@ -541,6 +546,21 @@ fun AdbScreen(
                 }
             }
             Rule()
+
+            if (busy) {
+                // The same escape the request screen has. Closing the socket is what ends a
+                // command that is blocked in a read; a flag on its own would only be a promise.
+                BigButton(
+                    label = "STOP",
+                    filled = false,
+                    enabled = !GrantRun.stopRequested,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    GrantRun.stop()
+                    say("stopping — the connection was closed to end the command")
+                }
+                Rule()
+            }
 
             SectionLabel("NFC — FOR CHIP MODS")
             Guide(

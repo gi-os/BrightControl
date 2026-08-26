@@ -63,7 +63,32 @@ object GrantRun {
             0
         }
 
+    /**
+     * Set when somebody asks a run to stop, cleared when the next one starts.
+     *
+     * ### Why stopping needs the socket, not a flag
+     *
+     * A command in flight is blocked in a read that ignores interruption — that is the whole reason
+     * commands are given a deadline and run on a thread the app walks away from. A flag cannot end
+     * it. Closing the socket underneath it can, and does: the read returns, the thread finishes, and
+     * the step reports what happened. So [stop] does both — the flag tells the loop not to start the
+     * next step, and the reset ends the one already going.
+     *
+     * The flag is read by the batch on the ADB screen as well, which is not a [GrantRun] but wants
+     * exactly the same "stop asking and let me try again" behaviour.
+     */
+    var stopRequested by mutableStateOf(false)
+        private set
+
+    fun stop() {
+        stopRequested = true
+        say("· stopping — closing the connection to end the command")
+        // The only thing that actually interrupts a blocked read.
+        runCatching { AdbManager.reset() }
+    }
+
     fun start(pkg: String, steps: Int) {
+        stopRequested = false
         this.pkg = pkg
         this.steps = steps
         step = 0
@@ -90,6 +115,8 @@ object GrantRun {
     fun finished(results: List<StepResult>) {
         this.results = results
         phase = Phase.Done
+        if (stopRequested) say("· stopped")
+        stopRequested = false
     }
 
     /** Forget a run belonging to a different request, so nothing stale is shown as current. */
