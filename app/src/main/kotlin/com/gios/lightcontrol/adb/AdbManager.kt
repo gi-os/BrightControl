@@ -261,11 +261,19 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
         }
 
         /**
-         * How long to let mDNS look for the daemon. Long enough for a service that is already
-         * being advertised to be found, short enough that a phone with wireless debugging off
-         * says so rather than appearing to hang.
+         * How long to let mDNS look for the daemon.
+         *
+         * Was three seconds, on the reasoning that a service already being advertised is found at
+         * once. It is not: coming back from Settings the lookup regularly takes longer than that,
+         * and three seconds was survivable only because the ADB screen had a CONNECT button that
+         * asked for fifteen. That button is gone — pairing connects on its own and this is the only
+         * reconnect left — and the day it went, GRANT ALL started reporting "could not reach the
+         * phone's debugging service" on a phone whose debugging service was running fine.
+         *
+         * Twelve seconds. A phone with wireless debugging switched off still says so rather than
+         * hanging, and one that merely needs looking for gets looked for.
          */
-        const val RECONNECT_MS = 3_000L
+        const val RECONNECT_MS = 12_000L
 
         /**
          * Drop the connection and the cached manager. A failed connect can leave the manager

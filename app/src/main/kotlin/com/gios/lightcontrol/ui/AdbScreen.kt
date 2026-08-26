@@ -107,6 +107,47 @@ fun AdbScreen(
         }
     }
 
+    // **Ask the phone whether it is connected, rather than waiting to be told.**
+    //
+    // `connected` was only ever written inside [run], so a screen nobody had pressed anything on
+    // sat there saying "Not connected" with a live socket underneath it — and every effect keyed on
+    // that flag, including the hand-back below, never ran. Asked on arrival, and again the moment
+    // the automatic pairing reports Done, which is the other time it changes without a press.
+    LaunchedEffect(Unit) {
+        val live = withContext(Dispatchers.IO) { AdbManager.ensureAlive(context) }
+        connected = live
+    }
+    LaunchedEffect(AdbPairSession.phase) {
+        if (AdbPairSession.phase == AdbPairSession.Phase.Done) {
+            connected = withContext(Dispatchers.IO) { AdbManager.ensureAlive(context) }
+        }
+    }
+
+    // The request that was set aside, if there is one. Read on every recomposition rather than
+    // remembered: it is written by another screen and cleared by this one.
+    val heldPkg = prefs.pendingGrantPkg
+    val heldLines = prefs.pendingGrantLines
+    val hasHeld = heldPkg.isNotBlank() && heldLines.isNotEmpty()
+    val heldLabel = remember(heldPkg) {
+        runCatching {
+            context.packageManager.getApplicationLabel(
+                context.packageManager.getApplicationInfo(heldPkg, 0),
+            ).toString()
+        }.getOrDefault(heldPkg)
+    }
+    fun openApp(pkg: String) {
+        runCatching {
+            val launch = context.packageManager.getLaunchIntentForPackage(pkg)
+                ?: return@runCatching
+            context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+    fun goToHeld() {
+        val minutes = (System.currentTimeMillis() - prefs.pendingGrantAt) / 60_000L
+        prefs.clearGrantRequest()
+        onCarriedRequest(heldPkg, heldLines, minutes)
+    }
+
     // **Hand a carried request back the moment there is a connection to run it with.**
     //
     // The request screen says "this request will still be here" and then sends people here, where
@@ -122,17 +163,24 @@ fun AdbScreen(
     // else's abandoned session, and being yanked to a screen you have forgotten asking for is
     // worse than losing it. Anything inside it is offered, however old, with its age said out
     // loud — an address in it may have moved on, and that is for the person to judge.
-    var connectedWas by remember { mutableStateOf(false) }
-    LaunchedEffect(connected) {
-        if (!connected || connectedWas) return@LaunchedEffect
-        connectedWas = true
-        val pkg = prefs.pendingGrantPkg
-        val lines = prefs.pendingGrantLines
-        if (pkg.isBlank() || lines.isEmpty()) return@LaunchedEffect
-        val heldMs = System.currentTimeMillis() - prefs.pendingGrantAt
-        prefs.clearGrantRequest()
-        if (heldMs > 6 * 60 * 60 * 1000L) return@LaunchedEffect
-        onCarriedRequest(pkg, lines, heldMs / 60_000L)
+    //
+    // Keyed on the *pairing* finishing rather than on `connected`, which is a flag that also flips
+    // when somebody wanders in with a working connection already. Being moved to another screen on
+    // arrival is a screen fighting you; being moved there the instant the setup you just did
+    // succeeds is the whole point of doing it. Either way the row below is always there.
+    var jumped by remember { mutableStateOf(false) }
+    LaunchedEffect(AdbPairSession.phase, connected) {
+        if (jumped || !connected) return@LaunchedEffect
+        if (AdbPairSession.phase != AdbPairSession.Phase.Done) return@LaunchedEffect
+        if (!hasHeld) return@LaunchedEffect
+        // Six hours is a cap on resurrection, not an expiry. Anything inside it is offered however
+        // old, with its age said out loud on the screen that shows the commands.
+        if (System.currentTimeMillis() - prefs.pendingGrantAt > 6 * 60 * 60 * 1000L) {
+            prefs.clearGrantRequest()
+            return@LaunchedEffect
+        }
+        jumped = true
+        goToHeld()
     }
 
     val scroll = rememberScrollState()
@@ -165,6 +213,35 @@ fun AdbScreen(
                 dim = !connected,
             )
             Rule()
+
+            // **Why you are here, first.** Somebody who arrived from another app's request came
+            // to run *that*, and until now the screen answered with its own four-step walkthrough
+            // and a GRANT ALL button that sets up this app. The request is offered before the
+            // setup, whether or not there is a connection yet — knowing it survived is worth as
+            // much as being able to run it.
+            if (hasHeld) {
+                SectionLabel("$heldLabel IS WAITING")
+                MenuRow(
+                    label = "Its request",
+                    detail = "${heldLines.size} LINE${if (heldLines.size == 1) "" else "S"}",
+                    sub = heldLines.joinToString("  ·  ").take(120),
+                    onClick = { goToHeld() },
+                )
+                Rule()
+                BigButton(
+                    label = "GO TO $heldLabel'S REQUEST".uppercase(),
+                    filled = connected,
+                    enabled = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) { goToHeld() }
+                if (!connected) {
+                    Guide(
+                        "Pair below first — the request screen will not run anything without a " +
+                            "connection, and it says so when you get there.",
+                    )
+                }
+                Rule()
+            }
 
             // The full walkthrough, on the page, because this is a strange thing to ask a phone to
             // do and every step has a way to go wrong.
@@ -436,6 +513,19 @@ fun AdbScreen(
                 run(c) { AdbManager.getInstance(context).runCommand(c).ifBlank { "(no output)" } }
             }
             Rule()
+
+            if (hasHeld) {
+                // A trip that ends on this screen is a trip that has not ended. The app that sent
+                // you here is the one thing certainly worth a tap from the bottom of the page.
+                SectionLabel("BACK TO WHERE YOU CAME FROM")
+                BigButton(
+                    label = "OPEN $heldLabel".uppercase(),
+                    filled = false,
+                    enabled = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) { openApp(heldPkg) }
+                Rule()
+            }
 
             SectionLabel("LOG")
             if (log.isEmpty()) {

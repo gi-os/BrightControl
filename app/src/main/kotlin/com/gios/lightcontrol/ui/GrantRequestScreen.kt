@@ -300,7 +300,13 @@ fun GrantRequestScreen(
                                 enabled = true,
                                 modifier = Modifier.fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                                onClick = onAdb,
+                                onClick = {
+                                    // Held here as well as on the not-connected route above: a run
+                                    // that died mid-way is the case where coming back to the same
+                                    // list matters most.
+                                    prefs.holdGrantRequest(pkg, lines)
+                                    onAdb()
+                                },
                             )
                         } else if (failed > 0) {
                             GuideText(
@@ -318,6 +324,26 @@ fun GrantRequestScreen(
                                     "the app starts, so if $appLabel still says something is " +
                                     "missing, close and reopen it.",
                             )
+                        }
+                        // **A way back to what you were doing.** Everything above happens because
+                        // another app asked for it, and the run finishing is the moment to return
+                        // to that app rather than to this one's home screen. Shown after a result
+                        // of any kind: a failure is also a thing to go and look at over there.
+                        SectionLabel("NEXT")
+                        BigButton(
+                            label = "OPEN $appLabel".uppercase(),
+                            filled = allHeld,
+                            enabled = true,
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                        ) {
+                            runCatching {
+                                val launch = context.packageManager.getLaunchIntentForPackage(pkg)
+                                    ?: return@runCatching
+                                context.startActivity(
+                                    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
                         }
                     }
                 }
