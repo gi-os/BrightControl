@@ -1,4 +1,4 @@
-## BrightControl v3.54 — a running command says what it is doing
+## BrightControl v3.55 — a running command says what it is doing, and gives up when it said it would
 
 **RUNNING… for forty-five seconds, and then everything at once.** That is what the request screen did
 while another app's command was in flight, and from the outside it is indistinguishable from a button
@@ -31,3 +31,12 @@ one, even when it takes exactly as long.
 
 This is also the only place the ring's own answer has ever been visible. Every attempt so far has
 been read afterwards, out of a logcat, on a laptop.
+
+**And it gives up when it said it would.** A command allowed three quarters of a minute could run for
+a hundred seconds, because the deadline was handed to *each* attempt rather than to the whole thing:
+forty-five seconds, a twelve-second reconnect, then forty-five more. Somebody watching a button that
+promised to stop at forty-five is entirely right to think something is wrong at ninety.
+
+There is one budget now. The retry gets whatever is left of it, and if that is under two seconds
+there is no retry — a command that needs half a minute and has three seconds left should report what
+actually went wrong the first time rather than manufacture a timeout to report instead.

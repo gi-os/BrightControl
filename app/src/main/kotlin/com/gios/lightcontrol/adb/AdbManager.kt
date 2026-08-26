@@ -355,13 +355,30 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             /** Told each line the command prints, as it prints it. See [AdbManager.runCommand]. */
             onLine: (String) -> Unit = {},
         ): String {
+            // **One budget for the whole thing, not one per attempt.**
+            //
+            // This used to hand the full deadline to each try, so a command allowed
+            // three quarters of a minute could run for a hundred seconds: forty-five, a
+            // twelve-second reconnect, then forty-five more. Somebody watching a button that
+            // promised to give up at forty-five is right to think something is wrong at ninety.
+            val deadline = System.currentTimeMillis() + timeoutMs
             val first = bounded(context, command, timeoutMs, onLine)
             if (!first.startsWith(DEAD)) return first
+            val left = deadline - System.currentTimeMillis()
+            if (left < MIN_RETRY_MS) {
+                // Nothing useful can be attempted in what is left. Reporting the first failure
+                // beats spending another minute to report the same one.
+                return failed(command, first.removePrefix(DEAD))
+            }
             reset()
-            if (!ensureAlive(context)) {
+            if (!ensureAlive(context, minOf(RECONNECT_MS, left))) {
                 return failed(command, "the connection is gone and could not be picked back up")
             }
-            val second = bounded(context, command, timeoutMs, onLine)
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining < MIN_RETRY_MS) {
+                return failed(command, "no time left after reconnecting")
+            }
+            val second = bounded(context, command, remaining, onLine)
             if (second.startsWith(DEAD)) {
                 return failed(command, second.removePrefix(DEAD))
             }
@@ -476,6 +493,15 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * Anything shorter cuts off the thing it was asked to do.
          */
         const val SLOW_COMMAND_MS = 45_000L
+
+        /**
+         * Below this, a retry is not a retry, it is a second failure with a different message.
+         *
+         * Two seconds is enough for a grant, nowhere near enough for a pairing confirmation — and
+         * that is the point: a command that needs half a minute and has three seconds left should
+         * report what went wrong the first time rather than manufacture a timeout.
+         */
+        private const val MIN_RETRY_MS = 2_000L
 
         /** Marks a failure that is about the connection rather than about the command. */
         private const val DEAD = "!!"

@@ -87,8 +87,14 @@ fun GrantRequestScreen(
     var ran by remember { mutableStateOf(false) }
     /** The last press could not reach the daemon. Not the same thing as never having had one. */
     var dropped by remember { mutableStateOf(false) }
-    /** What the running command is saying, as it says it. See [AdbManager.runCommand]. */
-    var live by remember { mutableStateOf(listOf<String>()) }
+    /**
+     * What the running command is saying, as it says it. See [AdbManager.runCommand].
+     *
+     * Named `saying` and not `live`: the run handler already has a local `live` holding whether the
+     * connection came up, and a state variable shadowed by a Boolean fails to compile in a way that
+     * reads as a Compose problem rather than a naming one.
+     */
+    var saying by remember { mutableStateOf(listOf<String>()) }
     /** Which step of how many, so a wait has a shape. */
     var at by remember { mutableStateOf(0) }
     // Success is every step read back and confirmed. Nothing weaker: reaching the end of the list
@@ -281,7 +287,7 @@ fun GrantRequestScreen(
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                         ) {
                             busy = true
-                            live = emptyList()
+                            saying = emptyList()
                             at = 0
                             scope.launch {
                                 // Reconnect rather than probe. The daemon's listener does not
@@ -318,7 +324,7 @@ fun GrantRequestScreen(
                                     parsed.steps.forEachIndexed { index, step ->
                                         withContext(Dispatchers.Main) {
                                             at = index + 1
-                                            live = live + "· ${step.label}"
+                                            saying = saying + "· ${step.label}"
                                         }
                                         collected += GrantCheckRunner.runAndVerify(
                                             context = context,
@@ -330,7 +336,7 @@ fun GrantRequestScreen(
                                         ) { line ->
                                             // Off the reader thread; the list is Compose state.
                                             scope.launch(Dispatchers.Main) {
-                                                live = (live + line).takeLast(MAX_LIVE_LINES)
+                                                saying = (saying + line).takeLast(MAX_LIVE_LINES)
                                             }
                                         }
                                     }
@@ -355,10 +361,10 @@ fun GrantRequestScreen(
                     // `setPairingConfirmation true` and `RESULT bonded` or the reason it gave up.
                     // Reading that as it happens is the difference between waiting and watching —
                     // and it is the only place the ring's own answer ever appears.
-                    if (live.isNotEmpty()) {
+                    if (saying.isNotEmpty()) {
                         SectionLabel(if (busy) "WHAT IT IS SAYING" else "WHAT IT SAID")
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            live.forEach { line ->
+                            saying.forEach { line ->
                                 Text(
                                     line,
                                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
