@@ -1,33 +1,36 @@
-## BrightControl v3.66 — failures report themselves
+## BrightControl v3.67 — one button for the whole recovery, and the second report was noise
 
-*"Have it auto send errors instead of offering to send errors, since that is easy to click off of."*
-Right, and the offer was worse than easy to dismiss — it appeared **while you were in the middle of
-the thing that had just failed**, and one tap outside it threw away the only account of what went
-wrong that anybody would ever have. Several evenings this week were diagnosed by reading a logcat
-over your shoulder instead, for exactly that reason.
+**Reports #77 and #78 arrived one second apart and only one of them was true.** Grant one failed with
+*"the phone no longer trusts this app's pairing"*; grant two then reported *"the connection is gone"* —
+because the reconnect behind the first failure had dropped the socket. Two reports, one problem, and
+the second one pointing at the wrong thing.
 
-**So a failure the app noticed itself is now filed as it happens.** No sheet, no dialog, no decision
-to make. There was never anything to ask about: a shake report needs *you* — which symptom, in your
-words, on which screen — but a detected failure has already written its own account of what it tried
-and what came back. A dialog on top of that adds only a way to lose it.
-
-It is not silent. A line appears at the bottom for four seconds:
+A pairing the phone has stopped trusting fails **every** command, so the first failure is the only
+honest one. The batch stops there now and says what to do:
 
 ```
-Reported: could not run "appops set … WRITE_SETTINGS allow" on the phone's own shell
+1/9  Brightness (WRITE_SETTINGS) — FAILED
+stopped — the phone does not trust this pairing
+use FORGET THE PAIRING above, then pair again
 ```
 
-or *"Saved to send later"* on a build with no token, since the queue goes out on the next launch
-either way. It takes nothing away from what you were doing, which is the whole difference from the
-sheet it replaces.
+**And that sequence is now one press.** Recovering by hand is seven things in order: forget the
+pairing, switch the daemon on, arm the reader, open Settings, find Wireless debugging, find *Pair
+device with pairing code*, leave the box up. Every failure tonight has been somewhere in that chain
+rather than in the pairing itself. **START OVER AND PAIR** does the first four in order and tells you
+what each one did:
 
-**Shaking still opens the sheet**, because that report is worth typing into — the hand-written note
-on #61 ("pairing box present but numbers within not detected") is what found the reader bug.
+```
+forgot the old pairing
+wireless debugging is on
+armed — open the pairing box and leave it up
+```
 
-**And it can be switched off.** Diagnostics → *Send failures without asking*. Off restores the old
-behaviour exactly, with the offer and the tap that discards it.
+Then Wireless debugging → Pair device with pairing code, and the reader takes it from there. No new
+machinery: the same buttons, in the only order that works, without the chance to do them out of
+order.
 
-Tonight's reports, for the record: #75 and #76 both carry the new message — *"the phone accepted the
-connection and then refused to run anything, which means it no longer trusts this app's pairing"* —
-so that diagnosis is now the phone's own words rather than a theory. FORGET THE PAIRING, then PAIR
-AUTOMATICALLY.
+**The auto-report line stays up for ten seconds**, and can be swiped or tapped away before that. Four
+was not enough to read a command and a reason if you happened to be looking elsewhere when it
+appeared. Only the line itself takes touches — a gesture handler on the box around it would have
+eaten every tap in the app for ten seconds.

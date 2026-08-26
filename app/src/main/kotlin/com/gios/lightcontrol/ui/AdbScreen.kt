@@ -206,6 +206,17 @@ fun AdbScreen(
             ),
     )
 
+    // Whether the pairing helper is switched on. Polled rather than read once, so coming back from
+    // the Accessibility screen with it enabled updates this page without a manual refresh; it stops
+    // as soon as it is on. Declared up here because both the one-press recovery and step 2 need it.
+    var readerOn by remember { mutableStateOf(AdbPairSession.readerEnabled(context)) }
+    LaunchedEffect(readerOn) {
+        while (!readerOn) {
+            delay(1_000)
+            readerOn = AdbPairSession.readerEnabled(context)
+        }
+    }
+
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
@@ -316,6 +327,63 @@ fun AdbScreen(
                 Rule()
             }
 
+            // **One button for the whole recovery.**
+            //
+            // The steps are: forget a pairing the phone has stopped trusting, switch the daemon
+            // back on, arm the reader, open Settings, find Wireless debugging, find "Pair device
+            // with pairing code", and leave the box up. Seven things, each one a place to stop —
+            // and tonight every failure has been somewhere in that chain rather than in the
+            // pairing itself. So they are one press, in order, with each step saying what it did.
+            //
+            // Nothing here is new machinery: it is the buttons below, in the order they have to
+            // happen in, without the chances to do them out of order.
+            SectionLabel("START OVER")
+            Guide(
+                "Forgets the pairing, switches the debugging service on, and opens Settings with " +
+                    "the reader armed. Then go to Wireless debugging → Pair device with pairing " +
+                    "code and leave the box on screen — everything after that is automatic.",
+            )
+            BigButton(
+                label = "START OVER AND PAIR",
+                filled = true,
+                enabled = !busy && readerOn,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                run("start over and pair") {
+                    val lines = StringBuilder()
+                    if (AdbManager.hasPairing(context)) {
+                        val gone = AdbManager.forgetPairing(context)
+                        lines.append(if (gone) "forgot the old pairing\n" else "nothing to forget\n")
+                    } else {
+                        lines.append("no pairing was held\n")
+                    }
+                    if (AdbWifi.on(context) != true) {
+                        val turned = AdbWifi.turnOn(context)
+                        lines.append("wireless debugging: ${turned.said}\n")
+                    } else {
+                        lines.append("wireless debugging was already on\n")
+                    }
+                    withContext(Dispatchers.Main) {
+                        AdbPairSession.arm()
+                        runCatching {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    }
+                    lines.append("armed — open the pairing box and leave it up")
+                    lines.toString()
+                }
+            }
+            if (!readerOn) {
+                Guide(
+                    "Needs the pairing helper switched on in Settings → Accessibility first — the " +
+                        "button for that is in step 2 below.",
+                )
+            }
+            Rule()
+
             SectionLabel("STEP 1 — TURN ON WIRELESS DEBUGGING")
             Step("1", "Open the phone's Settings → About phone. Tap Build number seven times to " +
                 "unlock Developer options, if you haven't already.")
@@ -368,16 +436,6 @@ fun AdbScreen(
                     "by hand can work. Instead the app reads the six digits off the box itself, " +
                     "while it is still open. You type nothing.",
             )
-
-            // Polled rather than read once, so coming back from the Accessibility screen with it
-            // switched on updates this page without a manual refresh. Stops as soon as it is on.
-            var readerOn by remember { mutableStateOf(AdbPairSession.readerEnabled(context)) }
-            LaunchedEffect(readerOn) {
-                while (!readerOn) {
-                    delay(1_000)
-                    readerOn = AdbPairSession.readerEnabled(context)
-                }
-            }
 
             if (!readerOn) {
                 Step("3", "One-time: turn on \"BrightControl pairing helper\" in Settings → " +
@@ -536,6 +594,19 @@ fun AdbScreen(
                         }
                         if (GrantRun.stopRequested || AdbManager.stopping) {
                             withContext(Dispatchers.Main) { say("stopped") }
+                            break
+                        }
+                        // A pairing the phone has stopped trusting fails every command, and the
+                        // *first* failure is the only honest one: the reconnect behind it drops the
+                        // socket, so grant two reports "the connection is gone" and reads as a
+                        // second, different bug. Reports #77 and #78 are that pair, one second
+                        // apart, and one of them was noise.
+                        val untrusted = r.detail.contains("no longer trusts", ignoreCase = true)
+                        if (untrusted) {
+                            withContext(Dispatchers.Main) {
+                                say("stopped — the phone does not trust this pairing")
+                                say("use FORGET THE PAIRING above, then pair again")
+                            }
                             break
                         }
                         val socketGone = r.outcome == Outcome.Failed &&

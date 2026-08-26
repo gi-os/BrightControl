@@ -1,6 +1,8 @@
 package com.gios.lightcontrol.report
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +21,7 @@ import android.content.ContextWrapper
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -169,6 +172,12 @@ fun ReportOverlay() {
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                 color = Color.White,
                 modifier = Modifier
+                    // Only the line itself takes touches. The box around it fills the screen, and
+                    // a gesture handler up there would eat every tap in the app for ten seconds.
+                    .pointerInput(line) {
+                        detectHorizontalDragGestures { _, _ -> sent = null }
+                    }
+                    .clickable { sent = null }
                     .background(Color(0xFF161616))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             )
@@ -207,5 +216,11 @@ fun ReportOverlay() {
     }
 }
 
-/** How long the "sent" line stays up. Long enough to read, short enough not to be in the way. */
-private const val SENT_MS = 4_000L
+/**
+ * How long the "sent" line stays up.
+ *
+ * Ten seconds, not four: it names a command and a reason, which is more than four seconds of
+ * reading if you were looking somewhere else when it appeared. It can also be swiped or tapped
+ * away, so the length costs nothing to anybody who has already read it.
+ */
+private const val SENT_MS = 10_000L
