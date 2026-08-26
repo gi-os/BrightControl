@@ -248,10 +248,19 @@ object AdbPairSession {
             return
         }
 
-        // **Proven, not assumed.** A connection that is up and refuses every command is the exact
-        // state that has been reported all evening as "Stream closed", and it is indistinguishable
-        // from success at this point unless something asks. So something asks, here, once.
-        val usable = runCatching { adb.alive() }.getOrDefault(false)
+        // **Proven, not assumed — and patiently.**
+        //
+        // A connection that is up and refuses every command is the state reported all evening as
+        // "Stream closed", and at this point it is indistinguishable from success unless something
+        // asks. So something asks. But asking *once* was wrong, and wrong in the most damaging
+        // direction: the first command on a freshly connected socket is the one that dies — that is
+        // why [AdbManager.ensureAlive] probes three times — so a good pairing was being declared
+        // untrusted, the grants abandoned, and the user told to throw away a pairing that worked.
+        // light-reports#116 and #119 are that false verdict.
+        //
+        // Several tries, then a reconnect and one more. Only after all of that is a refusal a fact
+        // about the key rather than about the moment.
+        val usable = proven(context, adb, prefs)
         prefs.notePairStep(if (usable) "shell answers" else "shell REFUSED a command")
         if (!usable) {
             main.post {
@@ -308,6 +317,35 @@ object AdbPairSession {
 
     /** Enough windows to tell what happened, few enough that a report stays readable. */
     private const val MAX_SEEN = 12
+
+    /**
+     * Whether the connection will actually carry a command, asked until it is fair to stop asking.
+     *
+     * Four attempts a fifth of a second apart, then one reconnect and a last ask. Cheap on the path
+     * that works — the first attempt almost always answers — and it removes the settling race
+     * rather than reporting it as a broken key.
+     */
+    private fun proven(
+        context: Context,
+        adb: AdbManager,
+        prefs: com.gios.lightcontrol.Prefs,
+    ): Boolean {
+        repeat(PROVE_TRIES) { attempt ->
+            if (runCatching { adb.alive() }.getOrDefault(false)) {
+                if (attempt > 0) prefs.notePairStep("shell answered on try ${attempt + 1}")
+                return true
+            }
+            runCatching { Thread.sleep(PROVE_GAP_MS) }
+        }
+        prefs.notePairStep("shell silent after $PROVE_TRIES tries — reconnecting once")
+        return runCatching { AdbManager.ensureAlive(context) }.getOrDefault(false)
+    }
+
+    /** How many times to ask a new connection whether it works before believing it does not. */
+    private const val PROVE_TRIES = 4
+
+    /** Between asks. Long enough for a daemon to finish settling, short enough not to be felt. */
+    private const val PROVE_GAP_MS = 250L
 
     const val READER_COMPONENT = "com.gios.lightcontrol/com.gios.lightcontrol.adb.AdbPairReader"
 }

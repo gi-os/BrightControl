@@ -425,9 +425,15 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             // "the connection is gone" about it sends everybody to fix the wrong thing for an hour.
             // See [forgetPairing].
             val connected = runCatching { getInstance(context).connected() }.getOrDefault(false)
+            // Only after a reconnect *and* a second attempt have both failed on a live
+            // connection. Said any earlier — and it was, once, straight after pairing — it accuses
+            // a working pairing of being untrusted and sends somebody to delete it. The wording
+            // stays a suggestion rather than an instruction for the same reason.
             val reason = if (connected && why.contains("closed", ignoreCase = true)) {
-                "the phone accepted the connection and then refused to run anything, which means " +
-                    "it no longer trusts this app's pairing. Forget the pairing and pair again."
+                "the phone accepted the connection and then refused to run anything twice over. " +
+                    "That usually means it no longer trusts this app's pairing — FORGET THE " +
+                    "PAIRING and pair again — but a daemon that has only just come up can refuse " +
+                    "a first command too, so it is worth one retry before believing it."
             } else {
                 why
             }
