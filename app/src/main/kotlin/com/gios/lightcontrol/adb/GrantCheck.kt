@@ -73,6 +73,12 @@ data class StepResult(
 object GrantCheckRunner {
 
     /**
+     * How long a read-back may take. Much shorter than a command's own deadline: a check that has
+     * to be waited on is a check that is not going to answer.
+     */
+    private const val CHECK_MS = 8_000L
+
+    /**
      * Run one command and then find out whether it worked.
      *
      * The command's own output is kept only as detail. It is genuinely useful when it is
@@ -85,19 +91,18 @@ object GrantCheckRunner {
         label: String,
         command: String,
         check: GrantCheck,
+        /** How long this one command may take before the socket is closed under it. */
+        timeoutMs: Long = AdbManager.COMMAND_MS,
     ): StepResult {
-        var output = runCatching { adb.runCommand(command) }
-            .getOrElse { e -> "!${e.message ?: e.javaClass.simpleName}" }
-        // A stream that dies on the first command of a batch is the shape of a connection that
-        // was reported up before the daemon had finished settling, and the fix for it is the
-        // same as for a connection that died in the user's pocket: get another one. Once, so a
-        // command that genuinely fails does not run twice.
-        if (output.startsWith("!") && AdbManager.ensureAlive(context)) {
-            output = runCatching { AdbManager.getInstance(context).runCommand(command) }
-                .getOrElse { e -> "!${e.message ?: e.javaClass.simpleName}" }
-        }
-        val threw = output.startsWith("!")
-        val said = output.removePrefix("!").trim()
+        // Through [AdbManager.runVia], which owns both of the things this used to do by hand: one
+        // reconnect-and-retry for a socket that died while nobody was looking, and — the part that
+        // was missing — a **deadline**. `runCommand` reads until EOF, and a stream that stalls
+        // rather than closing never gets there, so the read blocked forever: three grants into a
+        // batch the buttons greyed and nothing else was ever printed, because a step's line is
+        // written after its command returns. It never returned.
+        val output = AdbManager.runVia(context, command, timeoutMs)
+        val threw = output.startsWith("error:")
+        val said = output.removePrefix("error:").trim()
 
         // Permission and appop state settles as the command returns, but the process-side caches
         // are invalidated asynchronously, and a check that runs in the same millisecond as the
@@ -152,7 +157,14 @@ object GrantCheckRunner {
         // shell a question the shell had already stopped answering.
         is GrantCheck.AppOp -> ownAppOp(context, check)
             ?: runCatching {
-                val out = adb.runCommand("appops get ${check.pkg} ${check.op}")
+                // Bounded like everything else. A check is not worth a frozen screen, and this one
+                // asks the shell a question at the exact moment the shell has most likely stopped
+                // answering — right after a grant that failed.
+                val out = AdbManager.runVia(
+                    context,
+                    "appops get ${check.pkg} ${check.op}",
+                    CHECK_MS,
+                )
                 // `appops get` prints `OP: mode; time=...`, and an op that was never set prints
                 // nothing at all. Match the mode word rather than the whole line.
                 out.substringAfter(':', out).contains(check.mode, ignoreCase = true)

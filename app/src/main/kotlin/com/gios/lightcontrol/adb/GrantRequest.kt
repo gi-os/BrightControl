@@ -43,6 +43,13 @@ object GrantRequest {
          * The screen says so in its own words rather than inferring it from the command string.
          */
         val foreign: Boolean = false,
+        /**
+         * How long this command may take before the socket is closed under it. Carried per step
+         * because one of them — answering a pairing request — is *supposed* to sit there for half
+         * a minute, and the deadline that keeps a stalled `pm grant` from freezing the screen would
+         * otherwise cut it off doing its job.
+         */
+        val timeoutMs: Long = AdbManager.COMMAND_MS,
     )
 
     sealed interface Parsed {
@@ -202,6 +209,7 @@ object GrantRequest {
             // gives each command a process rather than a login shell.
             command = "sh -c 'CLASSPATH=$apk app_process / $pkg.helper.Confirm $mac $CONFIRM_MS'",
             check = GrantCheck.None,
+            timeoutMs = AdbManager.SLOW_COMMAND_MS,
         )
     }
 

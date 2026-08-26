@@ -155,7 +155,9 @@ class SoftAp(context: Context) {
     private fun run(command: String): Outcome = runCatching {
         val adb = AdbManager.getInstance(app)
         if (!adb.connected()) return Outcome(false, "No adb connection")
-        val said = adb.runCommand(command).trim()
+        // Bounded: `runCommand` reads until EOF and a stalled stream never reaches it, which on
+        // this path would hang the hotspot toggle with no way back. See [AdbManager.runVia].
+        val said = AdbManager.runVia(app, command).trim()
         // The wifi shell prints usage on a bad argument and says nothing at all on success, so
         // silence is the good answer and anything mentioning usage is the command not existing
         // in the shape we asked for.

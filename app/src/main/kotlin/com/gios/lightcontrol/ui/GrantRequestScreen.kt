@@ -273,6 +273,7 @@ fun GrantRequestScreen(
                                             label = step.label,
                                             command = step.command,
                                             check = step.check,
+                                            timeoutMs = step.timeoutMs,
                                         )
                                     }
                                 }

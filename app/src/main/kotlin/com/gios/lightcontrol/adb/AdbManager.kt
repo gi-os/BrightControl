@@ -318,20 +318,77 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * output, because the `shell:` service carries no exit status and "it printed something"
          * is not an error.
          */
-        fun runVia(context: Context, command: String): String {
-            val first = runCatching { getInstance(context).runCommand(command) }
-            first.getOrNull()?.let { return it }
-            val why = first.exceptionOrNull()
-            val dead = why is java.io.IOException ||
-                (why?.message?.contains("closed", ignoreCase = true) == true)
-            if (!dead) return "error: ${why?.message ?: why?.javaClass?.simpleName ?: "unknown"}"
+        fun runVia(
+            context: Context,
+            command: String,
+            timeoutMs: Long = COMMAND_MS,
+        ): String {
+            val first = bounded(context, command, timeoutMs)
+            if (!first.startsWith(DEAD)) return first
             reset()
             if (!ensureAlive(context)) {
                 return "error: the connection is gone and could not be picked back up"
             }
-            return runCatching { getInstance(context).runCommand(command) }
-                .getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
+            val second = bounded(context, command, timeoutMs)
+            if (second.startsWith(DEAD)) {
+                return "error: ${second.removePrefix(DEAD)}"
+            }
+            return second
         }
+
+        /**
+         * One attempt, with a deadline, because the read behind a command has none of its own.
+         *
+         * ### What was actually freezing
+         *
+         * [runCommand] reads its stream until EOF. A stream that *stalls* rather than closing never
+         * reaches EOF, so the read blocks forever: the coroutine never returns, the buttons stay
+         * greyed, and nothing is printed — the line for a step is written after the command comes
+         * back, and it never came back. GRANT ALL got two grants in and stopped dead on the third,
+         * with no output and no way out but killing the app. Every adb call in this app had the
+         * same hole; the third grant is only where it was first fallen into.
+         *
+         * A read that ignores interruption cannot be cancelled, so it is not cancelled: it is run
+         * on a thread this walks away from, and the socket underneath it is closed by [reset],
+         * which is what actually unblocks the read and lets that thread die. Daemon, so it can
+         * never hold the process open.
+         */
+        private fun bounded(context: Context, command: String, timeoutMs: Long): String {
+            var result: String? = null
+            val worker = Thread {
+                result = runCatching { getInstance(context).runCommand(command) }
+                    .getOrElse { e -> DEAD + (e.message ?: e.javaClass.simpleName) }
+            }
+            worker.isDaemon = true
+            worker.start()
+            worker.join(timeoutMs)
+            if (worker.isAlive) {
+                // Closing the socket is the only thing that ends the read. The thread finishes on
+                // its own once it does, with a value nobody is waiting for any more.
+                reset()
+                return DEAD + "no answer in ${timeoutMs / 1000}s — the connection was closed"
+            }
+            return result ?: (DEAD + "no answer")
+        }
+
+        /**
+         * How long any one command may take.
+         *
+         * Twenty seconds: longer than any grant takes and short enough that a stall is noticed
+         * while somebody is still watching. The point is not to be quick about giving up, it is to
+         * give up at all. [SLOW_COMMAND_MS] is for the one command that legitimately runs longer.
+         */
+        const val COMMAND_MS = 20_000L
+
+        /**
+         * For the one command that is *supposed* to take its time: a pairing confirmation, which
+         * sits there answering a request the platform raises several seconds after the bond starts.
+         * Anything shorter cuts off the thing it was asked to do.
+         */
+        const val SLOW_COMMAND_MS = 45_000L
+
+        /** Marks a failure that is about the connection rather than about the command. */
+        private const val DEAD = "!!"
 
         /**
          * Drop the connection and the cached manager. A failed connect can leave the manager

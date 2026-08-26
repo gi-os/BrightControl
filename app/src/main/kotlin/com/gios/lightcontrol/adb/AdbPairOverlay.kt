@@ -136,9 +136,22 @@ object AdbPairOverlay {
             setStatus("granting…")
             worker.execute {
                 val summary = runCatching {
-                    val adb = AdbManager.getInstance(app)
-                    SelfGrant.steps.forEach { runCatching { adb.runCommand(it.command) } }
-                    "done — close this and reopen BrightControl so the grants are read"
+                    // Bounded, and reported one at a time: nine grants down a stalled socket is
+                    // an overlay that says "granting…" forever with a dead button behind it.
+                    var reached = 0
+                    for (step in SelfGrant.steps) {
+                        val out = AdbManager.runVia(app, step.command)
+                        if (out.startsWith("error:")) break
+                        reached++
+                        val at = reached
+                        main.post { status.text = "granting… $at/${SelfGrant.steps.size}" }
+                    }
+                    if (reached == SelfGrant.steps.size) {
+                        "done — close this and reopen BrightControl so the grants are read"
+                    } else {
+                        "stopped after $reached of ${SelfGrant.steps.size} — the connection went " +
+                            "away. Reopen BrightControl and use GRANT ALL there."
+                    }
                 }.getOrElse { "error: ${it.message ?: it.javaClass.simpleName}" }
                 main.post { status.text = summary; grantButton.isEnabled = true }
             }
