@@ -42,6 +42,7 @@ import com.gios.lightcontrol.adb.AdbPairSession
 import com.gios.lightcontrol.adb.GrantCheckRunner
 import com.gios.lightcontrol.adb.Outcome
 import com.gios.lightcontrol.adb.SelfGrant
+import com.gios.lightcontrol.adb.StepResult
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGray
@@ -114,6 +115,9 @@ fun AdbScreen(
     // that flag, including the hand-back below, never ran. Asked on arrival, and again the moment
     // the automatic pairing reports Done, which is the other time it changes without a press.
     LaunchedEffect(Unit) {
+        // A phase left over from an attempt that died with its process disables the PAIR button
+        // forever. Nothing that was genuinely running survives to here.
+        AdbPairSession.releaseStalePhase()
         val live = withContext(Dispatchers.IO) { AdbManager.ensureAlive(context) }
         connected = live
     }
@@ -401,14 +405,44 @@ fun AdbScreen(
                     // command printed. `shell:` carries no exit status, so a command that failed
                     // quietly used to be reported as ok, and a run where the socket died on the
                     // first line still ended with the word "done" on the last.
-                    val results = SelfGrant.steps.map { step ->
-                        GrantCheckRunner.runAndVerify(
+                    // **Reported as it goes, and stopped when there is nothing to talk to.**
+                    //
+                    // Nine grants, and a dead socket costs each one a twelve-second reconnect and
+                    // three probes before it fails. Run as a `map` with the result printed at the
+                    // end, that is over two minutes of greyed-out buttons and an empty log — which
+                    // reads exactly like a button that did nothing, and was reported as one.
+                    //
+                    // So each line is printed the moment it is known, and the batch gives up the
+                    // first time a grant fails *with the connection down*. One dead socket cannot
+                    // usefully be reconnected nine times: if the reconnect inside the first failure
+                    // could not get one, the eight after it will not either.
+                    val results = mutableListOf<StepResult>()
+                    for ((index, step) in SelfGrant.steps.withIndex()) {
+                        val r = GrantCheckRunner.runAndVerify(
                             context = context,
                             adb = adb,
                             label = step.label,
                             command = step.command,
                             check = step.check,
                         )
+                        results += r
+                        val state = when (r.outcome) {
+                            Outcome.Held -> "OK"
+                            Outcome.Failed -> "FAILED"
+                            Outcome.Unknown -> "UNKNOWN"
+                        }
+                        withContext(Dispatchers.Main) {
+                            say("${index + 1}/${SelfGrant.steps.size}  ${r.label} — $state")
+                        }
+                        val socketGone = r.outcome == Outcome.Failed &&
+                            !runCatching { AdbManager.getInstance(context).connected() }
+                                .getOrDefault(false)
+                        if (socketGone) {
+                            withContext(Dispatchers.Main) {
+                                say("stopped — the connection is down, so the rest would fail too")
+                            }
+                            break
+                        }
                     }
                     val lines = StringBuilder()
                     if (!reachable) {
@@ -427,6 +461,12 @@ fun AdbScreen(
                     }
                     val failed = results.count { it.outcome == Outcome.Failed }
                     val unknown = results.count { it.outcome == Outcome.Unknown }
+                    val ranShort = results.size < SelfGrant.steps.size
+                    if (ranShort) {
+                        lines.append(
+                            "${SelfGrant.steps.size - results.size} were not attempted\n",
+                        )
+                    }
                     lines.append(
                         when {
                             failed > 0 && !adb.connected() ->

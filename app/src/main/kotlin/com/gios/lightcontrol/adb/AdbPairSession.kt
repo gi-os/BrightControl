@@ -114,6 +114,22 @@ object AdbPairSession {
         message = ""
     }
 
+    /**
+     * Let go of a phase that has outlived its work.
+     *
+     * [Phase.Pairing] and [Phase.Granting] both disable the PAIR button, on the reasoning that two
+     * pairing attempts at once are worse than one. Fair — but nothing here had a way to *leave*
+     * those phases if the work behind them died with the process, and a phase nobody can leave is a
+     * button nobody can press. Called when the screen is opened: by then anything that was really
+     * running has either finished or gone with the process that was running it.
+     */
+    fun releaseStalePhase() {
+        if (phase == Phase.Pairing || phase == Phase.Granting) {
+            phase = Phase.Failed
+            message = "the last attempt did not finish — start it again"
+        }
+    }
+
     private fun cancelExpiry() {
         expire?.let { main.removeCallbacks(it) }
         expire = null
@@ -173,17 +189,33 @@ object AdbPairSession {
             message = "connected — applying grants"
         }
 
-        val results = SelfGrant.steps.map { step ->
+        // Published one at a time. Nine grants with a reconnect apiece is minutes of a screen
+        // that says "GRANTING…" and shows nothing, which is indistinguishable from being stuck —
+        // and this phase disables the PAIR button, so being stuck here is being stuck.
+        val done = mutableListOf<String>()
+        for (step in SelfGrant.steps) {
             // Through [AdbManager.runVia]: the connection made a second ago is the one most likely
             // to have been reported up before the daemon settled, and `Stream closed` on the first
             // grant of the batch used to be reported as the grant failing.
             val out = AdbManager.runVia(context, step.command)
             val ok = out.isBlank() || out.contains("done") || out.contains("already")
-            "${if (ok) "OK" else "??"}  ${step.label}${if (out.isBlank()) "" else " — ${out.take(80)}"}"
+            done += "${if (ok) "OK" else "??"}  ${step.label}" +
+                if (out.isBlank()) "" else " — ${out.take(80)}"
+            val snapshot = done.toList()
+            main.post { grants = snapshot }
+            // Nothing to reconnect to: the reconnect inside runVia already tried, and eight more
+            // attempts would cost a minute each to learn the same thing.
+            if (!ok && out.contains("connection is gone")) {
+                main.post {
+                    phase = Phase.Failed
+                    message = "paired and connected, but the connection dropped part-way through " +
+                        "the grants. Tap GRANT ALL below — the pairing is kept."
+                }
+                return
+            }
         }
 
         main.post {
-            grants = results
             phase = Phase.Done
             message = "paired, connected, and granted. You can turn the pairing reader back off."
         }
