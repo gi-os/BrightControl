@@ -25,7 +25,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | | |
 |---|---|
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
-| **Swipe back** | A back gesture on the left edge, for a phone with no back button. Off until you switch it on |
+| **Edge gestures** | Swipe in from the left to go back, or from the right for the app switcher. A phone with no navigation bar. Each edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without |
@@ -47,7 +47,8 @@ Out of the box:
 | Tap the home button | Home, whichever launcher is default |
 | Press the home button twice | The app switcher: the apps you have been in, newest first |
 | Hold the home button | The LightOS dashboard, by name. Rebind it to anything |
-| Drag in from the left edge | Nothing, until you switch **Swipe back** on. Then the app goes back |
+| Drag in from the left edge | Nothing, until you switch it on. Then the app goes back |
+| Drag in from the right edge | Nothing, until you switch it on. Then the app switcher opens |
 | Wake the phone | The stock lock screen. Or a Light face over it, once you turn it on |
 | Volume keys, tap or hold | Passed through, but bindable. The level appears on screen |
 
@@ -190,7 +191,16 @@ privileged and `UsageStatsManager` needs a grant LightOS has no screen for. So t
 empty at boot, is as long as the phone has been awake, is never written to disk, and leaves out
 LightOS's own shell, which one press of home already reaches.
 
-Switch it off under **Buttons → Home button → Double press**.
+Switch it off under **Buttons → Home button → Double press**. A right-edge swipe opens the same
+window, if you would rather not spend a button on it. See **Edge gestures**.
+
+**The double press works while visiting LightOS too, and for a while it did not.** Pointing the home
+*tap* at LightOS makes the key consumable, so the binding succeeds, and succeeding starts a visit:
+the state where home belongs to LightOS so you can walk through its menu, ended by pressing home
+twice. The visit then claimed the double press for its own exit and never asked the switcher, so
+setting the tap to LightOS looked like it switched the switcher off. Two gestures spelled the same
+way, and the more specific one lost. The double press now opens the list, and ends the visit either
+way, because a window at layer 31 is in front and there is nothing left to visit.
 
 **A way out to the system's own screens, at the bottom of the list.** SYSTEM SWITCHER asks the
 platform for its recents with `performGlobalAction(GLOBAL_ACTION_RECENTS)` — which is not what the
@@ -251,8 +261,24 @@ fresh press with LightOS now in front.
 The fallback is "shadow" mode, and it consumes nothing. LightOS sees the entire press. Long
 presses behave exactly as they do with this app uninstalled, and the tap binding fires on top
 afterwards if the press was short. Shadow mode cannot offer a hold. By the time you know a
-press was long, the system already delivered it. Firing home twice over is invisible, which is
-why this shape belongs to the home button alone.
+press was long, the system already delivered it.
+
+**With one exception, and it is the flicker.** "Firing home twice over is invisible" is true of
+every window except the one shadow mode most often runs over. LightOS does not read a home press
+as "start the home activity". It reads it as its own navigation, to the idle face or on into the
+toolbox, so a shadowed press produced LightOS's answer *and* a `CATEGORY_HOME` intent to whichever
+launcher is default. Two destinations for one press, racing, and the phone flickered between a home
+screen and the toolbox.
+
+It only happened right after an unlock, which is the tell rather than the cause: that is exactly the
+window where the front app is still LightOS, because LightOS holds the HOME role and comes forward
+the instant the keyguard goes. A second later the front app has settled, nothing is refused, the key
+is consumed properly, and there is one destination again.
+
+So a plain **Home** tap is not fired in shadow while LightOS is in front. LightOS has the press and
+home is what it does with it. Every other action still fires, because a tap pointed at an app or at
+Resume is a destination LightOS was never going to reach. A tap pointed at LightOS is not shadowed at
+all, because it picks a destination.
 
 **Home is an activity start, not a synthetic key press.** This cost a release to learn.
 `performGlobalAction(GLOBAL_ACTION_HOME)` looks like the tidy accessibility-native answer. It
@@ -285,45 +311,64 @@ This is a home-button action, and it stays off until you bind it. Set **Home but
 inside one of them and the next home press brings it back. The press after that goes home, and
 so does every press once you open something else yourself.
 
-### Swipe back
+### Edge gestures
 
-LightOS has no back button. Its settings hold a gesture-navigation switch, and that switch reaches
+LightOS has no navigation bar. Its settings hold a gesture-navigation switch, and that switch reaches
 Light's own tools. An app you sideloaded gets nothing from it. An app that pushes a screen and draws
-no arrow of its own is therefore a dead end until you press home.
+no arrow of its own is therefore a dead end until you press home, and the recents list is reachable
+only by a double press of a physical button.
 
-**Swipe back** puts a strip 14dp wide down the left edge of the screen. Drag it to the right and
-release, and the service performs `GLOBAL_ACTION_BACK`. Crossing the trigger distance arms the
-gesture. The release commits it. A drag that comes back under the trigger disarms, so you can always
-change your mind about a stroke you have started.
+Two strips, 14dp wide, one down each edge of the screen:
 
-A small box follows your thumb while the drag runs. It is an outline while the stroke is short, and
-it turns white and says BACK when a release would go back. The box is not decoration. An armed state
-that nothing on screen reports is a gesture you cannot aim.
+| Edge | Drag | Does |
+|---|---|---|
+| Left | to the right | `GLOBAL_ACTION_BACK` |
+| Right | to the left | The app switcher, the same window a double press of home opens |
 
-**This is the one feature here that takes a touch, and it must be described exactly.** No API lets
-an app watch a touch without receiving it. Gesture detection through the accessibility API requires
-touch exploration, which changes how you drive the whole phone. `dispatchGesture` sends touches and
-never receives them. What remains is an overlay window, and an overlay window that receives a touch
-has taken it. A touch cannot be given back after the stroke starts.
+Crossing the trigger distance arms the gesture. The release commits it. A drag that comes back under
+the trigger disarms, so you can always change your mind about a stroke you have started.
 
-So the strip receives every stroke that starts on it, including the ones that turn out to be a
-scroll. `FLAG_NOT_TOUCH_MODAL` keeps every touch outside the strip going where it always went, and
-the window is never focusable, so this can never cost a key. Because the cost is real:
+A small box follows your thumb while the drag runs. It is an outline while the stroke is short, and it
+turns white and says BACK or APPS when a release would act. The box is not decoration. An armed state
+that nothing on screen reports is a gesture you cannot aim. On the left the glyph is a chevron. On
+the right it is two overlapping cards, because an arrow would promise a direction that the right edge
+does not have.
 
-- The feature is **off until you switch it on**, for the same reason the lock face is.
-- The **width is a setting**: 10, 14, 20 or 28dp. That number is the whole cost.
-- **Any app can be left out**, for apps whose left edge is a control of their own.
-- **Light's own software never gets a strip.** It has a back gesture already, on the same edge.
-- **The lock face and the app switcher never get one either.** Both are full-screen windows above
-  the strip, and both use the left edge for their own swipes.
+**These are the only features here that take a touch, and that must be described exactly.** No API
+lets an app watch a touch without receiving it. Gesture detection through the accessibility API
+requires touch exploration, which changes how you drive the whole phone. `dispatchGesture` sends
+touches and never receives them. What remains is an overlay window, and an overlay window that
+receives a touch has taken it. A touch cannot be given back after the stroke starts.
+
+So a strip receives every stroke that starts on it, including the ones that turn out to be a scroll.
+`FLAG_NOT_TOUCH_MODAL` keeps every touch outside the strip going where it always went, and the window
+is never focusable, so this can never cost a key. Because the cost is real:
+
+- Each edge is **off until you switch it on**, for the same reason the lock face is.
+- The **width is a setting**: 10, 14, 20 or 28dp. That number is the whole cost. It is one number for
+  both edges, because nobody wants their left edge to be a different size from their right.
+- **Any app can be left out.** One list for both edges: an app that puts its own controls at the
+  screen edge usually does it at both.
+- **Light's own software never gets a strip.** It has these gestures already, on the same edges.
+- **The lock face and the app switcher never get one either.** Both are full-screen windows above a
+  strip, and both use the edges for their own swipes. That the switcher is one of them is also what
+  stops the right edge re-opening a list that is already up.
 
 A stroke that moves further up or down than 34dp, and further that way than it moves across, is read
 as a scroll and cancelled for the rest of the stroke. Nothing later in that stroke can revive it. A
 long flick that drifts sideways at the end is exactly the stroke this rule exists for.
 
+Distance along the screen is measured in the stroke's own direction, so one class serves both edges.
+A left-edge stroke that travels left is exactly as meaningless as a right-edge stroke that travels
+right. Without that sign, both strips would arm on a stroke heading off the screen they live on.
+
 `GLOBAL_ACTION_BACK` is a request rather than a result. What an app does with a back belongs to the
 app. Many apps on their first screen accept the action and do nothing with it, and from outside the
 app that looks identical to the gesture working.
+
+The right-edge strip is what opens the switcher, and the switcher going up is what takes the strip
+down. That refresh is **posted** rather than called: a synchronous one reaches `removeView` on the
+very view whose touch listener is still delivering the stroke that asked for the window.
 
 ### Scrolling apps that never heard of the wheel
 
@@ -715,7 +760,7 @@ keys/Brightness.kt         system brightness with a derived scale
 keys/ColorMode.kt          per-app color, written as state and never as a transition
 keys/WheelSwipe.kt         the synthetic finger: one continued stroke, tracked and relifted
 keys/BackGesture.kt        one edge stroke, decided with no Android types in it
-keys/BackSwipe.kt          the edge strip and its indicator, as two windows
+keys/EdgeSwipe.kt          an edge strip and its indicator, as two windows; one class per side
 keys/Readout.kt            the brightness level, as one reused overlay window
 keys/VolumeHud.kt          the volume level, reported and never adjusted
 keys/CallAudio.kt          the call speaker, put to maximum once per speaker route
@@ -802,6 +847,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.58 | **The right edge opens the switcher, and the home flicker is found.** A second strip, on the other edge, for the recents list. The flicker between a home screen and the toolbox was shadow mode adding a second destination: LightOS does not read a home press as "start the home activity", so a shadowed press produced LightOS's answer and a `CATEGORY_HOME` intent, racing. It only showed right after an unlock because that is the window where LightOS is still the front app. A plain Home tap is no longer fired in shadow while LightOS is in front. And pointing the tap at LightOS no longer costs the app switcher: succeeding starts a *visit*, and the visit was claiming the double press for its own exit before the switcher was asked |
 | v3.56 | **A back gesture, and a lock face that stops repeating itself.** A strip on the left edge goes back, with a small box at the thumb that says when a release would commit it. Off by default, because it is the one feature here that receives a touch, and a received touch cannot be handed back. On the lock face, `FLAG_NO_CLEAR` now counts as permanent, which is what LightOS puts on its own always-running notice: that notice passed every check the filter had and could not be swiped off, because the platform refuses to cancel an un-clearable notification by not removing it. Permanent notifications are a switch now, and any app can be hidden from the face by name |
 | v3.55 | **A running command says what it is doing.** The request screen collected the output of a command until the stream closed, so the most talkative helper there is, the one that answers a Bluetooth pairing request, said nothing for forty-five seconds and then everything at once. Whole lines arrive as they happen, the last forty are kept, and a request with several commands says which one it is on |
 | v3.49 | **The dismiss swipe goes left.** Same gesture, other direction: a row is pushed off the left edge to clear it, which is the way every other shade on every other phone does it and the way a right thumb travels most easily |

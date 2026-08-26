@@ -14,29 +14,36 @@ import android.view.View
 import android.view.WindowManager
 
 /**
- * A back gesture, on a phone that has no back button.
+ * An edge gesture, on a phone with no navigation bar.
  *
  * LightOS removed the navigation bar and put a gesture-navigation switch in its own settings, and
- * that switch reaches Light's own tools. Everything sideloaded is left with no way back at all:
- * an app that pushes a screen has to draw its own arrow, and one that forgot to is a dead end
- * until you press home. So this is the missing gesture, supplied from outside: a thin strip down
- * the left edge of the screen, a drag to the right, and `GLOBAL_ACTION_BACK`.
+ * that switch reaches Light's own tools. Everything sideloaded is left with no way back at all, and
+ * no way to the recents list either: an app that pushes a screen and forgot to draw its own arrow
+ * is a dead end until you press home. So this is the missing pair of gestures, supplied from
+ * outside. A thin strip down one edge of the screen, a drag inwards, and:
+ *
+ *  - **left edge** performs `GLOBAL_ACTION_BACK`,
+ *  - **right edge** opens this app's own switcher.
+ *
+ * One class, two instances, because the two are the same gesture pointing opposite ways. Everything
+ * that differs is [side]: which way a stroke has to travel (in [BackGesture]), which side of the
+ * screen the window sits on, what the indicator says, and what the lift calls.
  *
  * ### The strip consumes what it watches, and that is the whole cost of the feature
  *
  * There is no way to observe a touch this service does not own. Gesture detection through the
  * accessibility API needs touch exploration switched on, which changes how the entire phone is
  * driven; `dispatchGesture` sends touches and cannot receive them. What is left is an overlay
- * window, and an overlay window that receives a touch has taken it — a swallowed
- * [MotionEvent] cannot be handed back to the app underneath once the stroke has begun.
+ * window, and an overlay window that receives a touch has taken it — a swallowed [MotionEvent]
+ * cannot be handed back to the app underneath once the stroke has begun.
  *
- * So the honest description of this feature is: touches that begin within the strip's width of the
- * left edge go to BrightControl instead of to the app. `FLAG_NOT_TOUCH_MODAL` keeps every
- * touch outside the strip going where it always went, and the window is never focusable, so this
- * can never cost a *key* — which is the rule the rest of this app is built on. It is also why the
- * feature is off until it is switched on, why the width is a setting, and why any app can be
- * excluded from it: the strip is narrow, but it is not free, and the apps where the left edge is a
- * control are exactly the ones the user knows about and this app does not.
+ * So the honest description of this feature is: touches that begin within the strip's width of that
+ * edge go to BrightControl instead of to the app. `FLAG_NOT_TOUCH_MODAL` keeps every touch outside
+ * the strip going where it always went, and the window is never focusable, so this can never cost a
+ * *key* — which is the rule the rest of this app is built on. It is also why each edge is off until
+ * it is switched on, why the width is a setting, and why any app can be excluded from both: the
+ * strip is narrow, but it is not free, and the apps where an edge is a control are exactly the ones
+ * the user knows about and this app does not.
  *
  * ### Two windows, not one
  *
@@ -44,17 +51,18 @@ import android.view.WindowManager
  * therefore its own window — untouchable, positioned at the finger, and up only while a stroke is
  * in flight. The same shape BrightMusic's lock-screen overlay arrived at, for the same reason.
  *
- * Views, not Compose: a service has no lifecycle owner, and this is two rectangles and a chevron.
+ * Views, not Compose: a service has no lifecycle owner, and this is two rectangles and a glyph.
  */
-class BackSwipe(private val context: Context) {
+class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
 
     /**
-     * Go back. Returns whether the platform accepted it, which is all the service can know: the
-     * global action answers for the dispatch and not for what the app in front did with it.
+     * Do the thing. Returns whether the platform accepted it, which is all the service can know
+     * for a back: the global action answers for the dispatch and not for what the app in front did
+     * with it. For the switcher it answers whether a window went up.
      *
      * Set by the service, because every action this app takes goes through one log line there.
      */
-    var onBack: (() -> Boolean)? = null
+    var onFire: (() -> Boolean)? = null
 
     /** Told when a stroke was thrown away as a scroll, for the key log. */
     var onCancelled: (() -> Unit)? = null
@@ -146,6 +154,7 @@ class BackSwipe(private val context: Context) {
         val g = BackGesture(
             triggerPx = triggerDp * density,
             slopPx = slopDp * density,
+            side = side,
         )
 
         val view = object : View(context) {}
@@ -164,7 +173,7 @@ class BackSwipe(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.START or Gravity.TOP
+            gravity = horizontal() or Gravity.TOP
         }
 
         runCatching { wm.addView(view, params) }
@@ -173,6 +182,10 @@ class BackSwipe(private val context: Context) {
                 gesture = g
             }
     }
+
+    /** START or END, and never LEFT or RIGHT: the edges of an RTL screen are the other way round. */
+    private fun horizontal(): Int =
+        if (side == EdgeSide.Left) Gravity.START else Gravity.END
 
     private fun onTouch(g: BackGesture, event: MotionEvent): Boolean = try {
         when (event.actionMasked) {
@@ -193,7 +206,7 @@ class BackSwipe(private val context: Context) {
             MotionEvent.ACTION_UP -> {
                 val fire = g.up()
                 if (fire) {
-                    val ok = runCatching { onBack?.invoke() }.getOrNull() ?: false
+                    val ok = runCatching { onFire?.invoke() }.getOrNull() ?: false
                     flashHud(ok)
                 } else {
                     detachHud()
@@ -221,7 +234,7 @@ class BackSwipe(private val context: Context) {
         if (!indicator) return
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         handler.removeCallbacks(hideHud)
-        val view = hud ?: HudView(context).also { hud = it }
+        val view = hud ?: HudView(context, side).also { hud = it }
         view.set(g.travel, g.stage == BackStage.Armed, fired = false, ok = true)
         val params = hudParams(g.anchorY)
         if (!hudUp) {
@@ -258,7 +271,7 @@ class BackSwipe(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.START or Gravity.TOP
+            gravity = horizontal() or Gravity.TOP
             x = 0
             // Centred on the finger, and kept on the screen at the two ends where it cannot be.
             y = (anchorY - h / 2f).toInt().coerceIn(0, (screenH - h).coerceAtLeast(0))
@@ -279,13 +292,16 @@ class BackSwipe(private val context: Context) {
      *
      * Three states, and the difference between them has to read at arm's length on a matte
      * greyscale panel: dim outline while the stroke has not travelled far enough, white and
-     * labelled once lifting would go back, inverted for the moment after it did. No animation, no
+     * labelled once lifting would act, inverted for the moment after it did. No animation, no
      * rounded corners, no tint — LightOS's whole visual vocabulary is a rectangle and two shades.
      *
-     * The chevron points *left*, the direction of travel of the screen you are going back to,
-     * which is the way every phone has drawn it for fifteen years. The finger goes the other way.
+     * On the left the glyph is a chevron pointing left, the direction of travel of the screen you
+     * are going back to, which is the way every phone has drawn it for fifteen years. The finger
+     * goes the other way. On the right it is two overlapping outlines, because the right edge does
+     * not go anywhere in particular — it produces a list of apps, and an arrow would promise a
+     * direction the gesture does not have.
      */
-    private class HudView(context: Context) : View(context) {
+    private class HudView(context: Context, private val side: EdgeSide) : View(context) {
 
         private val density = context.resources.displayMetrics.density
 
@@ -335,16 +351,20 @@ class BackSwipe(private val context: Context) {
             val minW = 26f * density
             val fullW = width.toFloat()
             val boxW = minW + (fullW - minW) * travel
+            // It grows away from its own edge, so the box always has one side against the screen
+            // edge the thumb came in from.
+            val left = if (side == EdgeSide.Left) 0f else fullW - boxW
+            val right = left + boxW
 
             val filled = fired && ok
-            canvas.drawRect(0f, 0f, boxW, h, if (filled) invert else ground)
+            canvas.drawRect(left, 0f, right, h, if (filled) invert else ground)
             // An outline, always: on a black app behind a black box there is otherwise nothing to
-            // see until the chevron.
+            // see until the glyph.
             outline.color = if (filled) Color.BLACK else Color.WHITE
             canvas.drawRect(
+                left + 0.5f * density,
                 0.5f * density,
-                0.5f * density,
-                boxW - 0.5f * density,
+                right - 0.5f * density,
                 h - 0.5f * density,
                 outline,
             )
@@ -358,20 +378,59 @@ class BackSwipe(private val context: Context) {
             stroke.color = ink
             label.color = ink
 
-            // The chevron, at the leading edge of the box.
-            val cx = boxW - 15f * density
+            // The glyph, at the leading edge of the box: the end the thumb is dragging toward.
             val cy = h / 2f
+            val inset = 15f * density
+            val cx = if (side == EdgeSide.Left) right - inset else left + inset
+            if (side == EdgeSide.Left) {
+                chevron(canvas, cx, cy)
+            } else {
+                cards(canvas, cx, cy, if (filled) invert else ground)
+            }
+
+            if (!armed) return
+            val text = when {
+                fired && !ok -> if (side == EdgeSide.Left) "NO BACK" else "NO APPS"
+                side == EdgeSide.Left -> "BACK"
+                else -> "APPS"
+            }
+            val tw = label.measureText(text)
+            val gap = 13f * density
+            // The label sits on the far side of the glyph from the edge, so it is always inside the
+            // box rather than off the end of it.
+            val tx = if (side == EdgeSide.Left) cx - gap - tw else cx + gap
+            val inside = tx > left + 4f * density && tx + tw < right - 4f * density
+            if (inside) {
+                canvas.drawText(text, tx, cy - (label.ascent() + label.descent()) / 2f, label)
+            }
+        }
+
+        /** Pointing left: where the screen you are going back to comes from. */
+        private fun chevron(canvas: Canvas, cx: Float, cy: Float) {
             val arm = 5f * density
             canvas.drawLine(cx + arm * 0.6f, cy - arm, cx - arm * 0.4f, cy, stroke)
             canvas.drawLine(cx - arm * 0.4f, cy, cx + arm * 0.6f, cy + arm, stroke)
+        }
 
-            if (!armed) return
-            val text = if (fired && !ok) "NO BACK" else "BACK"
-            val tw = label.measureText(text)
-            val tx = cx - arm - 8f * density - tw
-            if (tx > 4f * density) {
-                canvas.drawText(text, tx, cy - (label.ascent() + label.descent()) / 2f, label)
-            }
+        /**
+         * Two overlapping outlines: a list of apps, with no direction implied.
+         *
+         * The front card is filled with the box's own ground before it is stroked, so it occludes
+         * the back card's lines. Without that the two outlines cross and the glyph reads as a
+         * lattice rather than as one card in front of another, which at 9 dp on a matte panel is
+         * the difference between a symbol and a smudge. [ground] is passed in rather than assumed
+         * black, because the box inverts for the moment after the gesture fires.
+         */
+        private fun cards(canvas: Canvas, cx: Float, cy: Float, ground: Paint) {
+            val r = 4.5f * density
+            val step = 2.5f * density
+            canvas.drawRect(cx - r - step, cy - r + step, cx + r - step, cy + r + step, stroke)
+            val fl = cx - r + step
+            val ft = cy - r - step
+            val fr = cx + r + step
+            val fb = cy + r - step
+            canvas.drawRect(fl, ft, fr, fb, ground)
+            canvas.drawRect(fl, ft, fr, fb, stroke)
         }
     }
 

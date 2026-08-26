@@ -36,7 +36,7 @@ fun HomeScreen(
     onGuide: () -> Unit,
     onButtons: () -> Unit,
     onWheel: () -> Unit,
-    onBackSwipe: () -> Unit,
+    onEdges: () -> Unit,
     onBrightness: () -> Unit,
     onColor: () -> Unit,
     onLock: () -> Unit,
@@ -139,10 +139,15 @@ fun HomeScreen(
                 onClick = onWheel,
             )
             MenuRow(
-                label = "Swipe back",
-                detail = if (prefs.backSwipe) "ON" else "›",
-                sub = "a back gesture on a phone with no back button",
-                onClick = onBackSwipe,
+                label = "Edge gestures",
+                detail = when {
+                    prefs.backSwipe && prefs.switcherSwipe -> "BOTH"
+                    prefs.backSwipe -> "BACK"
+                    prefs.switcherSwipe -> "APPS"
+                    else -> "›"
+                },
+                sub = "swipe in from an edge to go back, or to reach the app switcher",
+                onClick = onEdges,
             )
             MenuRow(
                 label = "Brightness",

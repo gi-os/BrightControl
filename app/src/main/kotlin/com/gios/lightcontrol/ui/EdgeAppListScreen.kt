@@ -34,22 +34,25 @@ import com.gios.lightcontrol.ui.theme.Dim
  * screens in this package, and a private top-level class does not stop a redeclaration -- it only
  * stops the other file using it.
  */
-private data class BackApp(val label: String, val pkg: String)
+private data class EdgeApp(val label: String, val pkg: String)
 
 /**
- * Which apps the back strip stands down for.
+ * Which apps both edge strips stand down for.
  *
- * A list of exclusions rather than of inclusions, because a back gesture is only worth having if
- * it is everywhere -- an opt-in list would mean a phone where the edge sometimes works. The apps
- * worth excluding are the ones whose left edge is already a control, and those are known to the
- * person holding the phone.
+ * A list of exclusions rather than of inclusions, because an edge gesture is only worth having if
+ * it is everywhere -- an opt-in list would mean a phone where the edges sometimes work. The apps
+ * worth excluding are the ones whose edges are already controls, and those are known to the person
+ * holding the phone.
+ *
+ * One list for both edges. An app that puts its own controls at the screen edge usually does it at
+ * both, and a list per edge would be twice the rows to say the same thing.
  *
  * Rows for Light's own tools say ALWAYS OFF and do nothing when tapped: they are refused by the
  * built-in table, and a switch that appears to be settable and is not is worse than no switch.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackAppListScreen(onBack: () -> Unit) {
+fun EdgeAppListScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
@@ -61,7 +64,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
             val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
                 .map {
-                    BackApp(
+                    EdgeApp(
                         label = it.loadLabel(pm).toString(),
                         pkg = it.activityInfo.packageName,
                     )
@@ -73,7 +76,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
 
     // Mirrors the stored set so a tap redraws at once. SharedPreferences stays the source of
     // truth; this is only the view of it.
-    val off = remember { mutableStateListOf<String>().apply { addAll(prefs.backSwipeOffApps()) } }
+    val off = remember { mutableStateListOf<String>().apply { addAll(prefs.edgeSwipeOffApps()) } }
 
     val listState = rememberLazyListState()
     WheelScroll(listState)
@@ -83,7 +86,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 colors = barColors(),
-                title = { Text("Swipe back per app", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Edges per app", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -97,7 +100,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
                 items(apps, key = { it.pkg }) { app ->
                     // Asked of the table rather than of the list, so this row keeps telling the
                     // truth if the table ever changes.
-                    val builtIn = Policy.backSwipeRefusedByTable(app.pkg)
+                    val builtIn = Policy.edgeSwipeRefusedByTable(app.pkg)
                     val excluded = app.pkg in off
                     // Hoisted and typed. A row the table refuses gets no tap at all, because a
                     // switch that appears settable and is not is worse than no switch.
@@ -106,7 +109,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
                     } else {
                         {
                             if (excluded) off.remove(app.pkg) else off.add(app.pkg)
-                            prefs.toggleBackSwipeOff(app.pkg)
+                            prefs.toggleEdgeSwipeOff(app.pkg)
                             OwnWindow.settingChanged()
                         }
                     }
@@ -119,9 +122,9 @@ fun BackAppListScreen(onBack: () -> Unit) {
                         },
                         dim = builtIn,
                         sub = when {
-                            builtIn -> "Light's own software — it has its own back gesture"
-                            excluded -> "no strip here. The left edge belongs to the app."
-                            else -> "a strip down the left edge, dragged right to go back"
+                            builtIn -> "Light's own software — it has its own edge gestures"
+                            excluded -> "no strips here. Both edges belong to the app."
+                            else -> "whichever edges you have switched on"
                         },
                         onClick = toggle,
                     )
@@ -129,9 +132,9 @@ fun BackAppListScreen(onBack: () -> Unit) {
                 }
                 item {
                     Text(
-                        "Turn an app off when its left edge is a control — a pager, a slider, a " +
-                            "drawer. The strip receives what starts on it, so an app that wants " +
-                            "those touches has to be left out of the gesture entirely.",
+                        "Turn an app off when its edges are controls — a pager, a slider, a " +
+                            "drawer. A strip receives what starts on it, so an app that wants " +
+                            "those touches has to be left out of the gestures entirely.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Dim,
                         modifier = Modifier.padding(16.dp),

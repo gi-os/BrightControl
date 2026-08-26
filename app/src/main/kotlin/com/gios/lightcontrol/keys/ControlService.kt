@@ -175,10 +175,17 @@ class ControlService : AccessibilityService() {
     private lateinit var switcher: SwitcherOverlay
 
     /**
-     * The edge strip that goes back. Off unless [Prefs.backSwipe] is on, and never up over a
-     * hands-off app or a locked phone. See [refreshBackSwipe].
+     * The strip down the left edge, which goes back. Off unless [Prefs.backSwipe] is on, and never
+     * up over a hands-off app or a locked phone. See [refreshEdges].
      */
-    private lateinit var backSwipe: BackSwipe
+    private lateinit var backStrip: EdgeSwipe
+
+    /**
+     * The strip down the right edge, which opens the switcher. Its own instance rather than a mode
+     * of the one above: two windows on two edges, and nothing about one is conditional on the
+     * other. [Prefs.switcherSwipe].
+     */
+    private lateinit var switcherStrip: EdgeSwipe
 
     /** Whether the phone is ringing or on a call, and how to answer. See [LockCall]. */
     private lateinit var lockCall: LockCall
@@ -279,16 +286,24 @@ class ControlService : AccessibilityService() {
         switcher = SwitcherOverlay(this)
         // The back gesture. The strip reports the stroke; the service performs the action, so this
         // goes through the same one log line every other dispatch in this app does.
-        backSwipe = BackSwipe(this)
-        backSwipe.onBack = { performBack() }
-        backSwipe.onCancelled = { log("swipe back · stroke was a scroll, dropped") }
+        backStrip = EdgeSwipe(this, EdgeSide.Left)
+        backStrip.onFire = { performBack() }
+        backStrip.onCancelled = { log("swipe back · stroke was a scroll, dropped") }
+        switcherStrip = EdgeSwipe(this, EdgeSide.Right)
+        // The same window the double press of home puts up, from the same one place. A gesture that
+        // built its own list would be a second answer to "which apps" and a second way to fail.
+        switcherStrip.onFire = { runCatching { openSwitcher() }.getOrDefault(false) }
+        switcherStrip.onCancelled = { log("swipe apps · stroke was a scroll, dropped") }
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
         switcher.onSystem = { runCatching { openSystemSwitcher() } }
         switcher.onAppInfo = { pkg -> runCatching { openAppInfo(pkg) } }
         // A full-screen window above the strip. See [SwitcherOverlay.onVisibilityChanged].
-        switcher.onVisibilityChanged = { runCatching { refreshBackSwipe() } }
+        // Posted, not called. The right-edge strip *opens* this window, so a synchronous refresh
+        // would reach `wm.removeView` on the very view whose touch listener is still dispatching
+        // the stroke that asked for it. One loop later there is no stroke to be inside.
+        switcher.onVisibilityChanged = { runCatching { handler.post { refreshEdges() } } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
@@ -323,7 +338,7 @@ class ControlService : AccessibilityService() {
         OwnWindow.onResumed = { runCatching { recents.note(packageName) } }
         // The back strip is a window, so a setting that switches it on has to be acted on while
         // the settings screen is still in front. Nothing else in this app needs telling.
-        OwnWindow.onSettingChanged = { runCatching { handler.post { refreshBackSwipe() } } }
+        OwnWindow.onSettingChanged = { runCatching { handler.post { refreshEdges() } } }
         recoverForeground()
         runCatching { colorMode.applyFor(foreground) }
         scheduleColorReasserts()
@@ -364,7 +379,7 @@ class ControlService : AccessibilityService() {
         }
         // The strip belongs up from the moment the service binds, for the app [recoverForeground]
         // just guessed at. A rebind is an app update, and the phone is usually awake for it.
-        refreshBackSwipe()
+        refreshEdges()
     }
 
     /**
@@ -462,7 +477,7 @@ class ControlService : AccessibilityService() {
         // from LightOS's own menu, which is one of the two ways out.
         if (visitingLightOs && !pkg.startsWith(LIGHTOS)) visitingLightOs = false
         // The back strip is per-app, so this is where it goes up and comes down.
-        refreshBackSwipe()
+        refreshEdges()
     }
 
     /**
@@ -656,7 +671,7 @@ class ControlService : AccessibilityService() {
         val gone = runCatching { lockFace.hide() }.getOrDefault(false)
         if (!gone) log("unlocked · face WOULD NOT GO")
         // The face was what was refusing the strip. See [showLockFace] for the other half.
-        refreshBackSwipe()
+        refreshEdges()
     }
 
     private val coverTimeout = Runnable {
@@ -696,44 +711,61 @@ class ControlService : AccessibilityService() {
         getSystemService(PowerManager::class.java)?.isInteractive == true
     }.getOrDefault(false)
 
-    // ------------------------------------------------------------------- swipe back
+    // ------------------------------------------------------------------- edge gestures
 
     /**
-     * Put the back strip up or down to match the app in front.
+     * Put both edge strips up or down to match the app in front.
      *
      * Called on every window-state event, every screen change and every unlock, rather than only
-     * when something is known to have changed. [BackSwipe.set] is a null check and two comparisons
-     * when the state already matches, and stating the desired state instead of toggling it is the
-     * lesson [ColorMode] paid for: a feature driven by transitions is a feature that gets stranded
-     * by one missed edge, and a stranded overlay here would eat the left edge of an app it was
+     * when something is known to have changed. [EdgeSwipe.set] is a null check and one string
+     * compare when the state already matches, and stating the desired state instead of toggling it
+     * is the lesson [ColorMode] paid for: a feature driven by transitions is a feature that gets
+     * stranded by one missed edge, and a stranded overlay here would eat the edge of an app it was
      * never meant to be over.
+     *
+     * Both strips share every number and every refusal except their own switch. Two calls rather
+     * than one because they are two windows, and one of them going up must never depend on the
+     * other having done so.
      */
-    private fun refreshBackSwipe() {
+    private fun refreshEdges() {
         runCatching {
             val front = if (OwnWindow.resumed) packageName else foreground
-            backSwipe.set(
-                wanted = backSwipeWanted(front),
-                widthDp = prefs.backSwipeWidthDp,
-                triggerDp = prefs.backSwipeTriggerDp,
-                slopDp = BACK_SLOP_DP,
-                showIndicator = prefs.backSwipeIndicator,
+            val allowed = edgesWanted(front)
+            val width = prefs.edgeWidthDp
+            val trigger = prefs.edgeTriggerDp
+            val indicator = prefs.edgeIndicator
+            backStrip.set(
+                wanted = allowed && prefs.backSwipe,
+                widthDp = width,
+                triggerDp = trigger,
+                slopDp = EDGE_SLOP_DP,
+                showIndicator = indicator,
+            )
+            switcherStrip.set(
+                wanted = allowed && prefs.switcherSwipe,
+                widthDp = width,
+                triggerDp = trigger,
+                slopDp = EDGE_SLOP_DP,
+                showIndicator = indicator,
             )
         }
     }
 
     /**
-     * Whether the strip belongs on screen right now.
+     * Whether an edge strip belongs on screen right now, for reasons that are not its own switch.
      *
      * The master switch and [dormant] are checked here as well as in the key filter, because
      * "this app does nothing" has to mean nothing -- including taking a touch.
      *
      * Two of these refusals are about windows this app owns rather than about the app in front.
-     * The lock face and the app switcher are full-screen windows at a layer *above* the strip, so
-     * a strip left up under them would be an invisible column of the screen that swallowed
-     * touches aimed at a list -- and the face has its own swipe gestures on its own rows.
+     * The lock face and the app switcher are full-screen windows at a layer *above* a strip, so a
+     * strip left up under them would be an invisible column of the screen that swallowed touches
+     * aimed at a list -- and the face has its own swipe gestures on its own rows. That the switcher
+     * is one of them is also what stops the right-edge gesture being able to re-open a list that is
+     * already up.
      */
-    private fun backSwipeWanted(front: String?): Boolean {
-        if (!prefs.enabled || !prefs.backSwipe) return false
+    private fun edgesWanted(front: String?): Boolean {
+        if (!prefs.enabled) return false
         if (dormant()) return false
         if (!interactive()) return false
         if (lockFace.showing || switcher.showing) return false
@@ -743,7 +775,7 @@ class ControlService : AccessibilityService() {
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
         }.getOrDefault(false)
         if (locked) return false
-        return Policy.backSwipeAllowed(prefs, front)
+        return Policy.edgeSwipeAllowed(prefs, front)
     }
 
     /**
@@ -784,7 +816,7 @@ class ControlService : AccessibilityService() {
                 // phone with no lock face and [onUserPresent] returns early when the face was
                 // never up -- and the back strip is not the lock face's business. Screen off
                 // takes it down, an unlock puts it back.
-                refreshBackSwipe()
+                refreshEdges()
             }
         }
     }
@@ -1147,7 +1179,7 @@ class ControlService : AccessibilityService() {
         }
         if (reason != null) {
             if (fresh) log("HOME shadow · $reason")
-            return shadowHome(event)
+            return shadowHome(event, front)
         }
         return onButton(Button.Home, behavior, event)
     }
@@ -1184,8 +1216,30 @@ class ControlService : AccessibilityService() {
      * you cannot know a press was long until it ends, and by then the press has already been
      * delivered. Firing the tap twice over is invisible when the tap is home; it wouldn't be for
      * most actions, which is why this shape is the home button's alone.
+     *
+     * ### Except on LightOS's own screens, where "twice over" is two different places
+     *
+     * "Invisible when the tap is home" was true of every window except the one this most often runs
+     * over. **LightOS does not read a home press as "start the home activity".** It reads it as its
+     * own navigation — back to the idle face, or on into its menu — so a shadowed press there
+     * produces LightOS's answer *and* [goHome]'s answer, which is a `CATEGORY_HOME` intent to
+     * whichever launcher is default. Two destinations for one press, racing, and the visible result
+     * is a phone flickering between a home screen and the toolbox.
+     *
+     * Reported by Ryan Ness as happening only when home is pressed **too quickly after unlocking**,
+     * which is the tell: that is exactly the window where `foreground` is still LightOS, because
+     * LightOS holds the HOME role and comes forward the instant the keyguard goes. A second later
+     * the front app has settled, nothing is refused, the key is consumed properly, and there is one
+     * destination again. Nothing about the timing was ever the cause.
+     *
+     * So a [Action.DefaultHome] tap is **not** fired in shadow while LightOS is in front. LightOS
+     * has the press and home is what it does with it; adding our own is doing the same job through
+     * a different door, and the two doors disagree. Every other action still fires: a tap pointed
+     * at an app or at Resume is a destination LightOS was never going to reach — and one pointed at
+     * LightOS itself would not have been shadowed in the first place, because it picks a
+     * destination.
      */
-    private fun shadowHome(event: KeyEvent): Boolean {
+    private fun shadowHome(event: KeyEvent, front: String?): Boolean {
         // A press that began under the takeover and arrived here instead — the screen went off
         // mid-press, or the binding changed — is dropped rather than completed, so its release
         // can't dispatch into a phone that is now locked.
@@ -1211,7 +1265,14 @@ class ControlService : AccessibilityService() {
                     // The switcher instead of the tap, when this release is the second of two.
                     // LightOS still saw the press — nothing is consumed here — so it has gone
                     // home underneath, and the list is drawn over the top of that.
-                    if (!homeDouble() && tap.acts) perform(tap)
+                    if (homeDouble()) return false
+                    // The one action that must not be added on top of a press LightOS already has.
+                    // See the second half of this method's own documentation.
+                    if (tap == Action.DefaultHome && front != null && front.startsWith(LIGHTOS)) {
+                        log("HOME shadow · LightOS has the press, not adding home to it")
+                        return false
+                    }
+                    if (tap.acts) perform(tap)
                 }
             }
         }
@@ -1224,9 +1285,10 @@ class ControlService : AccessibilityService() {
      * Nothing is consumed — LightOS needs the real press to enter its menu, and a key filter
      * cannot hand back a press it swallowed, so pass-through is the only shape interaction can
      * take. That also rules a hold out as the way home (timing one means consuming the DOWN),
-     * which leaves the double press: two quick taps end the visit and fire the tap binding.
-     * LightOS sees both presses — its menu flickers once on the way out, which is the price of
-     * a key that two owners can read.
+     * which leaves the double press: two quick taps end the visit and then do what a double press
+     * does everywhere else — open the switcher, or fire the tap binding when there is no list to
+     * show. LightOS sees both presses — its menu flickers once on the way out, which is the price
+     * of a key that two owners can read.
      *
      * A hold's release is deliberately not a tap here: holding home mid-visit stays LightOS's,
      * whatever it makes of it.
@@ -1246,6 +1308,19 @@ class ControlService : AccessibilityService() {
                     visitTapAt = 0L
                     visitingLightOs = false
                     log("HOME double · visit over")
+                    // The switcher first, when it is what a double press means everywhere else.
+                    //
+                    // This is the second half of Ryan Ness's report: with home's *tap* pointed at
+                    // LightOS, the app switcher stopped existing. Nothing was wrong with the
+                    // switcher — the tap picks a destination, so the key is consumed, LightOsHome
+                    // succeeds, and every press after that is a visit. The visit then claimed the
+                    // double press for its own exit and the switcher was never asked. Two gestures
+                    // spelled the same way, and the more specific one lost.
+                    //
+                    // Now the double press opens the list and the visit ends either way: a window
+                    // at layer 31 is in front, so there is nothing left to visit. The tap is the
+                    // fallback for a list that could not be shown, which is what it was before.
+                    if (prefs.homeDoubleSwitcher && openSwitcher()) return false
                     if (tap.acts) perform(tap) else goHome()
                 } else {
                     visitTapAt = now
@@ -1718,9 +1793,10 @@ class ControlService : AccessibilityService() {
         // Both windows this service owns come down with it. One left behind is a black screen
         // with nothing bound to the keys that would have closed it.
         runCatching { switcher.hide() }
-        // And the strip, which would be worse than a black screen: an invisible column down the
-        // left edge of every app, swallowing touches, with no service left to answer them.
-        runCatching { backSwipe.dismiss() }
+        // And both strips, which would be worse than a black screen: invisible columns down the
+        // edges of every app, swallowing touches, with no service left to answer them.
+        runCatching { backStrip.dismiss() }
+        runCatching { switcherStrip.dismiss() }
         keyguardListener?.let { listener ->
             keyguardListener = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -2279,7 +2355,7 @@ class ControlService : AccessibilityService() {
         // The face can go up with the screen already on -- the keyguard re-locking under an app is
         // the case -- and a back strip left under it would be an invisible column swallowing the
         // touches the face's own row gestures are made of.
-        refreshBackSwipe()
+        refreshEdges()
     }
 
     /**
@@ -2473,7 +2549,7 @@ class ControlService : AccessibilityService() {
          * gesture. Not a setting: unlike the width and the trigger, nobody has an opinion about
          * this number, and every value that works is close to this one.
          */
-        const val BACK_SLOP_DP = 34
+        const val EDGE_SLOP_DP = 34
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L

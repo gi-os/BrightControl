@@ -779,10 +779,10 @@ class Prefs(context: Context) {
         sp.edit().putStringSet(LOCK_HIDDEN, next).apply()
     }
 
-    // ---------------------------------------------------------------- swipe back
+    // ---------------------------------------------------------------- edge gestures
 
     /**
-     * The edge strip that goes back.
+     * The strip down the **left** edge, which goes back.
      *
      * **Off until it is switched on**, and for the same reason the lock face is: everything else
      * in this app changes what a *key* does, and a key this service declines to take is a key the
@@ -791,30 +791,45 @@ class Prefs(context: Context) {
      * something away from every app on the phone, however narrow the strip is. That is a decision
      * to be made rather than a default to be discovered.
      *
-     * See [com.gios.lightcontrol.keys.BackSwipe] for what it costs precisely.
+     * See [com.gios.lightcontrol.keys.EdgeSwipe] for what it costs precisely.
      */
     var backSwipe: Boolean
         get() = sp.getBoolean("back_swipe", false)
         set(v) = sp.edit().putBoolean("back_swipe", v).apply()
 
     /**
-     * How wide the strip is, in dp. The entire cost of the feature is this number.
+     * The strip down the **right** edge, which opens the app switcher.
+     *
+     * The same gesture pointing the other way, and off by default for the same reason. It is worth
+     * having separately from the double press of home: the double press works everywhere the home
+     * button does, which is not LightOS's own screens while a visit is in progress, and it costs a
+     * press of a physical button on a phone that has four of them.
+     */
+    var switcherSwipe: Boolean
+        get() = sp.getBoolean("switcher_swipe", false)
+        set(v) = sp.edit().putBoolean("switcher_swipe", v).apply()
+
+    /**
+     * How wide a strip is, in dp. The entire cost of these gestures is this number.
      *
      * 14 dp by default -- about 3 mm on this panel, narrow enough that nothing is aimed at it and
      * wide enough that a thumb starting at the edge lands on it. Adjustable because the apps where
-     * the left edge matters vary, and because a thumb varies.
+     * an edge matters vary, and because a thumb varies.
+     *
+     * One number for both edges. Two would be two numbers to reason about for one decision, and
+     * nobody wants their left edge to be a different size from their right.
      */
-    var backSwipeWidthDp: Int
+    var edgeWidthDp: Int
         get() = sp.getInt("back_swipe_width", 14).coerceIn(6, 40)
         set(v) = sp.edit().putInt("back_swipe_width", v.coerceIn(6, 40)).apply()
 
     /**
-     * How far across the drag has to go before lifting means back, in dp.
+     * How far across the drag has to go before lifting acts, in dp.
      *
      * 48 dp. Short enough to be one motion of a thumb, long enough that a tap on the edge is not
      * a navigation. Crossing it arms the gesture rather than firing it -- see [BackGesture].
      */
-    var backSwipeTriggerDp: Int
+    var edgeTriggerDp: Int
         get() = sp.getInt("back_swipe_trigger", 48).coerceIn(24, 120)
         set(v) = sp.edit().putInt("back_swipe_trigger", v.coerceIn(24, 120)).apply()
 
@@ -822,25 +837,27 @@ class Prefs(context: Context) {
      * Whether the small box appears at the thumb while the gesture is being made.
      *
      * On. A gesture with no feedback is indistinguishable from a gesture that is not working, and
-     * this one has an armed state that the user needs to be able to see before they commit to it.
+     * these have an armed state that the user needs to be able to see before they commit to it.
      */
-    var backSwipeIndicator: Boolean
+    var edgeIndicator: Boolean
         get() = sp.getBoolean("back_swipe_hud", true)
         set(v) = sp.edit().putBoolean("back_swipe_hud", v).apply()
 
     /**
-     * Packages the strip stays down for.
+     * Packages both strips stay down for.
      *
-     * An exclusion list rather than an inclusion one, because the gesture is meant to be a
+     * An exclusion list rather than an inclusion one, because the gestures are meant to be a
      * property of the phone -- something you can rely on being there. The apps that need excluding
-     * are the ones whose left edge is a control, and those are known to the user and not to this
-     * app. Light's own tools are excluded by the built-in table instead; see
-     * [Policy.backSwipeAllowed].
+     * are the ones whose edges are controls, and those are known to the user and not to this app.
+     * Light's own tools are excluded by the built-in table instead; see [Policy.edgeSwipeAllowed].
+     *
+     * One list for both edges. An app that draws its own controls at the screen edge usually does
+     * it at both, and a per-edge list would be twice the rows to say the same thing.
      */
-    fun backSwipeOffApps(): Set<String> = sp.getStringSet(BACK_OFF_APPS, emptySet()) ?: emptySet()
+    fun edgeSwipeOffApps(): Set<String> = sp.getStringSet(BACK_OFF_APPS, emptySet()) ?: emptySet()
 
-    fun toggleBackSwipeOff(pkg: String) {
-        val next = backSwipeOffApps().toMutableSet()
+    fun toggleEdgeSwipeOff(pkg: String) {
+        val next = edgeSwipeOffApps().toMutableSet()
         if (!next.add(pkg)) next.remove(pkg)
         sp.edit().putStringSet(BACK_OFF_APPS, next).apply()
     }
@@ -1273,14 +1290,14 @@ object Policy {
     }
 
     /**
-     * Whether the back strip stands in front of [pkg].
+     * Whether either edge strip stands in front of [pkg].
      *
      * Deliberately **not** [ruleFor]. The wheel rules answer a different question -- who
      * interprets a turn -- and one of their answers, [AppRule.Off], means "this app owns the whole
-     * wheel", which says nothing at all about its left edge. Roll and BrightRecorder are Off for
-     * the wheel and both want a way back like anything else.
+     * wheel", which says nothing at all about its edges. Roll and BrightRecorder are Off for the
+     * wheel and both want a way back like anything else.
      *
-     * Three refusals, and they are all about a back gesture that already exists:
+     * Three refusals, and they are all about a gesture that already exists:
      *
      *  - **Light's own software**, on the same prefixes as the wheel's hands-off list. LightOS has
      *    a gesture-navigation switch in its own settings and it reaches these; a second strip over
@@ -1290,16 +1307,16 @@ object Policy {
      *    never the front package by the time this is asked -- see [isTransientWindow] -- so the
      *    strip stays as the app underneath left it. Stated here because it is the reason no test
      *    for it is needed.
-     *  - **Whatever the user has excluded.** The apps whose left edge is a control.
+     *  - **Whatever the user has excluded.** The apps whose edges are controls.
      *
      * A null package -- nothing known in front, which happens for the first moment after the
-     * service binds -- gets no strip. Guessing wrong here means eating the left edge of a screen
-     * nobody has identified.
+     * service binds -- gets no strip. Guessing wrong here means eating the edge of a screen nobody
+     * has identified.
      */
-    fun backSwipeAllowed(prefs: Prefs, pkg: String?): Boolean {
+    fun edgeSwipeAllowed(prefs: Prefs, pkg: String?): Boolean {
         val p = pkg ?: return false
-        if (p in prefs.backSwipeOffApps()) return false
-        if (backSwipeRefusedByTable(p)) return false
+        if (p in prefs.edgeSwipeOffApps()) return false
+        if (edgeSwipeRefusedByTable(p)) return false
         return true
     }
 
@@ -1308,9 +1325,9 @@ object Policy {
      *
      * Split out for the settings list, which has to say ALWAYS OFF on those rows rather than
      * offering a switch that does nothing. Asked of the table rather than inferred from
-     * [backSwipeAllowed] so the row keeps telling the truth if the table changes.
+     * [edgeSwipeAllowed] so the row keeps telling the truth if the table changes.
      */
-    fun backSwipeRefusedByTable(pkg: String): Boolean =
+    fun edgeSwipeRefusedByTable(pkg: String): Boolean =
         handsOffPrefixes.any { pkg.startsWith(it) }
 
     fun behaviorFor(prefs: Prefs, pkg: String?): Behavior {

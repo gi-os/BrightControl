@@ -2,6 +2,7 @@ package com.gios.lightcontrol
 
 import com.gios.lightcontrol.keys.BackGesture
 import com.gios.lightcontrol.keys.BackStage
+import com.gios.lightcontrol.keys.EdgeSide
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,6 +20,10 @@ import org.junit.Test
 class BackGestureTest {
 
     private fun gesture() = BackGesture(triggerPx = 48f, slopPx = 34f)
+
+    /** The right edge: same rules, mirrored. A useful stroke here travels *left*. */
+    private fun rightGesture() =
+        BackGesture(triggerPx = 48f, slopPx = 34f, side = EdgeSide.Right)
 
     @Test
     fun `a short drag does not go back`() {
@@ -115,5 +120,49 @@ class BackGestureTest {
         assertEquals(BackStage.Watching, g.stage)
         assertEquals("negative travel is clamped away", 0f, g.travel, 0f)
         assertFalse(g.up())
+    }
+
+    // ------------------------------------------------------------------- the right edge
+
+    @Test
+    fun `the right edge arms on a leftward drag`() {
+        val g = rightGesture()
+        g.down(716f, 300f)
+        g.move(690f, 300f)
+        assertEquals(BackStage.Watching, g.stage)
+        g.move(650f, 302f)
+        assertEquals(BackStage.Armed, g.stage)
+        assertTrue(g.up())
+    }
+
+    @Test
+    fun `the right edge is not armed by a rightward drag`() {
+        // The mirror of the left edge's dead direction. Without the sign, both strips would arm on
+        // a stroke heading off the screen they live on.
+        val g = rightGesture()
+        g.down(700f, 300f)
+        g.move(760f, 300f)
+        assertEquals(BackStage.Watching, g.stage)
+        assertEquals(0f, g.travel, 0f)
+        assertFalse(g.up())
+    }
+
+    @Test
+    fun `the right edge cancels a scroll the same way`() {
+        val g = rightGesture()
+        g.down(716f, 300f)
+        g.move(712f, 250f)
+        assertEquals(BackStage.Cancelled, g.stage)
+        g.move(500f, 250f)
+        assertEquals(BackStage.Cancelled, g.stage)
+        assertFalse(g.up())
+    }
+
+    @Test
+    fun `travel on the right edge counts the same distance`() {
+        val g = rightGesture()
+        g.down(716f, 100f)
+        g.move(692f, 100f)
+        assertEquals("24 px of a 48 px trigger, whichever way it went", 0.5f, g.travel, 0.01f)
     }
 }

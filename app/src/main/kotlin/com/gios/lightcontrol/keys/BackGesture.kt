@@ -3,7 +3,7 @@ package com.gios.lightcontrol.keys
 import kotlin.math.abs
 
 /**
- * How far one stroke on the edge strip has got.
+ * How far one stroke on an edge strip has got.
  *
  * [Armed] is the state the indicator draws differently, and it is reversible on purpose: a drag
  * that comes back under the trigger disarms, which is the only way to change your mind about a
@@ -16,19 +16,32 @@ enum class BackStage {
     /** A finger is down and has not travelled far enough to mean anything yet. */
     Watching,
 
-    /** Far enough. Lifting now goes back. */
+    /** Far enough. Lifting now performs the action. */
     Armed,
 
-    /** Not a back gesture. Nothing will fire for the rest of this stroke. */
+    /** Not an edge gesture. Nothing will fire for the rest of this stroke. */
     Cancelled,
+}
+
+/** Which edge a strip lives on, and therefore which way a stroke has to travel. */
+enum class EdgeSide {
+    /** Down the left edge. A stroke travels right. Goes back. */
+    Left,
+
+    /** Down the right edge. A stroke travels left. Opens the app switcher. */
+    Right,
+    ;
+
+    /** The sign of a useful stroke along x, so one gesture serves both edges. */
+    val dirX: Int get() = if (this == Left) 1 else -1
 }
 
 /**
  * One edge stroke, decided without a screen.
  *
  * Its own class, with no Android types in it, because the rules here are the whole feature and the
- * only other place they could live is a touch listener that needs a phone and a pair of hands to
- * exercise. See `BackGestureTest`.
+ * only other place they could be exercised is a touch listener that needs a phone and a pair of
+ * hands. See `BackGestureTest`.
  *
  * ### Why the lift decides, and not the threshold
  *
@@ -41,16 +54,26 @@ enum class BackStage {
  * ### Why a vertical stroke has to be cancelled rather than ignored
  *
  * The strip consumes every touch that starts on it, and a swallowed touch cannot be handed back.
- * So a stroke that turns out to be a scroll is lost either way; what [Cancelled] buys is that it
- * does not *also* go back when the finger happens to drift sideways at the end of a long flick.
- * One rule, checked once: if the stroke has moved further down or up than [slopPx] and further
- * that way than it has moved across, it was never a back gesture and nothing later can revive it.
+ * So a stroke that turns out to be a scroll is lost either way; what [BackStage.Cancelled] buys is
+ * that it does not *also* fire when the finger happens to drift sideways at the end of a long
+ * flick. One rule, checked once: if the stroke has moved further down or up than [slopPx] and
+ * further that way than it has moved across, it was never an edge gesture and nothing later can
+ * revive it.
+ *
+ * ### One class, two edges
+ *
+ * [side] is the only difference between going back and opening the switcher. Distance along x is
+ * measured in the stroke's own direction, so every rule below reads the same for both, and a
+ * left-edge stroke that travels left is exactly as meaningless as a right-edge stroke that travels
+ * right — both stay at zero travel rather than arming something.
  */
 class BackGesture(
     /** How far across, in pixels, arms the gesture. */
     private val triggerPx: Float,
     /** How far up or down, in pixels, gives the stroke away as a scroll. */
     private val slopPx: Float,
+    /** Which edge this stroke starts from. Left by default, which is the back gesture. */
+    val side: EdgeSide = EdgeSide.Left,
 ) {
 
     var stage: BackStage = BackStage.Idle
@@ -80,7 +103,7 @@ class BackGesture(
     /** True when something the indicator draws has changed. */
     fun move(x: Float, y: Float): Boolean {
         if (stage == BackStage.Idle || stage == BackStage.Cancelled) return false
-        val dx = x - startX
+        val dx = (x - startX) * side.dirX
         val dy = y - startY
         if (abs(dy) > slopPx && abs(dy) > abs(dx)) {
             stage = BackStage.Cancelled
@@ -96,7 +119,7 @@ class BackGesture(
         return stage != before || abs(travel - was) * triggerPx >= 1f
     }
 
-    /** True when the finger lifting means go back. */
+    /** True when the finger lifting means perform the action. */
     fun up(): Boolean {
         val fire = stage == BackStage.Armed
         reset()

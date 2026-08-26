@@ -19,8 +19,8 @@ import com.gios.lightcontrol.keys.LightKeys
 import com.gios.lightcontrol.keys.OwnWindow
 import com.gios.lightcontrol.ui.AdbScreen
 import com.gios.lightcontrol.ui.AppListScreen
-import com.gios.lightcontrol.ui.BackAppListScreen
-import com.gios.lightcontrol.ui.BackSwipeScreen
+import com.gios.lightcontrol.ui.EdgeAppListScreen
+import com.gios.lightcontrol.ui.EdgeSwipeScreen
 import com.gios.lightcontrol.ui.BrightnessScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.ColorAppListScreen
@@ -63,8 +63,8 @@ private sealed interface Screen {
     data object Buttons : Screen
     data object Wheel : Screen
     data object PerAppWheel : Screen
-    data object Back : Screen
-    data object PerAppBack : Screen
+    data object Edges : Screen
+    data object PerAppEdges : Screen
     data object Brightness : Screen
     data object Volume : Screen
     data object Color : Screen
@@ -194,7 +194,7 @@ class MainActivity : ComponentActivity() {
                             onGuide = { screen = Screen.Intro },
                             onButtons = { screen = Screen.Buttons },
                             onWheel = { screen = Screen.Wheel },
-                            onBackSwipe = { screen = Screen.Back },
+                            onEdges = { screen = Screen.Edges },
                             onBrightness = { screen = Screen.Brightness },
                             onColor = { screen = Screen.Color },
                             onLock = { screen = Screen.Lock },
@@ -224,12 +224,12 @@ class MainActivity : ComponentActivity() {
 
                         Screen.PerAppWheel -> AppListScreen(onBack = { screen = Screen.Wheel })
 
-                        Screen.Back -> BackSwipeScreen(
-                            onPerApp = { screen = Screen.PerAppBack },
+                        Screen.Edges -> EdgeSwipeScreen(
+                            onPerApp = { screen = Screen.PerAppEdges },
                             onBack = home,
                         )
 
-                        Screen.PerAppBack -> BackAppListScreen(onBack = { screen = Screen.Back })
+                        Screen.PerAppEdges -> EdgeAppListScreen(onBack = { screen = Screen.Edges })
 
                         Screen.Brightness -> BrightnessScreen(onBack = home)
 
@@ -359,7 +359,7 @@ class MainActivity : ComponentActivity() {
 /** Where Back goes from each screen. Most return to Home; a few hang off a parent list. */
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.PerAppWheel -> Screen.Wheel
-    Screen.PerAppBack -> Screen.Back
+    Screen.PerAppEdges -> Screen.Edges
     Screen.PerAppColor -> Screen.Color
     Screen.LockApps -> Screen.Lock
     Screen.Background -> Screen.Lock
