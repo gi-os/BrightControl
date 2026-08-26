@@ -779,12 +779,18 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("lock_persistent", v).apply()
 
     /**
-     * Packages whose notifications the face never shows.
+     * Packages whose notifications this app never shows -- on the lock face **or** as a banner.
      *
      * Per app rather than per notification, because the thing being silenced is a *source*: an app
      * that posts an unwanted notice posts it again. Nothing is cancelled and nothing is hidden
      * anywhere else -- the shade, Glance and the app itself are untouched, and this only decides
-     * what the lock face draws.
+     * what this app draws.
+     *
+     * One list for both surfaces, deliberately. Two lists would mean an app you had already said
+     * you did not want to see could still interrupt you, and the second list is one nobody would
+     * think to go and look at. The key is still `lock_hidden_apps` because it is the same setting
+     * it always was and renaming it would silently forget what everyone had chosen; the settings
+     * screen it lives on moved to Notifications, which is where a shared rule belongs.
      */
     fun lockHiddenApps(): Set<String> = sp.getStringSet(LOCK_HIDDEN, emptySet()) ?: emptySet()
 
@@ -793,6 +799,61 @@ class Prefs(context: Context) {
         if (!next.add(pkg)) next.remove(pkg)
         sp.edit().putStringSet(LOCK_HIDDEN, next).apply()
     }
+
+    // ---------------------------------------------------------------------- banners
+
+    /**
+     * Whether a notification from any app puts a box over whatever the phone is showing.
+     *
+     * **Off until it is switched on**, and for the same reason the lock face and the edge strips
+     * are: everything else in this app changes what a *key* does, and a key not taken is a key the
+     * app still gets. A window that appears over what you were reading is a larger promise than a
+     * remapped button, and it should be one the user made rather than one an update made for them.
+     *
+     * Reads the shade through the listener the lock face already needs ([lockNotes]'s grant), so
+     * there is nothing new to grant and nothing new running. Without that grant this draws nothing,
+     * which is why [com.gios.lightcontrol.notify.AlertHandoff.owned] tests both.
+     */
+    var banner: Boolean
+        get() = sp.getBoolean("banner", false)
+        set(v) = sp.edit().putBoolean("banner", v).apply()
+
+    /**
+     * Whether a banner on a sleeping phone turns the panel on.
+     *
+     * On, because a box nobody is shown is a box that did nothing -- and the whole reason to have
+     * one rather than a shade row is being told at the moment it happens.
+     *
+     * The wake is a wake lock and never an activity; see
+     * [com.gios.lightcontrol.notify.BannerWake] for the fingerprint sensor that decides it.
+     */
+    var bannerWake: Boolean
+        get() = sp.getBoolean("banner_wake", true)
+        set(v) = sp.edit().putBoolean("banner_wake", v).apply()
+
+    /**
+     * How long a banner stays, in milliseconds.
+     *
+     * 4.5s is BrightChat's number and it is the right one: long enough to read two lines, short
+     * enough not to sit in front of what you were doing. Settable because "long enough to read"
+     * is not the same length for everybody, and this is the one number on the feature where that
+     * is true.
+     */
+    var bannerDwellMs: Long
+        get() = sp.getLong("banner_dwell", 4_500L)
+        set(v) = sp.edit().putLong("banner_dwell", v).apply()
+
+    /**
+     * When the other apps were last told who owns the on-screen box.
+     *
+     * Stored only so the settings row can say whether the handoff has actually gone out. It is not
+     * read to decide anything: the broadcast is sent again on every launch, on the grant landing
+     * and on boot, because a handoff that depends on one message having arrived is one that stays
+     * wrong after the message a phone happened to miss.
+     */
+    var handoffToldAt: Long
+        get() = sp.getLong("handoff_told_at", 0L)
+        set(v) = sp.edit().putLong("handoff_told_at", v).apply()
 
     // ---------------------------------------------------------------- edge gestures
 

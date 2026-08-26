@@ -32,6 +32,7 @@ import com.gios.lightcontrol.ui.IntroScreen
 import com.gios.lightcontrol.ui.LockAppsScreen
 import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.LockScreenScreen
+import com.gios.lightcontrol.ui.NotificationsScreen
 import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
@@ -70,7 +71,6 @@ private sealed interface Screen {
     data object Color : Screen
     data object PerAppColor : Screen
     data object Lock : Screen
-    data object LockApps : Screen
     data object Background : Screen
     data object ResumeApps : Screen
     data object ResumeFallback : Screen
@@ -93,6 +93,18 @@ private sealed interface Screen {
          */
         val heldMinutes: Long? = null,
     ) : Screen
+
+    /**
+     * Banners, and the one list of apps this phone never draws.
+     *
+     * Reachable from Home and from Lock screen, so [back] is where its Back arrow returns to --
+     * the same shape [Pick] uses and for the same reason: landing on Home after two taps from Lock
+     * screen is two levels from where the user was, with nothing that goes back.
+     */
+    data class Notifications(val back: Screen) : Screen
+
+    /** Hangs off [Notifications], and carries a [back] through so the chain returns where it began. */
+    data class HiddenApps(val back: Screen) : Screen
 
     /**
      * The picker, for a button press or for an edge swipe. [back] is where its Back arrow returns
@@ -200,6 +212,7 @@ class MainActivity : ComponentActivity() {
                             onBrightness = { screen = Screen.Brightness },
                             onColor = { screen = Screen.Color },
                             onLock = { screen = Screen.Lock },
+                            onNotifications = { screen = Screen.Notifications(Screen.Home) },
                             onVolume = { screen = Screen.Volume },
                             onAdb = { screen = Screen.Adb },
                             onWifiLogin = { screen = Screen.WifiLogin },
@@ -257,11 +270,20 @@ class MainActivity : ComponentActivity() {
                             onBackground = { screen = Screen.Background },
                             onResumeApps = { screen = Screen.ResumeApps },
                             onResumeFallback = { screen = Screen.ResumeFallback },
-                            onHiddenApps = { screen = Screen.LockApps },
+                            onNotifications = { screen = Screen.Notifications(Screen.Lock) },
                             onBack = home,
                         )
 
-                        Screen.LockApps -> LockAppsScreen(onBack = { screen = Screen.Lock })
+                        is Screen.Notifications -> NotificationsScreen(
+                            // Back from the list returns to *this* screen, not a fresh one, so the
+                            // whole chain unwinds to wherever it was entered from.
+                            onHiddenApps = { screen = Screen.HiddenApps(current) },
+                            onBack = { screen = current.back },
+                        )
+
+                        is Screen.HiddenApps -> LockAppsScreen(
+                            onBack = { screen = current.back },
+                        )
 
                         Screen.Background -> LockBackgroundScreen(onClose = { screen = Screen.Lock })
 
@@ -368,7 +390,8 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.PerAppWheel -> Screen.Wheel
     Screen.PerAppEdges -> Screen.Edges
     Screen.PerAppColor -> Screen.Color
-    Screen.LockApps -> Screen.Lock
+    is Screen.HiddenApps -> screen.back
+    is Screen.Notifications -> screen.back
     Screen.Background -> Screen.Lock
     Screen.ResumeFallback -> Screen.ResumeApps
     is Screen.Pick -> screen.back

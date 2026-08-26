@@ -1,3 +1,51 @@
+## BrightControl v3.65 — a box for every app's notifications
+
+LightOS shows a new notification as a line in its own list and nothing else, so something arriving
+while you are in an app is something you find out about later. **Banners** are the box over the
+top: the app, who it is from, and two lines of it. Tap it to open the app, swipe up to send it
+away, or leave it and it goes on its own.
+
+It is BrightChat's heads-up box, which is the right shape for this phone — solid black, one
+hairline outline, square corners, no icon, no timestamp, no buttons and no animation — pointed at
+every app rather than at one. **It never buzzes.** The app that sent the notification already did,
+and two buzzes for one message is worse than none.
+
+**Off until you switch it on**, under the new Notifications section. Everything else in this app
+changes what a *key* does; a window that appears over what you were reading is a larger promise
+than a remapped button, and it should be one you made.
+
+**No new grant.** It reads the shade through the notification listener the lock face already needs,
+and draws through the accessibility window the lock face already uses. `SYSTEM_ALERT_WINDOW` is not
+involved.
+
+**It can wake the screen — with a wake lock, never an activity.** BrightChat wakes the panel with a
+`showWhenLocked` activity and this app must not: that flag marks the keyguard *occluded*, and an
+occluded keyguard stops arming this phone's power-button fingerprint reader. That is the v2.5 and
+v2.6 regression where the thumb stopped unlocking the phone. So the drawing and the waking are two
+separate things here — the window sits above the keyguard without touching it, and the panel comes
+on by itself.
+
+**It waits two seconds.** BrightChat learned this the expensive way: a text read on a Mac lit the
+phone next to it anyway, because the message arrives before the news that you have already seen it.
+An app that decides an alert is stale cancels its notification, and a cancelled notification is a
+key that has gone — so waiting and re-checking reproduces that fix for every app at once, with
+nothing asked of any of them.
+
+**Nothing permanent gets a banner.** A recording, a download, a navigation. Something that has been
+in the shade for an hour is not news, whatever the lock face is set to show.
+
+**One list, in one place.** *Apps never shown* and *Permanent notifications* moved out of Lock
+screen into Notifications. It is the same setting it always was and the lock face still reads it —
+but a rule two features share should not live inside one of them, where the next change to the lock
+face quietly breaks the other.
+
+**BrightChat and BrightSports stand down.** Both draw a box of their own, and this one is drawn off
+the very notification they post — so with everything switched on a message was one buzz and two
+boxes. With banners on they are told to stop drawing theirs. Their buzz and their shade
+notification are untouched, and turning banners off gives them straight back. Needs their next
+release to take effect.
+
+
 ## BrightControl v3.64 — a pairing the phone has stopped trusting, and STOP that works more than once
 
 **STOP worked once and then said STOPPING… forever.** The flag is cleared when a *request run*

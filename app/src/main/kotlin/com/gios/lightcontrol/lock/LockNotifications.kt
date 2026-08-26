@@ -13,6 +13,8 @@ import android.telecom.TelecomManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.notify.AlertHandoff
+import com.gios.lightcontrol.notify.Banners
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -257,6 +259,12 @@ class LockNotifications : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         LockNotes.attach(this)
+        // Before the first refresh, which hands over everything in the shade. Without this line a
+        // reboot would draw a banner about whatever happened to be the newest thing from yesterday.
+        Banners.listenerConnected()
+        // The grant may have only just landed, which changes whether this app owns the on-screen
+        // box -- and the other apps have no way of finding that out for themselves.
+        runCatching { AlertHandoff.announce(this) }
         refresh()
     }
 
@@ -266,6 +274,7 @@ class LockNotifications : NotificationListenerService() {
         LockNotes.attach(null)
         LockNotes.publish(emptyList())
         LockCalls.publish(null)
+        Banners.listenerDisconnected()
         super.onListenerDisconnected()
     }
 
@@ -300,28 +309,62 @@ class LockNotifications : NotificationListenerService() {
                 .filterTo(mutableSetOf()) { it != packageName && it != "android" },
         )
 
-        val notes = active
+        // Held as the notifications rather than mapped straight to rows, because the banner needs
+        // one thing a LockNote does not carry -- the contentIntent a tap sends. One filter pass
+        // for both, so the face and the box can never disagree about what got through it.
+        val kept = active
             .filter {
                 keep(it, ranking, scratch, hiddenApps, allowPersistent) && it.key !in callKeys
             }
             .sortedByDescending { it.postTime }
-            .map { sbn ->
-                val extras = sbn.notification.extras
-                val app = runCatching {
-                    pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString()
-                }.getOrNull() ?: sbn.packageName.substringAfterLast('.')
-                LockNote(
-                    key = sbn.key,
-                    pkg = sbn.packageName,
-                    app = app,
-                    title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
-                    text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
-                    postedAt = sbn.postTime,
-                )
-            }
+
+        val notes = kept.map { sbn ->
+            val extras = sbn.notification.extras
+            LockNote(
+                key = sbn.key,
+                pkg = sbn.packageName,
+                app = label(pm, sbn.packageName),
+                title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
+                text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+                postedAt = sbn.postTime,
+            )
+        }
         LockNotes.publish(notes)
         LockCalls.publish(readCall(calls.maxByOrNull { it.postTime }))
+
+        Banners.sync(
+            live = kept.mapTo(mutableSetOf()) { it.key },
+            // The newest that is not the always-running kind, whatever `allowPersistent` says. A
+            // download or a navigation belongs on a face you choose to look at; something that has
+            // been in the shade for an hour is not news and must not interrupt an app to say so.
+            //
+            // Skipped past rather than ruled out: testing only the newest row meant a navigation
+            // re-posting every second was permanently `first`, so with permanent notifications
+            // shown, no message could ever raise a banner again -- silently, for the whole drive.
+            candidate = kept.firstOrNull {
+                !NoteFilter.isPersistent(it.notification.flags, it.notification.category)
+            }
+                ?.let { sbn ->
+                    val extras = sbn.notification.extras
+                    Banners.Note(
+                        key = sbn.key,
+                        pkg = sbn.packageName,
+                        app = label(pm, sbn.packageName),
+                        title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
+                        text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+                        postedAt = sbn.postTime,
+                        open = sbn.notification.contentIntent,
+                    )
+                },
+            enabled = prefs.banner,
+            dwellMs = prefs.bannerDwellMs,
+        )
     }
+
+    /** The app's name as the user knows it, or the tail of its package when it has none. */
+    private fun label(pm: android.content.pm.PackageManager, pkg: String): String = runCatching {
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrNull() ?: pkg.substringAfterLast('.')
 
     /**
      * Whether this notification is the phone ringing.

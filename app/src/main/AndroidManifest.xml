@@ -139,6 +139,15 @@
     -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!--
+      Turning the panel on for a banner. A normal permission, granted at install, and the
+      reason it is a wake lock at all rather than an activity: `showWhenLocked` occludes the
+      keyguard, and an occluded keyguard stops arming this phone's power-button fingerprint
+      reader. BrightChat wakes the screen with an activity; this app cannot, and v2.5 and v2.6
+      are why. See notify/BannerWake.kt and lock/LockOverlay.kt.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:name=".App"
         android:allowBackup="false"

@@ -1,6 +1,7 @@
 package com.gios.lightcontrol
 
 import android.app.Application
+import com.gios.lightcontrol.notify.AlertHandoff
 import com.gios.lightcontrol.report.CrashLog
 
 /**
@@ -38,5 +39,10 @@ class App : Application() {
                 prefs.clearCrash()
             }
         }
+        // Say again who draws the on-screen box. Sent on every launch and not only on the change,
+        // because a handoff that depends on one broadcast having arrived stays wrong after the one
+        // a phone happened to miss -- a reinstall of BrightChat, a restore, a boot in the wrong
+        // order. It is two intents to packages that may not exist. See [AlertHandoff].
+        runCatching { AlertHandoff.announce(this) }
     }
 }

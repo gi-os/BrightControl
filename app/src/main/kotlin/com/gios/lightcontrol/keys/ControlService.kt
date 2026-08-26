@@ -1,6 +1,7 @@
 package com.gios.lightcontrol.keys
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityOptions
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -38,6 +39,9 @@ import com.gios.lightcontrol.lock.LockCall
 import com.gios.lightcontrol.lock.LockCallState
 import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.lock.LockOverlay
+import com.gios.lightcontrol.notify.BannerWake
+import com.gios.lightcontrol.notify.Banners
+import com.gios.lightcontrol.notify.NoteBanner
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
 import com.gios.lightcontrol.switcher.appName
@@ -176,6 +180,15 @@ class ControlService : AccessibilityService() {
     /** The app switcher, opened by pressing home twice. Also a window, not an activity. */
     private lateinit var switcher: SwitcherOverlay
 
+    /** The box a notification puts over the front app. A window at layer 31, like the face. */
+    private lateinit var banner: NoteBanner
+
+    /** What turns the panel on for one, when it is off. Never an activity; see [BannerWake]. */
+    private lateinit var bannerWake: BannerWake
+
+    /** This instance's banner callback, kept only so [onUnbind] can check it is still the live one. */
+    private var bannerShow: ((Banners.Note, Long) -> Unit)? = null
+
     /**
      * The strip down the left edge. Off unless [Prefs.leftEdgeOn] is on, and never up over a
      * hands-off app or a locked phone. See [refreshEdges].
@@ -287,6 +300,13 @@ class ControlService : AccessibilityService() {
         volume.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
+        banner = NoteBanner(this)
+        bannerWake = BannerWake(this)
+        // The listener decides what is worth a box and when; this owns the window and the panel.
+        // Same seam as the face: one object knows what happened, another does something about it.
+        // Held in a field so [onUnbind] can tell our callback from a newer instance's.
+        bannerShow = { note, dwellMs -> runCatching { showBanner(note, dwellMs) }; Unit }
+        Banners.onShow = bannerShow
         switcher = SwitcherOverlay(this)
         // The edge gestures. A strip reports which of its two swipes the stroke was; the service
         // performs the binding, so this goes through the same one dispatch and the same one log
@@ -871,6 +891,91 @@ class ControlService : AccessibilityService() {
                 refreshEdges()
             }
         }
+    }
+
+    /**
+     * Put a banner up, unless the lock face is already saying the same thing.
+     *
+     * The face lists this very notification as a row, so a box over the top of it is the same fact
+     * twice on a screen that has room for neither. The wake still happens -- being told at the
+     * moment it happens is the point -- and what the user lands on is the face with the note on it.
+     *
+     * The master switch is honoured here as well as at the setting: "this app does nothing" has to
+     * mean nothing, including drawing over other apps.
+     */
+    private fun showBanner(note: Banners.Note, dwellMs: Long) {
+        if (!prefs.enabled || !prefs.banner) return
+        // Never during a call, and this is checked before the wake as well as before the box. The
+        // face stands aside for a call, so neither test below catches it — which left a layer-31
+        // window whose taps launch an app sitting over the dialer's own screen, and, on a phone
+        // that had gone dark against a cheek, a wake lock arguing with the proximity sensor.
+        if (lockCall.state != null) return
+        // Layer 31 is layer 31, and two windows there is a coin toss nobody wins. The switcher
+        // takes the face down for this reason; the banner waits its turn for the same one.
+        if (switcher.showing) return
+        if (!interactive()) {
+            if (!prefs.bannerWake) return
+            bannerWake.wake(dwellMs)
+        }
+        // Asked as "will the face be up", not "is it up": with the panel off the face has not been
+        // added yet — it goes up on the screen coming on, which is a moment after the wake above.
+        // Testing only `showing` drew a box and then had the face land on top of it a beat later.
+        //
+        // And not when the face has been waved away. `dismissed()` means the user pushed it up to
+        // reach the keypad, so there is no face to carry the row — suppressing the box then is a
+        // notification that appears nowhere at all.
+        if (lockFace.showing || (prefs.lockScreen && locked() && !lockFace.dismissed())) return
+        banner.show(
+            app = note.app,
+            title = note.title.ifBlank { note.app },
+            text = note.text,
+            dwellMs = dwellMs,
+        ) {
+            runCatching { openBanner(note) }
+        }
+        log("banner · " + note.pkg.substringAfterLast('.'))
+    }
+
+    /**
+     * Tapped. Sends the notification's own `contentIntent`, which is the same thing tapping the
+     * row in LightOS's list would do -- so a box and the shade take you to the same place.
+     *
+     * A `PendingIntent` from a notification that has since been cancelled is inert, and sending an
+     * inert one is the failure that looks like the box not working. Nothing better is available:
+     * a launcher intent would open the app's front door rather than the thing it was telling you
+     * about, which for a message is the wrong screen.
+     */
+    private fun openBanner(note: Banners.Note) {
+        val intent = note.open
+        if (intent == null) {
+            log("banner tap · nothing to open")
+            return
+        }
+        // Same background-activity-start rule as every other launch here: without the
+        // SYSTEM_ALERT_WINDOW appop nothing starts, and saying so beats a tap that reads as dead.
+        if (!Grants.canDrawOverlays(this)) {
+            log("banner tap · no overlay appop, nothing can start")
+            return
+        }
+        // Targeting 34+, a sender no longer lends its own start privileges through `send()` unless
+        // it says so in as many words — and a start blocked this way does not throw, so the naive
+        // `runCatching { send() }` returned true and logged a launch that never happened.
+        // Called, not assigned: it returns the options for chaining, so Kotlin does not see a
+        // property here however much it looks like one.
+        val options = ActivityOptions.makeBasic().let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                it.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                )
+            } else {
+                it
+            }
+        }
+        val sent = runCatching {
+            intent.send(this, 0, null, null, null, null, options.toBundle())
+            true
+        }.getOrDefault(false)
+        log("banner tap · " + if (sent) note.pkg.substringAfterLast('.') else "intent was dead")
     }
 
     override fun onInterrupt() = Unit
@@ -1864,6 +1969,13 @@ class ControlService : AccessibilityService() {
         visitDownAt = 0L
         handler.removeCallbacksAndMessages(null)
         readout.dismiss()
+        // The window outlives this object otherwise, and there is nothing left that would take it
+        // down: a black strip across the top of the phone until a reboot.
+        // Only if it is still ours. `Banners` is a process singleton and a fast toggle of the
+        // service lands the old instance's unbind after the new one's create — clearing it
+        // unconditionally there kills banners for good, with nothing on the phone to say why.
+        if (Banners.onShow === bannerShow) Banners.onShow = null
+        runCatching { banner.dismiss() }
         volume.stop()
         swipe.cancel()
         pendingTap = null

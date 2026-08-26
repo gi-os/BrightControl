@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.notify.AlertHandoff
 import com.gios.lightcontrol.report.CrashLog
 
 /**
@@ -40,6 +41,7 @@ fun HomeScreen(
     onBrightness: () -> Unit,
     onColor: () -> Unit,
     onLock: () -> Unit,
+    onNotifications: () -> Unit,
     onVolume: () -> Unit,
     onAdb: () -> Unit,
     onWifiLogin: () -> Unit,
@@ -175,6 +177,18 @@ fun HomeScreen(
                 detail = if (prefs.lockScreen) "ON" else "›",
                 sub = "a Light-style face over the stock lock screen",
                 onClick = onLock,
+            )
+            Rule()
+
+            SectionLabel("NOTIFICATIONS")
+            MenuRow(
+                label = "Banners",
+                // Owned, not merely switched on. Saying ON here while the section behind it says
+                // NO GRANT is two screens disagreeing about the same setting.
+                detail = if (AlertHandoff.owned(context)) "ON" else "\u203a",
+                sub = "a box over whatever the phone is showing, for any app -- and the one list " +
+                    "of apps this phone never shows you",
+                onClick = onNotifications,
             )
             Rule()
 
