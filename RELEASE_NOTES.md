@@ -1,34 +1,31 @@
-## BrightControl v3.59 — the pairing reader was looking at the wrong window
+## BrightControl v3.60 — STOP now actually stops
 
-Two reports came in carrying the text the reader had actually read, which is exactly why that was
-added — and it was not the pairing dialog:
+The STOP button worked exactly as designed and achieved nothing, which is a particular kind of
+annoying. Stopping closes the socket, because closing the socket is the only thing that ends a read
+blocked with no timeout. And then `runVia` did what it does for *any* dead socket: reset, reconnect,
+run the command again. So pressing STOP reconnected the connection it had just closed and started the
+command over.
 
+A retry is right for a socket that died on its own and wrong for one somebody killed on purpose, and
+nothing in the code could tell those apart. Now it can:
+
+```kotlin
+val first = bounded(context, command, timeoutMs, onLine)
+if (!first.startsWith(DEAD)) return first
+if (aborting) return "error: stopped"   // ← the whole fix
 ```
-Wireless debugging · Navigate up · Use wireless debugging · Device name
-Light Phone III · IP address & Port · 192.168.10.220:43139
-Pair device with QR code · Pair device with pairing code …
-```
 
-That is the Wireless debugging **list**. There has never been a code on it. A dialog is its own
-window, and `rootInActiveWindow` was handing back the activity behind it — so the one window that
-has ever held the six digits was the one window never being looked at, and the failure was reported
-against the wrong screen entirely.
+`abort()` closes the socket **and says why**, so the retry stands down, a command already blocked
+ends, and no further command starts while the stop is in force. The flag is cleared when the next run
+begins — including GRANT ALL, which is not a request run and would otherwise have been cancelled by a
+stop from ten minutes earlier.
 
-**Every window is read now**, each on its own rather than joined together: the strongest signal is a
-line that is *exactly* six digits, and concatenating the dialog with the list behind it surrounds
-those digits with a screenful of other numbers.
+**Which matters more than it sounds**, because GRANT ALL does fail sometimes with nothing to be done
+about it: reports #70 and #71 are its first two grants failing back to back with *"the connection is
+gone and could not be picked back up"*. Being able to stop that and try again, without force-quitting
+and losing the transcript, is the difference between a diagnosis and an evening.
 
-**And the list has stopped passing for the dialog.** It matched every test — it says "pair", it says
-"code" (in the row labelled *Pair device with pairing code*), and it shows the `ip:port`. Two phrases
-belong only to the list, and either settles it. That false positive is also why a "could not read the
-code" report arrived while the dialog had not even been opened.
-
-**This is why GRANT ALL cannot connect either.** A code was never read, so no pairing was ever made,
-so there is nothing on disk for the connection to use. "Already paired" and "the pairing succeeded"
-are different claims, and only the second one gets you a shell.
-
-**A STOP button, everywhere a command runs.** A command can be waiting three quarters of a minute on
-a phone whose owner has changed their mind, and a screen whose only affordance is waiting is a
-screen that gets force-quit — which loses the transcript, the run, and any idea of what happened.
-Stopping closes the socket, because that is the only thing that ends a read blocked with no timeout:
-the flag tells the loop not to start the next command, and the reset ends the one already going.
+**Still true, and worth repeating:** on this phone right now there is no pairing on disk. The reader
+had been reading the Wireless-debugging list rather than the pairing dialog (fixed in v3.59), so no
+code was ever captured and no pairing was ever completed. Until PAIR AUTOMATICALLY succeeds, every
+grant and every relayed request will keep reporting a connection that is gone — correctly.

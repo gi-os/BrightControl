@@ -83,12 +83,17 @@ object GrantRun {
     fun stop() {
         stopRequested = true
         say("· stopping — closing the connection to end the command")
-        // The only thing that actually interrupts a blocked read.
-        runCatching { AdbManager.reset() }
+        // Not `reset()`: that closes the socket and leaves [AdbManager.runVia] free to treat the
+        // closure as an ordinary dead socket, reconnect, and run the command again — which is
+        // precisely what made the first STOP button appear to do nothing. `abort` closes the socket
+        // *and* says why, so the retry stands down.
+        runCatching { AdbManager.abort() }
     }
 
     fun start(pkg: String, steps: Int) {
         stopRequested = false
+        // A stop from a previous run must not cancel this one before it starts.
+        runCatching { AdbManager.clearAbort() }
         this.pkg = pkg
         this.steps = steps
         step = 0
