@@ -438,6 +438,36 @@ fun GrantRequestScreen(
                                 }
                                 val out = collected.toList()
                                 GrantRun.finished(generation, out)
+
+                                // **File the transcript, once, when it did not work.**
+                                //
+                                // This app holds a reporting key and the apps it relays for mostly
+                                // do not — BrightOura's reports have been queuing on its phone
+                                // unsent since the day it was written. So the transcript of a
+                                // failed relayed command was reaching nobody, and it was being
+                                // *hand-typed into a chat window* line by line to get it looked at.
+                                //
+                                // It is the only place a relayed command's own words exist, and it
+                                // is worth more than the outcome codes around it: "createBond true"
+                                // then "no request ever arrived" is a diagnosis, and "FAILED" is
+                                // not. Filed only on failure, once per run — [Trouble] holds a
+                                // floor of a minute between reports whatever they say.
+                                val transcript = GrantRun.saying.takeLast(TRANSCRIPT_LINES)
+                                    .joinToString("\n")
+                                val anyFailed = out.any { it.outcome == Outcome.Failed }
+                                val saidFailed = transcript.contains("FAILED") ||
+                                    transcript.contains("gave up") ||
+                                    transcript.contains("refused")
+                                if (anyFailed || saidFailed) {
+                                    com.gios.lightcontrol.report.Trouble.record(
+                                        "finish $appLabel's request",
+                                        if (transcript.isBlank()) {
+                                            "no output at all from ${parsed.steps.size} command(s)"
+                                        } else {
+                                            transcript
+                                        },
+                                    )
+                                }
                                 // Held only if nothing got through at all. One step failing is a
                                 // grant that did not take; every step failing on a socket error is
                                 // a connection, and those read differently on the page.
@@ -572,3 +602,12 @@ fun GrantRequestScreen(
  * thousands. The last of them is always the answer, so the tail is the part worth keeping.
  */
 private const val MAX_LIVE_LINES = 40
+
+/**
+ * How much of a failed run's transcript to file.
+ *
+ * The tail, because the last thing a command says is the answer — and generous, because these are
+ * the only words a relayed command ever gets to say and the alternative has been somebody typing
+ * them out by hand.
+ */
+private const val TRANSCRIPT_LINES = 30
