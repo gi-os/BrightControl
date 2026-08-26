@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="" width="72" align="left" />
+
 # BrightControl
 
 The Light Phone III hardware, working everywhere. Plus the settings LightOS never shipped a
