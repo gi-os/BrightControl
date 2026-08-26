@@ -1,5 +1,11 @@
 package com.gios.lightcontrol.report
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,7 +16,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import android.content.ContextWrapper
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
@@ -56,6 +67,7 @@ fun ReportOverlay() {
             .firstOrNull()
     }
 
+    val prefs = remember { com.gios.lightcontrol.Prefs(context) }
     var reason by remember { mutableStateOf<ReportReason?>(null) }
     val failure by Trouble.latest.collectAsState()
 
@@ -76,10 +88,51 @@ fun ReportOverlay() {
         if (!crash.isNullOrBlank()) reason = ReportReason.Crashed
     }
 
-    // A failure the app noticed itself only raises the sheet if nothing else already has:
-    // being asked about a stale feed on top of a crash report is how people turn this off.
+    /** The last thing sent without asking, shown for a moment so it is not silent. */
+    var sent by remember { mutableStateOf<String?>(null) }
+
+    // **A failure the app noticed itself is sent, not offered.**
+    //
+    // It used to raise the sheet, and a sheet is a thing you dismiss: it appears while somebody is
+    // in the middle of the very thing that failed, one tap outside it is "no thanks", and the
+    // report that would have explained the failure is gone along with the only copy of what the app
+    // knew. An evening of this was diagnosed by reading logs over somebody's shoulder instead.
+    //
+    // There is nothing to ask about anyway. A user-reported glitch needs the user — which symptom,
+    // in their words, on which screen — and that is what the sheet is for, and the shake still
+    // raises it. A failure the app detected has already written its own description: what it tried,
+    // and what came back. Adding a dialog to that only adds a way to lose it.
+    //
+    // It is still visible, and it is still refusable: [Prefs.autoSendFailures] turns it off, in
+    // which case this behaves exactly as before and asks.
     LaunchedEffect(failure) {
-        if (failure != null && reason == null) reason = ReportReason.Failed
+        val found = failure ?: return@LaunchedEffect
+        if (!prefs.autoSendFailures) {
+            // A failure only raises the sheet if nothing else already has: being asked about a
+            // stale feed on top of a crash report is how people turn this off.
+            if (reason == null) reason = ReportReason.Failed
+            return@LaunchedEffect
+        }
+        val report = Reports.compose(
+            context = context,
+            symptom = Symptom.Other,
+            note = "",
+            screen = ReportContext.screen,
+            crash = null,
+            failure = found,
+        )
+        // Cleared before the send: submit() queues to disk first, so nothing here can fail in a
+        // way that would want reporting — and a failure that repeats should raise a fresh one
+        // rather than find this one still sitting there.
+        Trouble.clear()
+        runCatching { Reports.submit(context, report) }
+        sent = if (Reports.canSend()) {
+            "Reported: could not ${found.what}"
+        } else {
+            "Saved to send later: could not ${found.what}"
+        }
+        kotlinx.coroutines.delay(SENT_MS)
+        sent = null
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -101,6 +154,24 @@ fun ReportOverlay() {
                 lifecycle.removeObserver(observer)
                 detector.stop()
             }
+        }
+    }
+
+    sent?.let { line ->
+        // Deliberately not a dialog. It says what left the phone and takes nothing away from what
+        // the person was doing, which is the whole difference from the sheet it replaces.
+        Box(
+            Modifier.fillMaxSize().padding(bottom = 28.dp),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Text(
+                line,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                color = Color.White,
+                modifier = Modifier
+                    .background(Color(0xFF161616))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            )
         }
     }
 
@@ -135,3 +206,6 @@ fun ReportOverlay() {
         )
     }
 }
+
+/** How long the "sent" line stays up. Long enough to read, short enough not to be in the way. */
+private const val SENT_MS = 4_000L

@@ -1130,9 +1130,27 @@ class Prefs(context: Context) {
         sp.edit().remove(PENDING_PKG).remove(PENDING_LINES).remove(PENDING_AT).apply()
     }
 
+    /**
+     * Whether a failure the app noticed itself is sent without asking.
+     *
+     * On by default, and that is the considered choice rather than the lazy one. The alternative —
+     * a sheet offering to report it — appears while somebody is in the middle of the thing that
+     * just failed, and one tap outside it discards the only description of what went wrong that
+     * anybody will ever have. Several evenings of this were diagnosed by reading logs over a
+     * shoulder because the offer had been dismissed.
+     *
+     * A user-reported glitch still asks, because it needs the user: which symptom, in their words.
+     * A failure the app detected has already written its own account, and a dialog on top of that
+     * adds only a way to lose it.
+     */
+    var autoSendFailures: Boolean
+        get() = sp.getBoolean(AUTO_SEND, true)
+        set(v) = sp.edit().putBoolean(AUTO_SEND, v).apply()
+
     private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
+        const val AUTO_SEND = "autoSendFailures"
         const val PENDING_PKG = "pendingGrantPkg"
         const val PENDING_LINES = "pendingGrantLines"
         const val PENDING_AT = "pendingGrantAt"

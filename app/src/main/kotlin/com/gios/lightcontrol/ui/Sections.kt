@@ -255,6 +255,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     var logKeys by remember { mutableStateOf(prefs.logKeys) }
     var standDown by remember { mutableStateOf(prefs.standDownOnMash) }
     var keyLog by remember { mutableStateOf(prefs.keyLog()) }
+    var autoSend by remember { mutableStateOf(prefs.autoSendFailures) }
 
     SectionScaffold(
         title = "Diagnostics",
@@ -264,6 +265,25 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             "app noticed about itself is here.",
     ) {
         SectionLabel("WHEN SOMETHING GOES WRONG")
+        MenuRow(
+            label = "Send failures without asking",
+            detail = if (autoSend) "ON" else "OFF",
+            sub = if (autoSend) {
+                "a failure the app noticed itself is filed on light-reports as it happens, with " +
+                    "what it tried and what came back. Nothing is asked, because there is nothing " +
+                    "to ask: the app has already written the description. Shaking still opens the " +
+                    "sheet, since that one needs your words."
+            } else {
+                "off: a failure offers to be reported instead. The offer appears while you are in " +
+                    "the middle of the thing that failed, and one tap outside it throws away the " +
+                    "only account of what went wrong anybody will ever have."
+            },
+            onClick = {
+                autoSend = !autoSend
+                prefs.autoSendFailures = autoSend
+            },
+        )
+        Rule()
         MenuRow(
             label = "Allowed to stand itself down",
             detail = if (standDown) "ON" else "OFF",
