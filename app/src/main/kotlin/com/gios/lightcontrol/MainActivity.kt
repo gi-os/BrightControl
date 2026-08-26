@@ -6,6 +6,18 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -175,6 +187,30 @@ class MainActivity : ComponentActivity() {
                     }
                     val home = { screen = Screen.Home }
 
+                    // **The key service after a force-quit.**
+                    //
+                    // Force-quitting kills the service and Android will not rebind it: the package
+                    // is flagged stopped, and nothing belonging to a stopped app starts until
+                    // somebody launches it. Launching *this* clears that flag — which is now, and
+                    // this is the moment the list can be rewritten to make the framework bind what
+                    // is in it. See [com.gios.lightcontrol.keys.Revive].
+                    //
+                    // The alternative is a phone whose wheel does nothing while every screen in
+                    // here says the service is enabled, because it is: enabled is a setting, bound
+                    // is a fact, and only force-quitting can make them disagree.
+                    var revived by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(Unit) {
+                        when (com.gios.lightcontrol.keys.Revive.nudge(context)) {
+                            com.gios.lightcontrol.keys.Revive.Result.Rebound ->
+                                revived = "The key service had stopped — brought back."
+                            com.gios.lightcontrol.keys.Revive.Result.NoPermission ->
+                                revived = "The key service is not running, and this app cannot " +
+                                    "restart it without the secure-settings grant. Turn it off " +
+                                    "and on in Settings → Accessibility."
+                            else -> Unit
+                        }
+                    }
+
                     // A request that arrived while this was already open. Answered here rather than
                     // in [onNewIntent] because the screen state lives in the composition, and a
                     // request is the one thing that always wins the page: nobody pressed a button
@@ -330,6 +366,25 @@ class MainActivity : ComponentActivity() {
                             onDone = { screen = current.back },
                             onChooseResumeApps = { screen = Screen.ResumeApps },
                         )
+                    }
+                    revived?.let { line ->
+                        // Said where it happened, and gone on a tap. A rebind nobody asked for is
+                        // worth one sentence: their buttons had stopped working, and now they have
+                        // not.
+                        Box(
+                            Modifier.fillMaxSize().padding(bottom = 28.dp),
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            Text(
+                                line,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                color = Color.White,
+                                modifier = Modifier
+                                    .clickable { revived = null }
+                                    .background(Color(0xFF161616))
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                            )
+                        }
                     }
                 }
                 ReportOverlay()

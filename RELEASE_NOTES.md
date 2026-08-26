@@ -1,35 +1,38 @@
-## BrightControl v3.69 — the pairing attempt leaves a trail, and proves itself before claiming success
+## BrightControl v3.70 — the key service comes back after a force-quit, and thirty reports become one
 
-Hours of reports tonight about commands failing, and **not one** about the pairing — which is the step
-every one of those commands depends on. That is not luck, it is a design fault: the attempt's progress
-lived in memory, and the whole sequence happens while this app is in the background behind the
-Settings screen it sent you to. The one screen that showed it was the screen nobody was looking at.
+**"When I force quit the app, the key service stopped working."** That is real, and it is the worst
+bug of the evening, because it was caused by the previous ones: a screen that looked stuck got
+force-quit, and the price of force-quitting was the wheel.
 
-**So every step is written to disk as it happens**, and shown on the ADB screen afterwards:
+Force-stop kills the accessibility service and Android then **refuses to rebind it** — the package is
+flagged stopped, and nothing belonging to a stopped app starts until a person launches it by hand.
+Nothing was switched off, so every screen in here kept saying the service was enabled while the wheel
+and the camera button did nothing. *Enabled* is a setting; *bound* is a fact, and only force-quitting
+can make them disagree.
+
+**So launching the app now brings it back.** Launching clears the stopped flag, which is the moment
+the system will act on the enabled-services list again — so the list is rewritten, our entry out and
+straight back in, and the framework binds what it finds. One line says so and goes away on a tap:
 
 ```
-LAST PAIRING ATTEMPT
-20:14:02  armed — waiting for the pairing box
-20:14:19  code read, pairing
-20:14:21  pairing accepted
-20:14:23  connected
-20:14:23  shell REFUSED a command
+The key service had stopped — brought back.
 ```
 
-Five lines, and the failing one is the answer. Whatever happens in between, it is readable when you
-come back.
+Two writes, and every other service's entry preserved exactly as written, short forms included:
+writing this setting carelessly is how an app switches off somebody's password manager or screen
+reader, which is a much worse thing to do than leaving a wheel broken. Without the secure-settings
+grant it cannot be done at all, and it says that instead of pretending.
 
-**And "paired and connected" is no longer taken as success.** A connection that is up and refuses
-every command is exactly the state that has been reported all evening as *Stream closed* — and at the
-end of pairing it is indistinguishable from working unless something asks. So something asks now,
-once, immediately: one command down the connection it just made. If the shell answers, the pairing is
-real. If it does not, the screen says the key is not trusted and points at FORGET THE PAIRING, instead
-of reporting success and leaving you to discover it nine grants later.
+The service only gets poked when it *should* be running and is not. A service genuinely switched off
+stays off, and a live one is left alone — rewriting the list under a running service tears it down
+and rebuilds it, which throws away the recents the switcher holds in memory.
 
-**Each of the three failures reports itself**, with what it means rather than what it was:
+**And the flood: thirty issues in a few seconds.** Auto-sending was right; making the message name
+the command was not. Nine grants failing on one dead socket are nine *different* messages, so every
+one looked like a first offence to the hourly throttle. Reports #81 to #113 are one problem, thirty
+times over, and thirty reports of one problem are worse than none because somebody has to read all
+thirty to find that out.
 
-- the daemon refused the pairing — usually a box that had closed, sometimes a stale key
-- accepted the pairing and then nothing to connect to — wireless debugging went off in Settings
-- accepted both and refused a shell stream — the key is not one it trusts
-
-Those are three different fixes, and they have been arriving as one message all night.
+Two changes: the plumbing no longer files anything — the failure is returned, and whoever ran the
+batch reports once with the count and the steps — and there is a hard floor of one minute between any
+two reports whatever they say.

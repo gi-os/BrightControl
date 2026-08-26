@@ -1930,6 +1930,7 @@ class ControlService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        bound = false
         runCatching { unregisterReceiver(screenOff) }
         colorObserver?.let { observer ->
             colorObserver = null
@@ -2728,7 +2729,30 @@ class ControlService : AccessibilityService() {
     /** What became of an activity start. See [start]. */
     private enum class Start { Done, Throttled, Failed }
 
-    private companion object {
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        bound = true
+    }
+
+    companion object {
+        /**
+         * True while a live instance of this service is bound.
+         *
+         * ### Not the same question as "is it enabled"
+         *
+         * [Grants.serviceEnabled] asks the framework whether the service is switched on, and it
+         * answers yes from the *setting* — which stays yes after the app is force-quit, because
+         * force-quitting switches nothing off. It sets Android's stopped flag, and the system then
+         * refuses to rebind anything belonging to the app until a person launches it again. So the
+         * wheel and the camera button stop working while every readout still says the service is on.
+         *
+         * That gap is the whole reason this exists. Enabled is a setting; bound is a fact, and only
+         * the service itself knows it.
+         */
+        @Volatile
+        var bound = false
+            private set
+
         /** Faults tolerated before the filter goes quiet, and the window they must fall in. */
         const val MAX_FAULTS = 3
         const val FAULT_WINDOW_MS = 60_000L

@@ -434,15 +434,18 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             return record(command, reason)
         }
 
-        private fun record(command: String, why: String): String {
-            runCatching {
-                com.gios.lightcontrol.report.Trouble.record(
-                    "run \"${shape(command)}\" on the phone's own shell",
-                    why,
-                )
-            }
-            return "error: $why"
-        }
+        /**
+         * The reason, shaped for a person, and *not* reported from here.
+         *
+         * It used to file a report per command, which is right for a lone command and catastrophic
+         * for a batch: nine grants failing on one dead socket filed nine issues describing one
+         * problem — and because the message names the command, every one of them looked like a
+         * different first offence to the throttle. Thirty arrived in seconds.
+         *
+         * The failure is returned instead, and whoever ran the batch reports once, with the count
+         * and the steps. A single command's failure is on the screen that ran it.
+         */
+        private fun record(command: String, why: String): String = "error: $why"
 
         /**
          * A command reduced to what is worth showing a stranger.
