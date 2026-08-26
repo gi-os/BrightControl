@@ -2015,6 +2015,14 @@ class ControlService : AccessibilityService() {
      *
      * It costs the feeling of a hold "going off" in your hand. Worth it.
      */
+    /**
+     * Buttons whose hold has already fired, so their release is spoken for. See [onButton].
+     */
+    private val holdFired = mutableSetOf<Button>()
+
+    /** Timers waiting to fire a hold at the threshold, one per button, cancelled on release. */
+    private val holdTimers = mutableMapOf<Button, Runnable>()
+
     private fun onButton(button: Button, behavior: Behavior, event: KeyEvent): Boolean {
         val tap = prefs.action(button, Gesture.Tap)
         val hold = prefs.action(button, Gesture.Hold)
@@ -2028,9 +2036,42 @@ class ControlService : AccessibilityService() {
             KeyEvent.ACTION_DOWN -> {
                 if (event.repeatCount != 0) return tap.consumes || hold.consumes
                 presses[button] = Press(downAt = SystemClock.uptimeMillis())
+                // **The one hold that goes off in your hand.**
+                //
+                // Everything else here decides at the release, for a good reason spelled out
+                // above: an action that fires mid-press hands the rest of the press to a
+                // foreground that has changed underneath it, and one hold of home used to bring
+                // LightOS's dashboard over and then carry on into its menu.
+                //
+                // The switcher is the exception, and light-reports#79 is why: "relies on release
+                // of wheel — this can lead to accidental torch toggle if not held long enough".
+                // Releasing a fraction early does not mean "no switcher", it means *flashlight*,
+                // and there is no way to tell from the outside how long is long enough. Fired at
+                // the threshold, the hold announces itself and the release has nothing left to do.
+                //
+                // The mid-press objection does not apply to it: the switcher is this app's own
+                // overlay, so nothing else comes to the front and the release is swallowed here
+                // rather than delivered to whatever arrived.
+                if (hold is Action.Switcher && hold.acts) {
+                    holdFired -= button
+                    val fire = Runnable {
+                        holdTimers -= button
+                        if (openSwitcher()) holdFired += button
+                    }
+                    holdTimers[button] = fire
+                    handler.postDelayed(fire, HOLD_MS)
+                }
             }
 
             KeyEvent.ACTION_UP -> {
+                // A hold that has already gone off owns this press whole: no tap, no second
+                // switcher, nothing for the release to add. And a release before the threshold
+                // cancels the timer, so a short press is still a tap and nothing has been shown.
+                holdTimers.remove(button)?.let { handler.removeCallbacks(it) }
+                if (holdFired.remove(button)) {
+                    presses.remove(button)
+                    return true
+                }
                 val press = presses.remove(button)
                 // A release whose press we never saw. On the home button that means the DOWN was
                 // gated — the screen was off, or the phone was locked — and the release arrived
