@@ -297,6 +297,9 @@ private val SelectedGround = Color(0xFF161616)
  *
  * The window flag is not used: this is a per-view attribute, so it lifts itself when the composable
  * leaves and cannot be left switched on by a screen that navigated away mid-run.
+ *
+ * Callers pass a condition rather than calling this only while something runs, because a screen that
+ * has to remember to turn the flag back off is a screen that will one day forget.
  */
 @Composable
 fun KeepAwake(active: Boolean) {
