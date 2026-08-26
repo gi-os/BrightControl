@@ -1,26 +1,50 @@
-## BrightControl v3.47 — stop asking the socket and just send the command
+## BrightControl v3.48 — swipe a row right to clear it, and no more half-notifications
 
-**NFC ON worked and GRANT ALL said the connection was gone, on the same socket, in the same
-minute.** That pair of facts is the whole bug. NFC asks nothing: it sends its command. GRANT ALL and
-the request screen both called `ensureAlive()` first and refused to run on the answer — and
-`ensureAlive` proves a connection by sending a command of its own, down a socket that may have been
-connected milliseconds earlier. **The first command on a new socket is the one that dies.** This file
-already knew that about batches, in a comment, and then trusted a single probe against it anyway.
+**Swipe right on a notification and it is gone.** The row follows your thumb, fades as it goes, and
+past five grid units letting go dismisses it. It is a real `cancelNotification`, not a private list
+of things this screen has decided to stop showing: the notification leaves the shade and Glance at
+the same moment it leaves the face. A face that only hid things would disagree with the rest of the
+phone and hand the same message back at the next unlock.
 
-So a working connection answered "no", and the two screens that asked reported that nothing ran,
-while every screen that simply sent a command was fine.
+The row disappears the instant you lift, before the platform has confirmed anything. `cancelNotification`
+is a request that travels to another process and comes back as a rebuild, and for those few frames
+the row used to spring back under the finger, which reads as the gesture having failed. What is
+shown is corrected the moment the real answer arrives, and a notification the app marked
+un-clearable simply reappears — which is the truth, and the only honest way to say it.
 
-Three changes, and they all point the same way — state the intent, then ask the phone what happened:
+**The player's card swipes away too, and the music keeps playing.** A card is not a transport
+control. Swiping it off is "not now", so nothing is paused and nothing is stopped; the row comes
+back when the session has something new to say — a different track, or play pressed again in the
+app. Opening Spotify and starting something is what asking for the card back looks like from here.
 
-- **The probe is asked three times**, a fifth of a second apart, after any reconnect. Free on the
-  path that works; removes the settling race instead of reporting it as a broken setup.
-- **A "no" no longer stops the run.** Both batches keep the answer as a warning and run the steps
-  regardless — each step reconnects and retries on its own, and what the phone says about each grant
-  afterwards is a better answer than what a probe said about the socket beforehand.
-- **"Nothing got through" is now a claim about the run**, not about a prediction. It appears when
-  every step failed, and it says what to do: press TRY AGAIN, and if it happens twice, wireless
-  debugging is off.
+**The shade is clamped to the room it actually has.** This is the "two and a half notifications"
+bug. The list drew four rows into whatever space was left under the clock and drew them whether
+they fit or not, so the fourth ran off the bottom of the panel — and nothing on this face scrolls,
+because the window holds no key focus and every drag on it already means something else. It now
+measures against the space the layout gives it, draws only whole rows, and puts what is missing on
+the `+N MORE` line instead of implying it with a row cut in half. Six rows are built rather than
+four, so a screen with room for six shows six; clearing the top ones brings the rest up.
 
-GRANT ALL logs the probe's opinion when it disagreed with reality — *"the connection did not answer
-a probe first — ran anyway"* — because a probe that keeps being wrong is worth seeing, and it is no
-longer allowed to be the thing that decides.
+**And the face repaints when the shade changes.** It repainted on the minute tick and nothing else,
+so a message arriving at 10:00:05 appeared at 10:01 — and a row you had just swiped away sat there
+until the same tick.
+
+### The gestures, in one place
+
+Three, and each one has to be impossible to perform by accident, because this window covers the
+whole panel and a phone in a pocket presses the whole panel:
+
+| gesture | what it does |
+| --- | --- |
+| swipe **up** | put the face away, keypad underneath |
+| swipe **right** on a row | clear that notification, or put the player's card away |
+| **press and hold**, once unlocked | go in |
+
+They are read in one class now. The media buttons and the track title are clickable children, and a
+clickable child takes the whole gesture from the first touch — so before this, a swipe that started
+on the player did nothing at all, and a swipe up from the track title never reached the keypad. The
+parent takes a press over the moment it turns into a drag, which is what it always should have
+been: a drag was never a tap.
+
+The axis is decided once, at the first movement past the touch slop, and never revisited. A gesture
+that changes its mind halfway is a gesture that clears a notification on the way to the keypad.

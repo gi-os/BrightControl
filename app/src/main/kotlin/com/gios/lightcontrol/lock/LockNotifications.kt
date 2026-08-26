@@ -99,8 +99,52 @@ object LockNotes {
     private val state = MutableStateFlow<List<LockNote>>(emptyList())
     val notes: StateFlow<List<LockNote>> = state.asStateFlow()
 
+    /**
+     * Told on the listener's thread whenever the list is rebuilt.
+     *
+     * The `StateFlow` above is still what the face reads; this is only the nudge to go and read it.
+     * Without one the face repainted on the minute tick and nothing else, so a message arriving at
+     * 10:00:05 was on screen at 10:01 -- and, after a swipe, the row it had just dismissed sat
+     * there for most of a minute looking like the gesture had failed.
+     *
+     * Posted onto the main thread by whoever sets it. This fires on the listener's thread.
+     */
+    var onChange: (() -> Unit)? = null
+
+    /**
+     * The bound listener, or null.
+     *
+     * Held because `cancelNotification` is an instance method on the service and the face is not
+     * the service: only the bound listener may dismiss anything, and it is the one object in this
+     * process guaranteed to have been granted.
+     */
+    @Volatile
+    private var service: LockNotifications? = null
+
+    internal fun attach(listener: LockNotifications?) {
+        service = listener
+    }
+
     internal fun publish(list: List<LockNote>) {
         state.value = list
+        runCatching { onChange?.invoke() }
+    }
+
+    /**
+     * Swipe right on the face: cancel it, everywhere.
+     *
+     * The real cancel rather than a local hide, because a lock face that quietly kept its own list
+     * of what you had waved away would disagree with the shade, with Glance and with the app that
+     * posted it -- and would bring the same notification back at the next unlock. Nothing is
+     * remembered here; the removal comes back through [publish] like any other change.
+     *
+     * A notification whose app marked it un-clearable will not go, and the platform says so by
+     * simply not removing it. The face finds that out the same way it finds out about everything
+     * else: the rebuild that follows still contains it.
+     */
+    fun dismiss(key: String): Boolean {
+        val listener = service ?: return false
+        return runCatching { listener.cancelNotification(key); true }.getOrDefault(false)
     }
 
     /**
@@ -147,12 +191,14 @@ class LockNotifications : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        LockNotes.attach(this)
         refresh()
     }
 
     override fun onListenerDisconnected() {
         // Cleared, unlike Glance's store: an unbound listener behind a live lock face would
         // otherwise leave yesterday's messages on screen with no way to notice they were stale.
+        LockNotes.attach(null)
         LockNotes.publish(emptyList())
         LockCalls.publish(null)
         super.onListenerDisconnected()

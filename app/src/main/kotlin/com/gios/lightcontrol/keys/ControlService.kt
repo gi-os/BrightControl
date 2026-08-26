@@ -34,6 +34,7 @@ import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockCall
 import com.gios.lightcontrol.lock.LockCallState
+import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.lock.LockOverlay
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
@@ -281,6 +282,14 @@ class ControlService : AccessibilityService() {
         // The now-playing row on the face reports a tap here rather than starting anything itself.
         // Every activity start in this app goes through one throttle, one log line and one cover.
         lockFace.onOpenPlayer = { pkg -> runCatching { openFromLock(pkg) } }
+        // Swipe right on a row. The face reports the key; the cancel goes through the bound
+        // notification listener, which is the only object allowed to make one.
+        lockFace.onDismissNote = { key ->
+            runCatching {
+                val gone = LockNotes.dismiss(key)
+                log("lock face · dismissed a notification" + if (gone) "" else " (listener not bound)")
+            }
+        }
         // A ringing phone is the one thing the face was hiding rather than drawing: it is a window
         // at layer 31, so it painted straight over the dialer's incoming-call screen. See
         // [onCallChanged].
