@@ -1,30 +1,25 @@
-## BrightControl v3.41 — a door to the system's own switcher, and to App info
+## BrightControl v3.42 — hold a row for App info, and the force-stop gesture goes
 
-**SYSTEM SWITCHER, at the bottom of the list.** `performGlobalAction(GLOBAL_ACTION_RECENTS)` has
-always been the wrong thing for the *home button* to do on this phone: it reports that the action
-was injected, not that a screen appeared, and on LightOS nothing appears. A gesture that returns
-success and does nothing is the worst answer available, which is why the double press draws this
-app's own list instead.
+**The hold on a row opens Settings' App info page for that app.** By thumb, or by holding the wheel
+click on the selection — the same pair as before, pointed somewhere better.
 
-It is on the screen now anyway, as a button. "This firmware ships no recents" is a conclusion drawn
-from one firmware, and the cost of being wrong about it is a phone quietly hiding a working
-switcher. The difference between a button and a gesture here is that a button can be held to its
-answer: the overlay goes down first — it is layer 31 and a recents screen is an activity — the
-system gets 800 ms, and if no package came to the front, the list comes back with **NOTHING CAME UP
-· no system switcher here** on it. A dead button that admits it is dead costs a tap. A missing one
-costs the feature.
+What it replaced: a hold that ran `am force-stop` over this app's own adb shell, and fell back to
+`killBackgroundProcesses` when there was no shell to run it. Two different outcomes behind one
+gesture, and the weaker one had to announce itself as **BACKGROUNDED · no adb for a full stop**,
+because backgrounding an app is not what somebody holding a row on a misbehaving app asked for. The
+honest message was the tell: a gesture whose meaning depends on whether a pairing has been done is
+a gesture nobody can rely on.
 
-**Hold it for App info.** The system's own application page for whichever app the selection is on,
-which is where AOSP keeps a Force stop button — the real one, the same act the switcher's hold
-reaches for over adb. On a phone with no paired shell that hold can only background an app and says
-so; this is the two-tap way to do the whole thing, with nothing to pair and nothing to grant.
+App info has AOSP's own Force stop button on it. It needs no shell, no pairing and no runtime
+permission, it is the real force stop every time, and Uninstall, storage and permissions are on the
+same page. One hold, one meaning, and the thing it leads to is stronger than what the hold used to
+manage on a good day.
 
-It is one button with two answers rather than two rows, and the hold is written on it in the
-second line, because the hold is the more useful half and a hold nobody knows about is a feature
-nobody has. Both re-arm the idle timer instead of closing the list: asking for another screen is not
-the same as being done with this one, and the answer has to be able to land back here.
+So `switcher/ForceStop.kt` is gone, and with it the `KILL_BACKGROUND_PROCESSES` permission — this
+app asks for one fewer thing than it did yesterday, which is the right direction for a permission
+list this long.
 
-**The row count knows about it.** [capacity] measures how many rows fit from the panel height and
-the type scale, and it now subtracts the button as well as the header and the hint. A row this
-arithmetic forgets is a row below the fold of a list that cannot be scrolled with a finger, and it
-is always the app furthest back — the one the switcher exists for.
+**And SYSTEM SWITCHER is tap-only again.** v3.41 put App info on a hold of that button, which was
+the wrong place for it: the app a gesture is about is the row, and the button at the bottom is the
+control furthest from it. Tapping it still asks the platform for its own recents and still says
+**NOTHING CAME UP** when nothing does.

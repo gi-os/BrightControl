@@ -35,7 +35,6 @@ import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockCall
 import com.gios.lightcontrol.lock.LockCallState
 import com.gios.lightcontrol.lock.LockOverlay
-import com.gios.lightcontrol.switcher.ForceStop
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
 import com.gios.lightcontrol.switcher.appName
@@ -274,7 +273,6 @@ class ControlService : AccessibilityService() {
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
-        switcher.onStop = { pkg -> runCatching { stopApp(pkg) } }
         switcher.onSystem = { runCatching { openSystemSwitcher() } }
         switcher.onAppInfo = { pkg -> runCatching { openAppInfo(pkg) } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
@@ -1212,46 +1210,6 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * Force stop an app from the switcher, off the main thread.
-     *
-     * A thread rather than the handler, because the adb path opens a socket and waits for a
-     * command to exit — and this service's main thread is the one key events are dispatched on.
-     * An accessibility filter that blocks is a phone whose buttons have stopped answering.
-     *
-     * What comes back is reported rather than assumed. [ForceStop] can do the real thing or only
-     * the weaker fallback, and the difference matters to somebody stopping an app *because* it is
-     * misbehaving: "stopped" and "backgrounded" are not the same promise.
-     */
-    private fun stopApp(pkg: String) {
-        val label = appName(this, pkg)
-        // Never this app. Now that it has a row of its own, a hold on that row would otherwise
-        // kill the process this service runs in — the phone's key filter, its lock face and its
-        // colour, stopped by a gesture meant to tidy up a misbehaving app.
-        if (pkg == packageName) {
-            runCatching {
-                switcher.stopped(pkg, "CANNOT STOP $label · it is the key filter", gone = false)
-            }
-            return
-        }
-        Thread {
-            val result = runCatching { ForceStop.stop(this, pkg) }
-                .getOrDefault(ForceStop.Result.Failed)
-            handler.post {
-                val note = when (result) {
-                    ForceStop.Result.Stopped -> "STOPPED $label"
-                    ForceStop.Result.Backgrounded -> "BACKGROUNDED $label · no adb for a full stop"
-                    ForceStop.Result.Failed -> "COULD NOT STOP $label"
-                }
-                log("switcher stop ${pkg.substringAfterLast('.')} · ${result.name}")
-                if (result != ForceStop.Result.Failed) recents.forget(pkg)
-                runCatching {
-                    switcher.stopped(pkg, note, gone = result != ForceStop.Result.Failed)
-                }
-            }
-        }.apply { isDaemon = true }.start()
-    }
-
-    /**
      * Ask the platform for its own recents, and be honest about what happened.
      *
      * `performGlobalAction` reports that the action was *injected*, not that anything appeared, and
@@ -1286,10 +1244,14 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * The system's App info page for [pkg] — where AOSP keeps a Force stop that needs no adb.
+     * The system's App info page for [pkg]. The switcher's hold, by thumb or by wheel.
      *
-     * The answer to the switcher's hold only being able to background an app on a phone with no
-     * paired shell. Two taps from here, and the button on that page is the real one.
+     * It replaced a hold that ran `am force-stop` over this app's own adb shell and fell back to
+     * `killBackgroundProcesses` when there was no shell to run it — two different outcomes behind
+     * one gesture, one of which had to be reported as "BACKGROUNDED · no adb for a full stop"
+     * because it was not the thing that had been asked for. App info has AOSP's own Force stop on
+     * it, which needs no shell, no pairing and no permission, and is the real one every time. A
+     * gesture that always does what it says beats one that sometimes does more.
      */
     private fun openAppInfo(pkg: String) {
         val list = switcher.snapshot()
@@ -1328,10 +1290,10 @@ class ControlService : AccessibilityService() {
             // Turning towards the top of the phone moves the selection up the list.
             LightKey.WheelUp -> { if (down) moveSwitcher(-1); true }
             LightKey.WheelDown -> { if (down) moveSwitcher(1); true }
-            // Tap opens the selection; holding it stops that app — the same pair the rows offer
-            // a thumb. Timed at the release like every other hold in this service: one that fired
-            // mid-press would stop an app while the button was still down and then hand the rest
-            // of the press to a list that had changed underneath it.
+            // Tap opens the selection; holding it opens that app's page in Settings — the same
+            // pair the rows offer a thumb. Timed at the release like every other hold in this
+            // service: one that fired mid-press would leave for another screen while the button
+            // was still down and hand the rest of the press to a list that had gone.
             LightKey.WheelClick -> {
                 if (down && event.repeatCount == 0) switcherDownAt = SystemClock.uptimeMillis()
                 if (up) {
@@ -1339,7 +1301,7 @@ class ControlService : AccessibilityService() {
                     switcherDownAt = 0L
                     val held = started != 0L && SystemClock.uptimeMillis() - started >= HOLD_MS
                     val pkg = switcher.selected
-                    if (held && pkg != null) runCatching { stopApp(pkg) }
+                    if (held && pkg != null) runCatching { openAppInfo(pkg) }
                     else runCatching { switcher.choose() }
                 }
                 true

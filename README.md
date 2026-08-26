@@ -199,9 +199,13 @@ answer: the switcher goes down, the system is given 800 ms, and if no package ca
 list comes back saying nothing came up. A dead button that admits it costs a tap. A missing one
 costs the feature.
 
-**Holding that button opens App info for the selected app**, which is where AOSP keeps a Force stop
-that needs no adb — the answer to a hold on a row reporting BACKGROUNDED on a phone with no paired
-shell.
+**Hold a row — with a thumb or by holding the wheel click — and Settings' own App info page for
+that app opens.** Force stop, Uninstall, storage, permissions. That hold used to run `am force-stop`
+over this app's own adb shell and fall back to `killBackgroundProcesses` where there was no shell,
+which meant one gesture with two outcomes and a message saying which one you got. AOSP's Force stop
+button needs no shell, no pairing and no permission, and is the real thing every time. A gesture
+that always does what it says beats one that sometimes does more, so the adb path and the
+`KILL_BACKGROUND_PROCESSES` permission behind it are both gone.
 
 ### The home button
 
@@ -712,6 +716,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.42 | **Hold a row for App info, by thumb or by wheel.** The hold used to force stop the app over adb and background it where there was no shell — one gesture, two outcomes, and a message to say which one happened. Settings' App info page carries AOSP's own Force stop, which needs no shell and no permission, so the hold opens that instead and `ForceStop` and `KILL_BACKGROUND_PROCESSES` are gone. The bottom button is tap-only again: a gesture about an app belongs on the app's row, not on the control furthest from it |
 | v3.41 | **A way out to the system's own screens, under the switcher.** SYSTEM SWITCHER asks the platform for its recents and then checks whether anything actually came forward, because `performGlobalAction` reports injection rather than appearance — nothing came up means the list returns with a line saying so. Holding it opens App info for the selected app, where AOSP's own Force stop is, which is what a hold on a row can only approximate without a paired adb shell |
 | v3.40 | **The caller's name comes from telephony, and the call screen is fetched rather than hoped for.** v3.38 fixed how a call notification is read; on this phone there is no call notification — LightOS's dialer is a system app that shows its own activity and posts nothing. The card now reads the number off the `PHONE_STATE` broadcast and the name out of contacts, behind two new grants in the one-tap ADB run. And `showInCallScreen`, which returns nothing and reports nothing, is no longer treated as a hand-off: when no intent could be sent, the face resumes the dialer's own task, which during a call is the call screen. A log line now says what the phone actually told us, per ring |
 | v3.39 | **A request may ask to repair a broken system app.** One word, one fixed table of two system packages, nothing typed by the sender reaching the shell |

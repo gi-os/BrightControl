@@ -39,13 +39,12 @@ import com.gios.lightcontrol.lock.LightType
  * wrong about it is a phone that hides a working switcher. The difference is that a button can be
  * held to its answer: the service asks, waits, and if nothing came forward it puts this list back
  * with a line saying so. A dead button that admits it is dead costs a tap; a missing one costs the
- * feature. Holding that button opens the system's App info page for the selected app, which is
- * where AOSP keeps a Force stop that needs no adb at all.
+ * feature.
  *
  * ### What it takes
  *
- * Keys, while it is up — the wheel moves the selection, a wheel click opens what is under it,
- * home puts it away. Those are read by the service (`ControlService.onSwitcherKey`) and not
+ * Keys, while it is up — the wheel moves the selection, a wheel click opens what is under it, a
+ * held click opens that app's page in Settings, home puts it away. Those are read by the service (`ControlService.onSwitcherKey`) and not
  * here: this window is `FLAG_NOT_FOCUSABLE`, so it never holds key focus and can never be the
  * reason a key stops arriving somewhere. Touches it does take: a row opens that app, anywhere
  * else closes it.
@@ -73,16 +72,17 @@ class SwitcherOverlay(private val context: Context) {
     /** Told which package was chosen. The service does the launching — it owns the throttle. */
     var onPick: ((String) -> Unit)? = null
 
-    /**
-     * Told which package was held down on. The service does the stopping — it owns the thread the
-     * adb call needs, and this window has no business blocking on a socket.
-     */
-    var onStop: ((String) -> Unit)? = null
-
     /** The bottom button was tapped: ask the system for its own recents. */
     var onSystem: (() -> Unit)? = null
 
-    /** The bottom button was held: the system's App info page, for the selected app. */
+    /**
+     * Told which package was held down on: the system's App info page, for that app.
+     *
+     * This is where the hold used to force stop the app over adb. App info has AOSP's own Force
+     * stop button in it, which needs no shell, no pairing and no permission — so the hold that
+     * could only sometimes do the real thing was replaced by the one that always can. The service
+     * starts the activity; this window only says which app the thumb was on.
+     */
     var onAppInfo: ((String) -> Unit)? = null
 
     val showing: Boolean get() = root != null
@@ -119,12 +119,11 @@ class SwitcherOverlay(private val context: Context) {
         val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
         val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
         val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
-        // The way-out button, which is two lines of its own plus the air above it. Counted here
-        // for the same reason the header and the hint are: a row this arithmetic forgets about is
-        // a row drawn below the fold of a list that cannot be scrolled by finger, and it is always
-        // the app furthest back -- the one a switcher is for.
-        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING * 2f +
-            type.gridPx(2f) + type.gridPx(0.25f)
+        // The way-out button, one line plus the air above it. Counted here for the same reason the
+        // header and the hint are: a row this arithmetic forgets about is a row drawn below the
+        // fold of a list that cannot be scrolled by finger, and it is always the app furthest back
+        // -- the one a switcher is for.
+        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
         val padding = type.gridPx(3f) + type.gridPx(3f)
         val room = metrics.heightPixels - padding - labelPx - hintPx - buttonPx
         if (rowPx <= 0f) return FLOOR
@@ -320,13 +319,12 @@ class SwitcherOverlay(private val context: Context) {
                     hide()
                     onPick?.invoke(pkg)
                 }
-                // Hold to force stop. The list stays up: stopping an app is something you do
-                // *about* an app, not instead of switching to one, and the answer to whether it
-                // worked belongs on the screen you asked from.
+                // Hold for App info -- Settings' own page for this app, where Force stop,
+                // Uninstall and storage are. Something you do *about* an app rather than instead
+                // of switching to one, which is why it is the hold and not the tap.
                 setOnLongClickListener {
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    arm()
-                    onStop?.invoke(entry.pkg)
+                    onAppInfo?.invoke(entry.pkg)
                     true
                 }
                 col.addView(this)
@@ -335,7 +333,7 @@ class SwitcherOverlay(private val context: Context) {
         col.addView(systemButton())
         col.addView(
             TextView(context).apply {
-                text = "Wheel to move · click to open · hold to stop · home to close"
+                text = "Wheel to move · click to open · hold for app info · home to close"
                 setTextColor(DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.regular
@@ -356,50 +354,29 @@ class SwitcherOverlay(private val context: Context) {
     }
 
     /**
-     * The way out to the system's own screens, drawn as one button with two answers.
+     * The way out to the platform's own switcher.
      *
      * Below the rows on purpose. Everything above it is this app's switcher, which is the thing
-     * that works on this phone; this is the door to the platform's version, for the firmware where
-     * it exists and for the App info page, which exists everywhere. Its own second line rather
-     * than a longer hint at the bottom: the hold is the more useful of the two answers and a hold
-     * nobody knows about is a feature nobody has.
+     * that works on this phone; this is the door to the version the platform may or may not have.
      *
-     * Touchable, like the rows, and it re-arms the idle timer rather than closing — asking for
-     * another screen is not the same as being done with this one, and the answer to "did anything
-     * happen" has to be able to land back here.
+     * It re-arms the idle timer rather than closing — asking for another screen is not the same as
+     * being done with this one, and the answer to "did anything happen" has to be able to land
+     * back here.
      */
-    private fun systemButton(): View = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
+    private fun systemButton(): View = TextView(context).apply {
+        text = "SYSTEM SWITCHER"
+        setTextColor(Color.WHITE)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
+        typeface = type.medium
+        letterSpacing = type.buttonTracking
         setPadding(0, type.gridPx(2f), 0, 0)
         isClickable = true
-        addView(
-            TextView(context).apply {
-                text = "SYSTEM SWITCHER"
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
-                typeface = type.medium
-                letterSpacing = type.buttonTracking
-            },
-        )
-        addView(
-            TextView(context).apply {
-                text = "hold for app info"
-                setTextColor(DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
-                typeface = type.regular
-                setPadding(0, type.gridPx(0.25f), 0, 0)
-            },
-        )
+        // Tap only. It briefly carried App info on a hold as well, which put two answers on the
+        // one control furthest from the app they were about -- the app is the row, and the gesture
+        // about an app belongs on it.
         setOnClickListener {
             arm()
             runCatching { onSystem?.invoke() }
-        }
-        setOnLongClickListener {
-            val pkg = selected ?: return@setOnLongClickListener true
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            arm()
-            runCatching { onAppInfo?.invoke(pkg) }
-            true
         }
     }
 
@@ -416,39 +393,6 @@ class SwitcherOverlay(private val context: Context) {
             it.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
         }
         arm()
-    }
-
-    /**
-     * Say what became of a stop, and take the row away if it worked.
-     *
-     * The row goes because the list is "apps you can go back to", and an app that has just been
-     * stopped is not one of those in the sense anybody means — going back to it would start it
-     * again, which is the opposite of what the hold asked for. A failure keeps the row and says so:
-     * a screen that removes a row for an app that is still running has lied about the one thing
-     * this gesture is for.
-     */
-    fun stopped(pkg: String, note: String, gone: Boolean) {
-        status?.let {
-            it.text = note
-            it.visibility = View.VISIBLE
-        }
-        arm()
-        if (!gone) return
-        val remaining = entries.filterNot { it.pkg == pkg }
-        val keep = status?.text?.toString().orEmpty()
-        entries = remaining
-        index = index.coerceIn(0, (remaining.size - 1).coerceAtLeast(0))
-        val col = column ?: return
-        val chosen = entries.getOrNull(index)?.pkg
-        runCatching { fill(col) }
-        if (chosen != null) index = entries.indexOfFirst { it.pkg == chosen }.coerceAtLeast(0)
-        paint()
-        // fill() rebuilt the status line along with everything else, so the message it was
-        // rebuilt without has to be put back.
-        status?.let {
-            it.text = keep
-            it.visibility = if (keep.isBlank()) View.GONE else View.VISIBLE
-        }
     }
 
     /** The selection is drawn as brightness, not as a box — this phone has no color to spend. */
