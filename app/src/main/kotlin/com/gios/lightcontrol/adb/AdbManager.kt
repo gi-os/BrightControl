@@ -365,9 +365,27 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             return "error: $why"
         }
 
-        /** A command reduced to what is worth showing a stranger. */
-        private fun shape(command: String): String =
-            command.replace(MAC, "<address>").trim().take(60)
+        /**
+         * A command reduced to what is worth showing a stranger.
+         *
+         * Truncating at sixty characters produced
+         * `sh -c 'CLASSPATH=/data/app/~~9Z7nxY0zTvXG3qtGAFJ-qw==/com.gi` in light-reports#63 — sixty
+         * characters of install hash and none of the verb. What identifies a command is its verb and
+         * its subject, so the paths come out and those stay in.
+         */
+        private fun shape(command: String): String {
+            val cleaned = command
+                .replace(MAC, "<address>")
+                .replace(PATH, "<path>")
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+                .removePrefix("sh -c ")
+                .trim('\'')
+            return cleaned.take(80)
+        }
+
+        /** An absolute path, which is never the interesting part of a failure. */
+        private val PATH = Regex("""/[A-Za-z0-9_.~=+/-]{6,}""")
 
         private val MAC = Regex("""(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}""")
 

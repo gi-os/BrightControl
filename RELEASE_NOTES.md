@@ -1,36 +1,48 @@
-## BrightControl v3.52 — the pairing code is read in every shape it comes in
+## BrightControl v3.53 — it can switch the debugging service back on itself
 
-**light-reports#61, from a real phone, an hour ago:** *"pairing box present but numbers within not
-detected."* That is the auto-pairing reader finding the dialog and failing to read the six digits off
-it — which is why pairing has been a fight all evening, and why every route past it has been
-work-arounds.
+**light-reports#63, filed by the phone twenty minutes ago:**
 
-The reader had one pass: a line that is *exactly* six digits. That is the shape AOSP renders, and it
-is not the only shape there is. So the digits are on that screen looking like something else, and the
-somethings are enumerable — there are five passes now, tried in order of how much each one proves:
+```
+Could not run "CLASSPATH=<path> app_process / com.gios.brightoura.helper.Confirm <address>"
+the connection is gone and could not be picked back up
+```
 
-1. **Six digits alone on a line.** Unchanged, and still the only pass strong enough to need no
-   corroboration.
-2. **Grouped.** `123 456`, `123-456`, and the non-breaking and thin spaces Android renders instead of
-   a plain one. Six digits once the separators come out, and nothing else on the line.
-3. **One digit per view.** A row of six views flattens to six lines; consecutive single digits are
-   joined, so a digit from a label at the top and five from the bottom cannot be read as a code.
-4. **Beside its label.** The digits following the word "code", on that line or the two after it.
-5. **Any six-digit run**, last, once the text is known to be the dialog.
+Two things in one line. The hand-off works — another app asked for a pairing to be confirmed, the
+request was accepted, and the command was built correctly. And it never ran, because there was no
+shell to run it on.
 
-Passes 2 to 5 only run after the text is recognised as the pairing dialog, so a stray number
-elsewhere in Settings still cannot start a pairing. And **the dialog is recognised without an
-address in the same window** now: the old test wanted both the word "pair" and an `ip:port`, which
-would return false about the very screen it exists to find if a reskin split them across views.
+**Wireless debugging goes off by itself.** A reboot clears it; so does a wander through Developer
+options. When it goes, the daemon stops listening and every screen here reports the consequence —
+*"the connection is gone"* — which is true and useless. The pairing is still on disk. There is simply
+nothing to connect to, and until today the only way back was a cable, which on a phone whose whole
+point is not needing a computer is a poor answer.
 
-**An address is never read as a code.** Worth stating because the first version of the labelled pass
-did exactly that: scanning forward from the label it walked into `192.168.1.10:37103` and read
-`192168`, which then fails against the daemon for a reason nothing on the screen could explain. It
-works line-wise now and skips any line carrying a colon or a dot.
+**So it says which of the two things is wrong, and offers the fix.** `adb_wifi_enabled` is an
+ordinary global setting: readable with no permission at all, and writable by anything holding
+`WRITE_SECURE_SETTINGS` — which this app granted itself on first run, for the colour writes. So the
+ADB screen now leads with the cause rather than the steps:
 
-**And the reader files what it saw.** #61 had to be typed by hand and arrived with no trace of the
-text that was on screen — the one thing needed to fix a reader that cannot read. A dialog it
-recognises but cannot read now raises the report chip with the flattened text in the issue verbatim,
-once an hour at most.
+```
+WIRELESS DEBUGGING IS OFF
+Nothing here can work while the phone's debugging service is not listening. The
+pairing this app already has is kept — there is simply nothing to connect to.
+[ TURN WIRELESS DEBUGGING ON ]
+```
 
-Twelve tests hold the shapes, including the two that must never match: five digits and seven.
+One tap writes the setting, waits for the framework to act on it, reads it back, and goes straight on
+to connecting — the pairing is kept, the port is discoverable, so there is nothing left to do by
+hand. If Developer options are off it says that instead, because wireless debugging lives inside
+them and no amount of writing will conjure it.
+
+The same button appears on the request screen, as **TURN IT ON AND RUN**, because that is where
+people actually meet the failure — an app asked for something, and the reason it could not happen is
+one tap away on the screen that reported it.
+
+**Not done silently.** Switching a phone's debugging daemon on changes how exposed it is, and a user
+who set this app up for the wheel and the camera button should not find it doing that on its own. It
+is a button, it says what it did, and the read-back is what decides — which is also the honest way to
+discover the grant has gone missing.
+
+**And a failure now names the command rather than an install hash.** #63's label was sixty characters
+of `/data/app/~~9Z7nxY0zTvXG3qtGAFJ-qw==` and none of the verb. Paths come out, the verb and its
+subject stay in.

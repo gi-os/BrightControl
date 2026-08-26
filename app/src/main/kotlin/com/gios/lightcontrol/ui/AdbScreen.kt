@@ -39,6 +39,7 @@ import android.content.Intent
 import android.provider.Settings
 import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.AdbPairSession
+import com.gios.lightcontrol.adb.AdbWifi
 import com.gios.lightcontrol.adb.GrantCheckRunner
 import com.gios.lightcontrol.adb.Outcome
 import com.gios.lightcontrol.adb.SelfGrant
@@ -222,10 +223,12 @@ fun AdbScreen(
             MenuRow(
                 label = if (connected) "Connected" else "Not connected",
                 detail = if (connected) "OK" else "—",
-                sub = if (connected) {
-                    "the phone is talking to its own daemon — grants below are unlocked"
-                } else {
-                    "do the steps below once; the grant buttons stay locked until connected"
+                sub = when {
+                    connected -> "the phone is talking to its own daemon — grants below are unlocked"
+                    AdbWifi.on(context) == false ->
+                        "wireless debugging is off, so there is nothing to connect to — the button " +
+                            "below switches it on"
+                    else -> "do the steps below once; the grant buttons stay locked until connected"
                 },
                 dim = !connected,
             )
@@ -267,6 +270,46 @@ fun AdbScreen(
                 "This connects the app to the phone's own Android debugging service and runs the " +
                     "setup commands for you — no computer. You do it once per install.",
             )
+
+            // **The cause, before the steps.** Wireless debugging goes off on its own — a reboot
+            // clears it — and when it does, every screen here reports the consequence instead:
+            // "the connection is gone". The state is readable without any permission, so there is
+            // no excuse for not saying it, and the switch is writable with a grant this app
+            // already has.
+            val wifiOn = AdbWifi.on(context)
+            val devOn = AdbWifi.developerOptionsOn(context)
+            if (wifiOn != true) {
+                SectionLabel("WIRELESS DEBUGGING IS " + if (wifiOn == null) "UNKNOWN" else "OFF")
+                Guide(
+                    if (devOn == false) {
+                        "Developer options are off, and wireless debugging lives inside them. Turn " +
+                            "those on first — Settings → About phone → tap Build number seven times."
+                    } else {
+                        "Nothing here can work while the phone's debugging service is not " +
+                            "listening. The pairing this app already has is kept — there is simply " +
+                            "nothing to connect to. This app can switch it back on itself."
+                    },
+                )
+                BigButton(
+                    label = "TURN WIRELESS DEBUGGING ON",
+                    filled = true,
+                    enabled = !busy && devOn != false,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    run("turn wireless debugging on") {
+                        val result = AdbWifi.turnOn(context)
+                        if (!result.ok) return@run result.said
+                        // Straight on to a connection: the daemon is listening and the pairing is
+                        // on disk, so there is nothing left for anybody to do by hand.
+                        if (AdbManager.ensureAlive(context)) {
+                            "wireless debugging is on, and connected"
+                        } else {
+                            "wireless debugging is on, but nothing answered yet — pair below"
+                        }
+                    }
+                }
+                Rule()
+            }
 
             SectionLabel("STEP 1 — TURN ON WIRELESS DEBUGGING")
             Step("1", "Open the phone's Settings → About phone. Tap Build number seven times to " +

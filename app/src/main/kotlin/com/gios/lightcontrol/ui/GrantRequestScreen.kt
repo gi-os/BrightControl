@@ -219,6 +219,34 @@ fun GrantRequestScreen(
                             },
                         )
                     } else {
+                        // The commonest cause, and the only one with a fix on this screen. Read
+                        // needs no permission; the write needs a grant this app gave itself.
+                        if (com.gios.lightcontrol.adb.AdbWifi.on(context) == false) {
+                            SectionLabel("WIRELESS DEBUGGING IS OFF")
+                            GuideText(
+                                "That is why nothing can run: the phone's debugging service is not " +
+                                    "listening, so there is nothing for this app to talk to. The " +
+                                    "pairing it already has is kept.",
+                            )
+                            BigButton(
+                                label = "TURN IT ON AND RUN",
+                                filled = true,
+                                enabled = !busy,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) {
+                                busy = true
+                                scope.launch {
+                                    val said = withContext(Dispatchers.IO) {
+                                        val turned = com.gios.lightcontrol.adb.AdbWifi.turnOn(context)
+                                        if (turned.ok) AdbManager.ensureAlive(context) else false
+                                    }
+                                    connected = said
+                                    dropped = !said
+                                    busy = false
+                                }
+                            }
+                        }
                         if (dropped) {
                             SectionLabel("NOTHING GOT THROUGH")
                             GuideText(
