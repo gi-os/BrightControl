@@ -190,6 +190,19 @@ LightOS's own shell, which one press of home already reaches.
 
 Switch it off under **Buttons → Home button → Double press**.
 
+**A way out to the system's own screens, at the bottom of the list.** SYSTEM SWITCHER asks the
+platform for its recents with `performGlobalAction(GLOBAL_ACTION_RECENTS)` — which is not what the
+home button does, because that call reports the action was *injected* rather than that anything
+appeared, and on this phone nothing does. It is a button rather than the gesture because "this
+firmware has no recents screen" is a conclusion from one phone, and a button can be held to its
+answer: the switcher goes down, the system is given 800 ms, and if no package came to the front the
+list comes back saying nothing came up. A dead button that admits it costs a tap. A missing one
+costs the feature.
+
+**Holding that button opens App info for the selected app**, which is where AOSP keeps a Force stop
+that needs no adb — the answer to a hold on a row reporting BACKGROUNDED on a phone with no paired
+shell.
+
 ### The home button
 
 **Tap goes home. Hold opens the LightOS dashboard by name**, `com.lightos/.MainActivity`,
@@ -699,6 +712,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.41 | **A way out to the system's own screens, under the switcher.** SYSTEM SWITCHER asks the platform for its recents and then checks whether anything actually came forward, because `performGlobalAction` reports injection rather than appearance — nothing came up means the list returns with a line saying so. Holding it opens App info for the selected app, where AOSP's own Force stop is, which is what a hold on a row can only approximate without a paired adb shell |
 | v3.40 | **The caller's name comes from telephony, and the call screen is fetched rather than hoped for.** v3.38 fixed how a call notification is read; on this phone there is no call notification — LightOS's dialer is a system app that shows its own activity and posts nothing. The card now reads the number off the `PHONE_STATE` broadcast and the name out of contacts, behind two new grants in the one-tap ADB run. And `showInCallScreen`, which returns nothing and reports nothing, is no longer treated as a hand-off: when no intent could be sent, the face resumes the dialer's own task, which during a call is the call screen. A log line now says what the phone actually told us, per ring |
 | v3.39 | **A request may ask to repair a broken system app.** One word, one fixed table of two system packages, nothing typed by the sender reaching the shell |
 | v3.38 | **The call card says who is calling, and the call screen comes up when you answer.** The card read `EXTRA_TITLE`, which a CallStyle notification leaves empty — the caller is a `Person` the platform renders at draw time — so every call was "Incoming call". It now reads the person, the people list, four text fields and the number, in that order, and treats a notification as a call on four tests rather than one. ANSWER takes the face down on the press instead of a poll tick later, and asks the dialer for its own screen on the way out rather than merely uncovering whatever was behind |

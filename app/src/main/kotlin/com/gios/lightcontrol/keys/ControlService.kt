@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
+import android.net.Uri
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.content.ComponentName
@@ -274,6 +275,8 @@ class ControlService : AccessibilityService() {
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
         switcher.onStop = { pkg -> runCatching { stopApp(pkg) } }
+        switcher.onSystem = { runCatching { openSystemSwitcher() } }
+        switcher.onAppInfo = { pkg -> runCatching { openAppInfo(pkg) } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
@@ -1246,6 +1249,65 @@ class ControlService : AccessibilityService() {
                 }
             }
         }.apply { isDaemon = true }.start()
+    }
+
+    /**
+     * Ask the platform for its own recents, and be honest about what happened.
+     *
+     * `performGlobalAction` reports that the action was *injected*, not that anything appeared, and
+     * on this phone the two have never been the same thing — which is why the home button draws its
+     * own list instead. So this asks, waits, and then reads the only evidence available from a
+     * service that cannot enumerate windows: whether any package came to the front. Nothing came
+     * forward means nothing was there, and the list comes back with a line saying so rather than
+     * leaving somebody looking at the app they were trying to leave.
+     *
+     * The window goes down *before* the ask. It is layer 31; a recents screen is an activity, and
+     * an activity underneath this window is the whole reason the switcher exists.
+     */
+    private fun openSystemSwitcher() {
+        val list = switcher.snapshot()
+        val wasPkg = foreground
+        val wasAt = foregroundAt
+        runCatching { switcher.hide() }
+        val asked = runCatching { performGlobalAction(GLOBAL_ACTION_RECENTS) }.getOrDefault(false)
+        log("switcher · system recents " + if (asked) "asked" else "REFUSED")
+        if (!asked) {
+            restoreSwitcher(list, "NO SYSTEM SWITCHER · the phone refused")
+            return
+        }
+        handler.postDelayed({
+            if (foreground != wasPkg || foregroundAt != wasAt) {
+                log("switcher · system recents came up")
+                return@postDelayed
+            }
+            log("switcher · system recents drew nothing")
+            restoreSwitcher(list, "NOTHING CAME UP · no system switcher here")
+        }, SYSTEM_RECENTS_GRACE_MS)
+    }
+
+    /**
+     * The system's App info page for [pkg] — where AOSP keeps a Force stop that needs no adb.
+     *
+     * The answer to the switcher's hold only being able to background an app on a phone with no
+     * paired shell. Two taps from here, and the button on that page is the real one.
+     */
+    private fun openAppInfo(pkg: String) {
+        val list = switcher.snapshot()
+        runCatching { switcher.hide() }
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", pkg, null),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val ok = runCatching { startActivity(intent); true }.getOrDefault(false)
+        log("switcher app info ${pkg.substringAfterLast('.')}" + if (ok) "" else " · FAILED")
+        if (!ok) restoreSwitcher(list, "COULD NOT OPEN APP INFO")
+    }
+
+    /** Put the list back after a way out that led nowhere, with the reason on it. */
+    private fun restoreSwitcher(list: List<SwitcherOverlay.Entry>, note: String) {
+        if (!interactive()) return
+        val up = runCatching { switcher.show(list) }.getOrDefault(false)
+        if (up) runCatching { switcher.note(note) }
     }
 
     /**
@@ -2402,6 +2464,15 @@ class ControlService : AccessibilityService() {
 
         /** Failed lock-face starts in a row before the face disarms itself. */
         const val MAX_LOCK_MISSES = 3
+
+        /**
+         * How long the system is given to put a recents screen up before the switcher decides
+         * nothing is coming.
+         *
+         * Long enough for an activity to launch cold on this phone, short enough that a dead
+         * button answers inside the moment somebody is still looking at it.
+         */
+        const val SYSTEM_RECENTS_GRACE_MS = 800L
 
         /**
          * Playback usages that mean something is *demanding* the user — a screen with a dismiss

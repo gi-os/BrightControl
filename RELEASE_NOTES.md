@@ -1,39 +1,30 @@
-## BrightControl v3.40 — the card asks telephony, and goes and fetches the call screen
+## BrightControl v3.41 — a door to the system's own switcher, and to App info
 
-**The card was reading the wrong window.** v3.38 taught it to find the caller in a `CallStyle`
-notification's `Person` rather than the empty title, which was a real bug and not this one. The
-actual answer is worse: on this phone **there is no call notification at all**. LightOS's dialer is
-a system app that shows its own incoming-call activity, and a system app does not have to go
-through the shade to take over a screen. A notification listener was never going to see a name that
-was never posted.
+**SYSTEM SWITCHER, at the bottom of the list.** `performGlobalAction(GLOBAL_ACTION_RECENTS)` has
+always been the wrong thing for the *home button* to do on this phone: it reports that the action
+was injected, not that a screen appeared, and on LightOS nothing appears. A gesture that returns
+success and does nothing is the worst answer available, which is why the double press draws this
+app's own list instead.
 
-So the card asks telephony now. `ACTION_PHONE_STATE_CHANGED` carries the number on the ringing
-broadcast, `PhoneLookup` turns it into the name on the contact, and neither route needs this app to
-be the dialer. The notification stays as the first source where it exists — a dialer that wrote a
-name has often done something this app cannot, a business lookup or a spam label — with the contact
-name behind it, the number behind that, and the old wording only when all three are empty. The
-number goes on the second line under the name, grouped for the region, because a lock screen is
-read at arm's length.
+It is on the screen now anyway, as a button. "This firmware ships no recents" is a conclusion drawn
+from one firmware, and the cost of being wrong about it is a phone quietly hiding a working
+switcher. The difference between a button and a gesture here is that a button can be held to its
+answer: the overlay goes down first — it is layer 31 and a recents screen is an activity — the
+system gets 800 ms, and if no package came to the front, the list comes back with **NOTHING CAME UP
+· no system switcher here** on it. A dead button that admits it is dead costs a tap. A missing one
+costs the feature.
 
-**Two new grants, and the ADB screen has them.** `READ_CALL_LOG` is what makes the number on that
-broadcast non-empty — Android P moved it behind that permission — and `READ_CONTACTS` is the name.
-Both are in the one-tap run with the rest. Without them the card falls back to exactly what it says
-today, so an ungranted phone is no worse off than it was; the diagnostics log says `tel=NO GRANT`
-so the reason is on the screen rather than a guess.
+**Hold it for App info.** The system's own application page for whichever app the selection is on,
+which is where AOSP keeps a Force stop button — the real one, the same act the switcher's hold
+reaches for over adb. On a phone with no paired shell that hold can only background an app and says
+so; this is the two-tap way to do the whole thing, with nothing to pair and nothing to grant.
 
-**And the in-call screen: `showInCallScreen` was being believed.** With no notification there was no
-full-screen intent and no content intent to send, so the whole hand-off rested on
-`TelecomManager.showInCallScreen`, which returns nothing, reports nothing, and is only a request
-passed to the dialer's in-call service. On a phone where that request goes unanswered, a call was
-answered into a stock lock screen: the face had stood down, and nothing had come up behind it.
+It is one button with two answers rather than two rows, and the hold is written on it in the
+second line, because the hold is the more useful half and a hold nobody knows about is a feature
+nobody has. Both re-arm the idle timer instead of closing the list: asking for another screen is not
+the same as being done with this one, and the answer has to be able to land back here.
 
-It is still asked, and it is no longer believed. When nothing verifiable fired, the face goes and
-fetches the dialer itself — resuming its task, which during a call is the call screen, and on this
-phone is the one LightOS activity that draws the ring, the call and the lock screen in turn. That
-route is only ever reached on a phone that posted no call notification, so a dialer that would have
-landed on a keypad instead of a call never gets there.
-
-**A line in the log saying what the phone actually said.** `note=none who=- fsi=- tel=ok name=yes
-dialer=lightos`, once per ring and again on a failed hand-off. Both previous attempts at this card
-were aimed at the wrong half of the problem, and the reason is that this line did not exist. Shake
-to report carries it now.
+**The row count knows about it.** [capacity] measures how many rows fit from the panel height and
+the type scale, and it now subtracts the button as well as the header and the hint. A row this
+arithmetic forgets is a row below the fold of a list that cannot be scrolled with a finger, and it
+is always the app furthest back — the one the switcher exists for.

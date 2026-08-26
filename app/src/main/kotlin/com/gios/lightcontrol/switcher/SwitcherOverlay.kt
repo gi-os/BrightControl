@@ -29,10 +29,18 @@ import com.gios.lightcontrol.lock.LightType
  * cannot disturb the list it is showing: an activity would push itself onto the recents order it
  * exists to display, so the switcher would always be the last thing you used.
  *
- * `performGlobalAction(GLOBAL_ACTION_RECENTS)` is deliberately not what this does. That asks
- * SystemUI for a recents screen and this phone ships no such screen: the call returns true for
- * "injected" and nothing appears, which is the worst answer available — a gesture that reports
- * success and does nothing.
+ * `performGlobalAction(GLOBAL_ACTION_RECENTS)` is deliberately not what the home button does.
+ * That asks SystemUI for a recents screen and this phone appears to ship no such screen: the call
+ * returns true for "injected" and nothing appears, which is the worst answer available — a gesture
+ * that reports success and does nothing.
+ *
+ * It is on the screen anyway, as **a button at the bottom rather than the gesture itself**, because
+ * "appears to ship no such screen" is a conclusion drawn from one firmware and the cost of being
+ * wrong about it is a phone that hides a working switcher. The difference is that a button can be
+ * held to its answer: the service asks, waits, and if nothing came forward it puts this list back
+ * with a line saying so. A dead button that admits it is dead costs a tap; a missing one costs the
+ * feature. Holding that button opens the system's App info page for the selected app, which is
+ * where AOSP keeps a Force stop that needs no adb at all.
  *
  * ### What it takes
  *
@@ -71,10 +79,23 @@ class SwitcherOverlay(private val context: Context) {
      */
     var onStop: ((String) -> Unit)? = null
 
+    /** The bottom button was tapped: ask the system for its own recents. */
+    var onSystem: (() -> Unit)? = null
+
+    /** The bottom button was held: the system's App info page, for the selected app. */
+    var onAppInfo: ((String) -> Unit)? = null
+
     val showing: Boolean get() = root != null
 
     /** The package under the selection, or null when nothing is up. */
     val selected: String? get() = entries.getOrNull(index)?.pkg
+
+    /**
+     * The list as it stands, for a caller that is about to take the window down and may need to
+     * put it back. [hide] clears the entries with the views, so anything meaning to return has to
+     * hold its own copy — see `ControlService.openSystemSwitcher`.
+     */
+    fun snapshot(): List<Entry> = entries
 
     private val idle = Runnable { hide() }
 
@@ -98,8 +119,14 @@ class SwitcherOverlay(private val context: Context) {
         val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
         val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
         val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
+        // The way-out button, which is two lines of its own plus the air above it. Counted here
+        // for the same reason the header and the hint are: a row this arithmetic forgets about is
+        // a row drawn below the fold of a list that cannot be scrolled by finger, and it is always
+        // the app furthest back -- the one a switcher is for.
+        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING * 2f +
+            type.gridPx(2f) + type.gridPx(0.25f)
         val padding = type.gridPx(3f) + type.gridPx(3f)
-        val room = metrics.heightPixels - padding - labelPx - hintPx
+        val room = metrics.heightPixels - padding - labelPx - hintPx - buttonPx
         if (rowPx <= 0f) return FLOOR
         return (room / rowPx).toInt().coerceIn(FLOOR, CEILING)
     }
@@ -305,6 +332,7 @@ class SwitcherOverlay(private val context: Context) {
                 col.addView(this)
             }
         }
+        col.addView(systemButton())
         col.addView(
             TextView(context).apply {
                 text = "Wheel to move · click to open · hold to stop · home to close"
@@ -325,6 +353,69 @@ class SwitcherOverlay(private val context: Context) {
             col.addView(this)
         }
         paint()
+    }
+
+    /**
+     * The way out to the system's own screens, drawn as one button with two answers.
+     *
+     * Below the rows on purpose. Everything above it is this app's switcher, which is the thing
+     * that works on this phone; this is the door to the platform's version, for the firmware where
+     * it exists and for the App info page, which exists everywhere. Its own second line rather
+     * than a longer hint at the bottom: the hold is the more useful of the two answers and a hold
+     * nobody knows about is a feature nobody has.
+     *
+     * Touchable, like the rows, and it re-arms the idle timer rather than closing — asking for
+     * another screen is not the same as being done with this one, and the answer to "did anything
+     * happen" has to be able to land back here.
+     */
+    private fun systemButton(): View = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(0, type.gridPx(2f), 0, 0)
+        isClickable = true
+        addView(
+            TextView(context).apply {
+                text = "SYSTEM SWITCHER"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
+                typeface = type.medium
+                letterSpacing = type.buttonTracking
+            },
+        )
+        addView(
+            TextView(context).apply {
+                text = "hold for app info"
+                setTextColor(DIM)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
+                typeface = type.regular
+                setPadding(0, type.gridPx(0.25f), 0, 0)
+            },
+        )
+        setOnClickListener {
+            arm()
+            runCatching { onSystem?.invoke() }
+        }
+        setOnLongClickListener {
+            val pkg = selected ?: return@setOnLongClickListener true
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            arm()
+            runCatching { onAppInfo?.invoke(pkg) }
+            true
+        }
+    }
+
+    /**
+     * Put a line on the bottom of the list, with no app attached to it.
+     *
+     * [stopped] is the same idea bound to a package and to a row that may have to go. This is for
+     * an answer about the screen itself — that the system had no switcher to show, that a page
+     * could not be opened — where there is nothing to remove and nothing to rebuild.
+     */
+    fun note(text: String) {
+        status?.let {
+            it.text = text
+            it.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+        }
+        arm()
     }
 
     /**
