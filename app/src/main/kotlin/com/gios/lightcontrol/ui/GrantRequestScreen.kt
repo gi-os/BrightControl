@@ -351,7 +351,12 @@ fun GrantRequestScreen(
                                 enabled = !GrantRun.stopRequested,
                                 modifier = Modifier.fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                            ) { GrantRun.stop() }
+                            ) {
+                                GrantRun.stop()
+                                // The coroutine is still unwinding somewhere; this screen stops
+                                // waiting for it. Its results will be dropped on arrival.
+                                busy = false
+                            }
                         }
                         BigButton(
                             label = when {
@@ -374,6 +379,7 @@ fun GrantRequestScreen(
                         ) {
                             busy = true
                             GrantRun.start(pkg, parsed.steps.size)
+                            val generation = GrantRun.current
                             scope.launch {
                                 // Reconnect rather than probe. The daemon's listener does not
                                 // survive leaving the Wireless-debugging screen, so a connection
@@ -430,7 +436,7 @@ fun GrantRequestScreen(
                                     }
                                 }
                                 val out = collected.toList()
-                                GrantRun.finished(out)
+                                GrantRun.finished(generation, out)
                                 // Held only if nothing got through at all. One step failing is a
                                 // grant that did not take; every step failing on a socket error is
                                 // a connection, and those read differently on the page.

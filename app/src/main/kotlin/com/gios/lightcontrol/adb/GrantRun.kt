@@ -80,9 +80,28 @@ object GrantRun {
     var stopRequested by mutableStateOf(false)
         private set
 
+    /**
+     * Let go now, and let the abandoned work die in its own time.
+     *
+     * ### Why stopping cannot mean waiting
+     *
+     * The point of STOP is to get the buttons back. Waiting for the work to *notice* does not do
+     * that: a command is blocked in a read with a deadline of up to forty-five seconds, and a
+     * lookup already inside mDNS discovery cannot be interrupted at all. Every version of this that
+     * marked the run "stopping" and waited for the loop to agree left the screen exactly as stuck as
+     * before, which is what got reported three times.
+     *
+     * So the run is declared over here, immediately. The socket is closed, nothing further starts,
+     * and whatever is still unwinding in the background is *abandoned* rather than awaited — its
+     * results are dropped on arrival by the generation check in [finished], so a stopped run can
+     * never overwrite the one somebody starts a second later.
+     */
     fun stop() {
         stopRequested = true
-        say("· stopping — closing the connection to end the command")
+        // Over, as far as the screen is concerned. This is the line that gives the buttons back.
+        phase = Phase.Done
+        generation++
+        say("· stopped — the connection was closed; anything still running has been abandoned")
         // Not `reset()`: that closes the socket and leaves [AdbManager.runVia] free to treat the
         // closure as an ordinary dead socket, reconnect, and run the command again — which is
         // precisely what made the first STOP button appear to do nothing. `abort` closes the socket
@@ -90,7 +109,14 @@ object GrantRun {
         runCatching { AdbManager.abort() }
     }
 
+    /**
+     * Which run this is. Bumped by [start] and by [stop], so results arriving from a run nobody is
+     * waiting for any more can be told apart from the current one's and dropped.
+     */
+    private var generation = 0
+
     fun start(pkg: String, steps: Int) {
+        generation++
         stopRequested = false
         // A stop from a previous run must not cancel this one before it starts.
         runCatching { AdbManager.clearAbort() }
@@ -117,12 +143,24 @@ object GrantRun {
         saying = (saying + line).takeLast(KEEP_LINES)
     }
 
-    fun finished(results: List<StepResult>) {
+    /**
+     * The results of a run, taken only if it is still the run in progress.
+     *
+     * [generation] is the whole point: a stopped run's steps keep unwinding for as long as their
+     * deadlines take, and there is nothing to stop them arriving here a minute later, on top of a
+     * run somebody has since started. Dropping them is the only correct thing to do with them —
+     * they describe a question nobody is asking any more.
+     */
+    fun finished(generation: Int, results: List<StepResult>) {
+        if (generation != this.generation) return
         this.results = results
         phase = Phase.Done
-        if (stopRequested) say("· stopped")
         stopRequested = false
     }
+
+    /** The generation a run should carry back to [finished]. Read once, as the run starts. */
+    val current: Int
+        get() = generation
 
     /** Forget a run belonging to a different request, so nothing stale is shown as current. */
     fun clearIfNot(pkg: String) {

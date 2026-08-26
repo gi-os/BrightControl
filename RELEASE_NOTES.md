@@ -1,35 +1,30 @@
-## BrightControl v3.61 — STOP reaches the slow part, and a silent reader says what it saw
+## BrightControl v3.62 — STOP gives the buttons back immediately
 
-**STOP was checked everywhere except where the time goes.** `runVia` and the command runner both
-honoured it; `ensureAlive` did not — and with nothing to connect to, that is where a batch lives:
-twelve seconds of mDNS discovery per step, nine steps, nearly two minutes of a button that has
-already been pressed. The check now sits at the top of it, between each probe, and immediately in
-front of the lookup itself. Discovery cannot be interrupted once it has started, so the worst a stop
-costs is the one lookup already running — and the button says `STOPPING…` while that finishes,
-because a button that has heard you and is waiting is a different thing from a button that ignored
-you.
+*"When stop happens we should be able to press the buttons again — that's the main goal."* That is a
+different requirement from the one the last two releases were solving, and it is the right one.
 
-**And the reader going quiet is no longer indistinguishable from working.** v3.59 stopped it
-reporting the Wireless-debugging list as an unreadable dialog, which was right — that screen has
-never carried a code. But it took the signal with it: a ninety-second window ending in silence could
-mean the dialog never opened, or opened in a window nobody looked at, or that nobody ever got there.
+Every version so far treated stopping as a request the work had to *notice*: set a flag, close the
+socket, wait for the loop to agree. That cannot give the buttons back, because a command is blocked
+in a read with a deadline of up to forty-five seconds and a lookup already inside mDNS discovery
+cannot be interrupted at all. The screen stayed exactly as stuck as before, which is why STOP got
+reported three times.
 
-So the window now remembers the heading of every screen it read, and says so when it expires:
+**So the run is declared over the moment you press it.** The socket closes, nothing further starts,
+the phase goes to Done, and the buttons come back — while whatever is still unwinding in the
+background is *abandoned* rather than awaited.
 
+**Abandoned work must not come back to haunt the next attempt**, and that is the only subtle part. A
+stopped run's steps keep going for as long as their deadlines take, and nothing stops their results
+arriving a minute later, on top of a run you have since started. Each run now carries a generation
+number, bumped by both starting and stopping:
+
+```kotlin
+fun finished(generation: Int, results: List<StepResult>) {
+    if (generation != this.generation) return   // a question nobody is asking any more
+    …
+}
 ```
-Could not find the pairing dialog in 90 seconds.
 
-windows seen while waiting:
-Wireless debugging
-Developer options
-Pair device with pairing code
-```
-
-Three lines that separate three completely different problems. And if the list comes back empty —
-*"no Settings window was read at all"* — the answer is not the reader at all, it is that the pairing
-helper is not running, which is a switch in Accessibility rather than a bug in here.
-
-**Where this stands, plainly:** there is still no pairing on disk, so every grant and every relayed
-request will keep reporting a connection that is gone, correctly. The one action that can change that
-is PAIR AUTOMATICALLY. If it fails again, this release makes the failure say which of the three
-things it was.
+Late results from a stopped run are dropped on arrival. Press STOP, press RUN again straight away,
+and the second run owns the screen — no crossed wires, no results from the run you cancelled
+appearing under the one you did not.

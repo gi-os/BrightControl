@@ -560,7 +560,11 @@ fun AdbScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 ) {
                     GrantRun.stop()
-                    say("stopping — the connection was closed to end the command")
+                    say("stopped — the connection was closed; the buttons are yours again")
+                    // Released here rather than when the work finishes noticing. A batch with no
+                    // connection spends twelve seconds a step inside a lookup that cannot be
+                    // interrupted, and waiting for it is what made STOP feel like nothing.
+                    busy = false
                 }
                 Rule()
             }
