@@ -36,6 +36,7 @@ fun HomeScreen(
     onGuide: () -> Unit,
     onButtons: () -> Unit,
     onWheel: () -> Unit,
+    onBackSwipe: () -> Unit,
     onBrightness: () -> Unit,
     onColor: () -> Unit,
     onLock: () -> Unit,
@@ -136,6 +137,12 @@ fun HomeScreen(
                 sub = "what a turn means, per-app, and how far a notch scrolls",
                 detail = "›",
                 onClick = onWheel,
+            )
+            MenuRow(
+                label = "Swipe back",
+                detail = if (prefs.backSwipe) "ON" else "›",
+                sub = "a back gesture on a phone with no back button",
+                onClick = onBackSwipe,
             )
             MenuRow(
                 label = "Brightness",

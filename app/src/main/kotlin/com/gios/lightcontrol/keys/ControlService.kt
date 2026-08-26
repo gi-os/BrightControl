@@ -174,6 +174,12 @@ class ControlService : AccessibilityService() {
     /** The app switcher, opened by pressing home twice. Also a window, not an activity. */
     private lateinit var switcher: SwitcherOverlay
 
+    /**
+     * The edge strip that goes back. Off unless [Prefs.backSwipe] is on, and never up over a
+     * hands-off app or a locked phone. See [refreshBackSwipe].
+     */
+    private lateinit var backSwipe: BackSwipe
+
     /** Whether the phone is ringing or on a call, and how to answer. See [LockCall]. */
     private lateinit var lockCall: LockCall
 
@@ -271,11 +277,18 @@ class ControlService : AccessibilityService() {
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
         switcher = SwitcherOverlay(this)
+        // The back gesture. The strip reports the stroke; the service performs the action, so this
+        // goes through the same one log line every other dispatch in this app does.
+        backSwipe = BackSwipe(this)
+        backSwipe.onBack = { performBack() }
+        backSwipe.onCancelled = { log("swipe back · stroke was a scroll, dropped") }
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
         switcher.onSystem = { runCatching { openSystemSwitcher() } }
         switcher.onAppInfo = { pkg -> runCatching { openAppInfo(pkg) } }
+        // A full-screen window above the strip. See [SwitcherOverlay.onVisibilityChanged].
+        switcher.onVisibilityChanged = { runCatching { refreshBackSwipe() } }
         // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
         // (its resume list and snapshot), so the face only tells it the hold completed.
         lockFace.onEnter = { runCatching { homeFromLock() } }
@@ -308,6 +321,9 @@ class ControlService : AccessibilityService() {
         // events from this package are transient by policy, because the overlays this service
         // owns raise them too. See [OwnWindow.onResumed].
         OwnWindow.onResumed = { runCatching { recents.note(packageName) } }
+        // The back strip is a window, so a setting that switches it on has to be acted on while
+        // the settings screen is still in front. Nothing else in this app needs telling.
+        OwnWindow.onSettingChanged = { runCatching { handler.post { refreshBackSwipe() } } }
         recoverForeground()
         runCatching { colorMode.applyFor(foreground) }
         scheduleColorReasserts()
@@ -346,6 +362,9 @@ class ControlService : AccessibilityService() {
                 registerReceiver(screenOff, filter)
             }
         }
+        // The strip belongs up from the moment the service binds, for the app [recoverForeground]
+        // just guessed at. A rebind is an app update, and the phone is usually awake for it.
+        refreshBackSwipe()
     }
 
     /**
@@ -442,6 +461,8 @@ class ControlService : AccessibilityService() {
         // Reaching anywhere that isn't LightOS ends a visit — most naturally by opening an app
         // from LightOS's own menu, which is one of the two ways out.
         if (visitingLightOs && !pkg.startsWith(LIGHTOS)) visitingLightOs = false
+        // The back strip is per-app, so this is where it goes up and comes down.
+        refreshBackSwipe()
     }
 
     /**
@@ -534,6 +555,11 @@ class ControlService : AccessibilityService() {
     private fun onUserPresent() {
         val wasUp = lockFace.showing || lockFace.dismissed()
         handler.removeCallbacks(lockWatch)
+        // Rows waved off the face that the platform would not really cancel are held out for the
+        // locked session and no longer. Cleared here rather than at screen off, so the same
+        // notification does not come back on the face two seconds after being waved away. See
+        // [LockNotes.dismiss].
+        runCatching { LockNotes.clearSessionHides() }
         if (!wasUp) return
         // Unlocked -- but do not rip the face away. The keyguard authenticated in the background
         // and the phone is open, yet the notifications on the face are the reason it exists, and an
@@ -629,6 +655,8 @@ class ControlService : AccessibilityService() {
         handler.removeCallbacks(coverTimeout)
         val gone = runCatching { lockFace.hide() }.getOrDefault(false)
         if (!gone) log("unlocked · face WOULD NOT GO")
+        // The face was what was refusing the strip. See [showLockFace] for the other half.
+        refreshBackSwipe()
     }
 
     private val coverTimeout = Runnable {
@@ -668,6 +696,72 @@ class ControlService : AccessibilityService() {
         getSystemService(PowerManager::class.java)?.isInteractive == true
     }.getOrDefault(false)
 
+    // ------------------------------------------------------------------- swipe back
+
+    /**
+     * Put the back strip up or down to match the app in front.
+     *
+     * Called on every window-state event, every screen change and every unlock, rather than only
+     * when something is known to have changed. [BackSwipe.set] is a null check and two comparisons
+     * when the state already matches, and stating the desired state instead of toggling it is the
+     * lesson [ColorMode] paid for: a feature driven by transitions is a feature that gets stranded
+     * by one missed edge, and a stranded overlay here would eat the left edge of an app it was
+     * never meant to be over.
+     */
+    private fun refreshBackSwipe() {
+        runCatching {
+            val front = if (OwnWindow.resumed) packageName else foreground
+            backSwipe.set(
+                wanted = backSwipeWanted(front),
+                widthDp = prefs.backSwipeWidthDp,
+                triggerDp = prefs.backSwipeTriggerDp,
+                slopDp = BACK_SLOP_DP,
+                showIndicator = prefs.backSwipeIndicator,
+            )
+        }
+    }
+
+    /**
+     * Whether the strip belongs on screen right now.
+     *
+     * The master switch and [dormant] are checked here as well as in the key filter, because
+     * "this app does nothing" has to mean nothing -- including taking a touch.
+     *
+     * Two of these refusals are about windows this app owns rather than about the app in front.
+     * The lock face and the app switcher are full-screen windows at a layer *above* the strip, so
+     * a strip left up under them would be an invisible column of the screen that swallowed
+     * touches aimed at a list -- and the face has its own swipe gestures on its own rows.
+     */
+    private fun backSwipeWanted(front: String?): Boolean {
+        if (!prefs.enabled || !prefs.backSwipe) return false
+        if (dormant()) return false
+        if (!interactive()) return false
+        if (lockFace.showing || switcher.showing) return false
+        // Asked per call rather than watched, exactly as the key filter asks it: the keyguard
+        // changes with no window-state event this service can see.
+        val locked = runCatching {
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        }.getOrDefault(false)
+        if (locked) return false
+        return Policy.backSwipeAllowed(prefs, front)
+    }
+
+    /**
+     * Go back.
+     *
+     * `GLOBAL_ACTION_BACK` rather than an injected key: injection is signature-only, and the
+     * global action is the one route an accessibility service has. Note what its return value
+     * means, which is less than it looks -- true says the action was dispatched, not that anything
+     * went back. An app on its first screen will accept a back and do nothing with it, and that is
+     * indistinguishable from here. So the log line says dispatched, and the indicator only reports
+     * "NO BACK" for the case the platform actually refused.
+     */
+    private fun performBack(): Boolean {
+        val ok = runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
+        log("swipe back" + if (ok) "" else " · refused")
+        return ok
+    }
+
     /**
      * Screen off, screen on, and the unlock.
      *
@@ -686,6 +780,11 @@ class ControlService : AccessibilityService() {
                     Intent.ACTION_SCREEN_ON -> onScreenOn()
                     Intent.ACTION_USER_PRESENT -> onUserPresent()
                 }
+                // After all three, and outside them, because [onScreenOn] returns early on a
+                // phone with no lock face and [onUserPresent] returns early when the face was
+                // never up -- and the back strip is not the lock face's business. Screen off
+                // takes it down, an unlock puts it back.
+                refreshBackSwipe()
             }
         }
     }
@@ -1606,6 +1705,7 @@ class ControlService : AccessibilityService() {
         }
         Lock.pending = null
         OwnWindow.onResumed = null
+        OwnWindow.onSettingChanged = null
         handler.removeCallbacks(colorReassert)
         handler.removeCallbacks(colorObserverReassert)
         handler.removeCallbacks(lockWatch)
@@ -1618,6 +1718,9 @@ class ControlService : AccessibilityService() {
         // Both windows this service owns come down with it. One left behind is a black screen
         // with nothing bound to the keys that would have closed it.
         runCatching { switcher.hide() }
+        // And the strip, which would be worse than a black screen: an invisible column down the
+        // left edge of every app, swallowing touches, with no service left to answer them.
+        runCatching { backSwipe.dismiss() }
         keyguardListener?.let { listener ->
             keyguardListener = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -2173,6 +2276,10 @@ class ControlService : AccessibilityService() {
                 lockMisses = 0
             }
         }
+        // The face can go up with the screen already on -- the keyguard re-locking under an app is
+        // the case -- and a back strip left under it would be an invisible column swallowing the
+        // touches the face's own row gestures are made of.
+        refreshBackSwipe()
     }
 
     /**
@@ -2360,6 +2467,13 @@ class ControlService : AccessibilityService() {
 
         /** How recently LightOS must have come forward to be read as its lock screen arriving. */
         const val LOCK_GRACE_MS = 2_000L
+
+        /**
+         * How far up or down, in dp, gives an edge stroke away as a scroll rather than a back
+         * gesture. Not a setting: unlike the width and the trigger, nobody has an opinion about
+         * this number, and every value that works is close to this one.
+         */
+        const val BACK_SLOP_DP = 34
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L

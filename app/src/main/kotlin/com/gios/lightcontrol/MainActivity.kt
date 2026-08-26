@@ -19,6 +19,8 @@ import com.gios.lightcontrol.keys.LightKeys
 import com.gios.lightcontrol.keys.OwnWindow
 import com.gios.lightcontrol.ui.AdbScreen
 import com.gios.lightcontrol.ui.AppListScreen
+import com.gios.lightcontrol.ui.BackAppListScreen
+import com.gios.lightcontrol.ui.BackSwipeScreen
 import com.gios.lightcontrol.ui.BrightnessScreen
 import com.gios.lightcontrol.ui.ButtonsScreen
 import com.gios.lightcontrol.ui.ColorAppListScreen
@@ -27,6 +29,7 @@ import com.gios.lightcontrol.ui.DiagnosticsScreen
 import com.gios.lightcontrol.ui.GrantRequestScreen
 import com.gios.lightcontrol.ui.HomeScreen
 import com.gios.lightcontrol.ui.IntroScreen
+import com.gios.lightcontrol.ui.LockAppsScreen
 import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.LockScreenScreen
 import com.gios.lightcontrol.ui.PickerScreen
@@ -60,11 +63,14 @@ private sealed interface Screen {
     data object Buttons : Screen
     data object Wheel : Screen
     data object PerAppWheel : Screen
+    data object Back : Screen
+    data object PerAppBack : Screen
     data object Brightness : Screen
     data object Volume : Screen
     data object Color : Screen
     data object PerAppColor : Screen
     data object Lock : Screen
+    data object LockApps : Screen
     data object Background : Screen
     data object ResumeApps : Screen
     data object ResumeFallback : Screen
@@ -188,6 +194,7 @@ class MainActivity : ComponentActivity() {
                             onGuide = { screen = Screen.Intro },
                             onButtons = { screen = Screen.Buttons },
                             onWheel = { screen = Screen.Wheel },
+                            onBackSwipe = { screen = Screen.Back },
                             onBrightness = { screen = Screen.Brightness },
                             onColor = { screen = Screen.Color },
                             onLock = { screen = Screen.Lock },
@@ -217,6 +224,13 @@ class MainActivity : ComponentActivity() {
 
                         Screen.PerAppWheel -> AppListScreen(onBack = { screen = Screen.Wheel })
 
+                        Screen.Back -> BackSwipeScreen(
+                            onPerApp = { screen = Screen.PerAppBack },
+                            onBack = home,
+                        )
+
+                        Screen.PerAppBack -> BackAppListScreen(onBack = { screen = Screen.Back })
+
                         Screen.Brightness -> BrightnessScreen(onBack = home)
 
                         Screen.Volume -> VolumeScreen(onBack = home)
@@ -233,8 +247,11 @@ class MainActivity : ComponentActivity() {
                             onBackground = { screen = Screen.Background },
                             onResumeApps = { screen = Screen.ResumeApps },
                             onResumeFallback = { screen = Screen.ResumeFallback },
+                            onHiddenApps = { screen = Screen.LockApps },
                             onBack = home,
                         )
+
+                        Screen.LockApps -> LockAppsScreen(onBack = { screen = Screen.Lock })
 
                         Screen.Background -> LockBackgroundScreen(onClose = { screen = Screen.Lock })
 
@@ -342,7 +359,9 @@ class MainActivity : ComponentActivity() {
 /** Where Back goes from each screen. Most return to Home; a few hang off a parent list. */
 private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.PerAppWheel -> Screen.Wheel
+    Screen.PerAppBack -> Screen.Back
     Screen.PerAppColor -> Screen.Color
+    Screen.LockApps -> Screen.Lock
     Screen.Background -> Screen.Lock
     Screen.ResumeFallback -> Screen.ResumeApps
     is Screen.Pick -> if (screen.fromSettings) Screen.Home else Screen.Buttons

@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.telecom.TelecomManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.gios.lightcontrol.Prefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,6 +101,61 @@ object LockNotes {
     val notes: StateFlow<List<LockNote>> = state.asStateFlow()
 
     /**
+     * Every package with something in the shade right now, filtered or not.
+     *
+     * Published from the raw list, *before* [LockNotifications.keep] has taken anything out, which
+     * is the whole point: the settings screen that hides an app by name has to be able to name the
+     * app whose notification is being hidden, and the interesting ones are exactly the ones the
+     * filter is already dropping. Without this the list of sources would only ever contain the
+     * notifications nobody wanted to hide.
+     */
+    private val seen = MutableStateFlow<Set<String>>(emptySet())
+    val sources: StateFlow<Set<String>> = seen.asStateFlow()
+
+    /**
+     * Notifications waved off the face that the platform would not cancel.
+     *
+     * An app can mark a notification un-clearable, and the platform's way of refusing
+     * `cancelNotification` is to simply not remove it — so a swipe on such a row did nothing at
+     * all, the rebuild that followed still contained it, and the row sat there looking as though
+     * the gesture had failed. LightOS's own always-running notice is one of these.
+     *
+     * So a swipe now always removes the row, and for these it is removed *here*: kept out of the
+     * list for as long as the phone stays locked, and forgotten at the next unlock. Deliberately
+     * not stored. A lock face keeping its own permanent record of what you had waved away is a
+     * face that disagrees with the shade, with Glance and with the app that posted it — which is
+     * the reason [dismiss] cancels for real wherever it can, and why hiding an app for good is a
+     * setting the user makes rather than a side effect of a swipe.
+     */
+    @Volatile
+    private var hiddenKeys: Set<String> = emptySet()
+
+    internal fun keyHidden(key: String): Boolean = key in hiddenKeys
+
+    /** Called at the unlock. Everything waved away while locked comes back to the shade. */
+    fun clearSessionHides() {
+        if (hiddenKeys.isEmpty()) return
+        hiddenKeys = emptySet()
+        rebuild()
+    }
+
+    /**
+     * Read the shade again and republish.
+     *
+     * For the settings screen: hiding an app has to take the row off a face that may well be up
+     * behind these settings, and nothing else would tell the listener that the rule it filters by
+     * has changed. A no-op when nothing is bound.
+     */
+    fun rebuild() {
+        runCatching { service?.refresh() }
+    }
+
+    internal fun publishSources(packages: Set<String>) {
+        if (seen.value == packages) return
+        seen.value = packages
+    }
+
+    /**
      * Told on the listener's thread whenever the list is rebuilt.
      *
      * The `StateFlow` above is still what the face reads; this is only the nudge to go and read it.
@@ -139,12 +195,21 @@ object LockNotes {
      * remembered here; the removal comes back through [publish] like any other change.
      *
      * A notification whose app marked it un-clearable will not go, and the platform says so by
-     * simply not removing it. The face finds that out the same way it finds out about everything
-     * else: the rebuild that follows still contains it.
+     * simply not removing it — the rebuild that follows still contains it, which for a whole
+     * release read on the phone as the swipe not working. So the row is *also* held out locally
+     * for the rest of the locked session; see [hiddenKeys] for why that is not stored.
+     *
+     * The return value is still whether the real cancel took, because that is what the log line
+     * is for. The row goes either way.
      */
     fun dismiss(key: String): Boolean {
         val listener = service ?: return false
-        return runCatching { listener.cancelNotification(key); true }.getOrDefault(false)
+        val gone = runCatching { listener.cancelNotification(key); true }.getOrDefault(false)
+        hiddenKeys = hiddenKeys + key
+        // The cancel, if it worked, brings its own rebuild through onNotificationRemoved. This is
+        // for the case where it did not.
+        rebuild()
+        return gone
     }
 
     /**
@@ -212,18 +277,33 @@ class LockNotifications : NotificationListenerService() {
         reason: Int,
     ) = refresh()
 
-    private fun refresh() {
+    internal fun refresh() {
         val active = runCatching { activeNotifications }.getOrNull() ?: return
         val ranking = runCatching { currentRanking }.getOrNull()
         val scratch = Ranking()
         val pm = packageManager
+        // Read per rebuild rather than held. SharedPreferences is an in-memory map after the first
+        // load, and a rule cached here would be a rule that needed the listener rebinding to
+        // change — on a screen whose whole job is changing it.
+        val prefs = Prefs(this)
+        val hiddenApps = prefs.lockHiddenApps()
+        val allowPersistent = prefs.lockPersistent
 
         val dialer = defaultDialer()
         val calls = active.filter { isCall(it, dialer) }
         val callKeys = calls.map { it.key }.toSet()
 
+        // Every package with anything in the shade, before a single rule has been applied. See
+        // [LockNotes.sources].
+        LockNotes.publishSources(
+            active.map { it.packageName }
+                .filterTo(mutableSetOf()) { it != packageName && it != "android" },
+        )
+
         val notes = active
-            .filter { keep(it, ranking, scratch) && it.key !in callKeys }
+            .filter {
+                keep(it, ranking, scratch, hiddenApps, allowPersistent) && it.key !in callKeys
+            }
             .sortedByDescending { it.postTime }
             .map { sbn ->
                 val extras = sbn.notification.extras
@@ -360,19 +440,33 @@ class LockNotifications : NotificationListenerService() {
         }
     }.getOrNull().orEmpty()
 
-    private fun keep(sbn: StatusBarNotification, ranking: RankingMap?, scratch: Ranking): Boolean {
+    private fun keep(
+        sbn: StatusBarNotification,
+        ranking: RankingMap?,
+        scratch: Ranking,
+        hiddenApps: Set<String>,
+        allowPersistent: Boolean,
+    ): Boolean {
         val n = sbn.notification ?: return false
         if (sbn.packageName == packageName) return false
         if (sbn.packageName == "android") return false
+        // Hidden by the user, by name. Above every other rule, because it is the one rule the user
+        // stated in as many words.
+        if (sbn.packageName in hiddenApps) return false
+        // Waved off the face during this locked session. See [LockNotes.dismiss].
+        if (LockNotes.keyHidden(sbn.key)) return false
         if (sbn.tag == "ranker_group") return false
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
-        if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return false
-        if (n.flags and Notification.FLAG_FOREGROUND_SERVICE != 0) return false
+        // The always-running kind. Dropped unless asked for -- and note that the test grew a third
+        // flag: FLAG_NO_CLEAR is neither ongoing nor a foreground service, and it is what LightOS
+        // puts on its own permanent notice. That notice therefore passed every check here, landed
+        // on the face, and could not be swiped off, because the platform refuses to cancel an
+        // un-clearable notification by not removing it. See [NoteFilter.isPersistent].
+        if (NoteFilter.isPersistent(n.flags, n.category) && !allowPersistent) return false
         if (n.category == Notification.CATEGORY_TRANSPORT) return false
         // A call has its own card on the face, with buttons. Listed as well it would be the same
         // call twice, once with something to press and once without.
         if (n.category == Notification.CATEGORY_CALL) return false
-        if (n.category == Notification.CATEGORY_SERVICE) return false
         // No ranking entry fails open. The checks above have already taken out the genuinely
         // noisy cases, and dropping something because the ranker had not caught up yet would
         // hide exactly the notification that just arrived.
@@ -381,6 +475,37 @@ class LockNotifications : NotificationListenerService() {
         return scratch.importance >= NotificationManager.IMPORTANCE_DEFAULT
     }
 
+}
+
+/**
+ * Which notifications are the always-running kind.
+ *
+ * Its own object so it can be tested without a phone, and so the three flags that mean "permanent"
+ * are named in one place. They are not interchangeable and the list was short by one:
+ *
+ *  - `FLAG_ONGOING_EVENT` — the app says something is in progress.
+ *  - `FLAG_FOREGROUND_SERVICE` — the platform adds it to whatever a foreground service posts.
+ *  - `FLAG_NO_CLEAR` — **the one that was missing.** It says nothing about progress; it says the
+ *    notification cannot be dismissed. LightOS's own permanent notice sets this and neither of the
+ *    others, so it passed every check the filter had, landed on the lock face at full importance,
+ *    and then could not be swiped away: `cancelNotification` on an un-clearable notification is
+ *    refused by the platform simply not removing it, so the rebuild brought the row straight back.
+ *    Reported from a real phone as the lock screen showing a LightOS notification that would not
+ *    go.
+ *
+ * `CATEGORY_SERVICE` is here too, for an app that describes itself that way without setting a
+ * flag. `CATEGORY_TRANSPORT` deliberately is **not**: what is playing has its own row on the face,
+ * with controls, and it is dropped from the list whether or not persistent notifications are
+ * wanted.
+ */
+object NoteFilter {
+
+    fun isPersistent(flags: Int, category: String?): Boolean {
+        if (flags and Notification.FLAG_ONGOING_EVENT != 0) return true
+        if (flags and Notification.FLAG_FOREGROUND_SERVICE != 0) return true
+        if (flags and Notification.FLAG_NO_CLEAR != 0) return true
+        return category == Notification.CATEGORY_SERVICE
+    }
 }
 
 /**

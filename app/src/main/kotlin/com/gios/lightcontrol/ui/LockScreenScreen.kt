@@ -19,6 +19,7 @@ fun LockScreenScreen(
     onBackground: () -> Unit,
     onResumeApps: () -> Unit,
     onResumeFallback: () -> Unit,
+    onHiddenApps: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -31,6 +32,8 @@ fun LockScreenScreen(
     var lockMedia by remember { mutableStateOf(prefs.lockMedia) }
     var lockCalls by remember { mutableStateOf(prefs.lockCalls) }
     var lockHold by remember { mutableStateOf(prefs.lockHoldToEnter) }
+    var lockPersistent by remember { mutableStateOf(prefs.lockPersistent) }
+    val hiddenApps = prefs.lockHiddenApps().size
     val notesGranted = LockNotes.granted(context)
     val hasBackground = LockBackground.has(context)
     val phoneState = context.checkSelfPermission(
@@ -159,6 +162,36 @@ fun LockScreenScreen(
                     prefs.lockNotes = lockNotes
                 },
             )
+            if (lockNotes) {
+                MenuRow(
+                    label = "Permanent notifications",
+                    detail = if (lockPersistent) "SHOWN" else "HIDDEN",
+                    sub = if (lockPersistent) {
+                        "shown. A recording, a download, a navigation -- and anything else an " +
+                            "app keeps in the shade on purpose. These cannot be swiped off for " +
+                            "good: the app put them there and the platform will not cancel them, " +
+                            "so a swipe holds the row out until the next unlock."
+                    } else {
+                        "hidden. The always-running kind, including LightOS's own notice about " +
+                            "itself, which is the one that used to sit on the face with nothing " +
+                            "that would remove it."
+                    },
+                    onClick = {
+                        lockPersistent = !lockPersistent
+                        prefs.lockPersistent = lockPersistent
+                        // The face may well be up behind these settings, and nothing else would
+                        // tell the listener the rule it filters by has changed.
+                        LockNotes.rebuild()
+                    },
+                )
+                MenuRow(
+                    label = "Apps never shown",
+                    detail = if (hiddenApps == 0) "NONE" else "$hiddenApps",
+                    sub = "hide a source by name. Nothing is cancelled and the shade is " +
+                        "untouched -- this only decides what the face draws.",
+                    onClick = onHiddenApps,
+                )
+            }
             MenuRow(
                 label = "Calls",
                 detail = when {

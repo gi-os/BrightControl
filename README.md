@@ -25,6 +25,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | | |
 |---|---|
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
+| **Swipe back** | A back gesture on the left edge, for a phone with no back button. Off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without |
@@ -46,6 +47,7 @@ Out of the box:
 | Tap the home button | Home, whichever launcher is default |
 | Press the home button twice | The app switcher: the apps you have been in, newest first |
 | Hold the home button | The LightOS dashboard, by name. Rebind it to anything |
+| Drag in from the left edge | Nothing, until you switch **Swipe back** on. Then the app goes back |
 | Wake the phone | The stock lock screen. Or a Light face over it, once you turn it on |
 | Volume keys, tap or hold | Passed through, but bindable. The level appears on screen |
 
@@ -283,6 +285,46 @@ This is a home-button action, and it stays off until you bind it. Set **Home but
 inside one of them and the next home press brings it back. The press after that goes home, and
 so does every press once you open something else yourself.
 
+### Swipe back
+
+LightOS has no back button. Its settings hold a gesture-navigation switch, and that switch reaches
+Light's own tools. An app you sideloaded gets nothing from it. An app that pushes a screen and draws
+no arrow of its own is therefore a dead end until you press home.
+
+**Swipe back** puts a strip 14dp wide down the left edge of the screen. Drag it to the right and
+release, and the service performs `GLOBAL_ACTION_BACK`. Crossing the trigger distance arms the
+gesture. The release commits it. A drag that comes back under the trigger disarms, so you can always
+change your mind about a stroke you have started.
+
+A small box follows your thumb while the drag runs. It is an outline while the stroke is short, and
+it turns white and says BACK when a release would go back. The box is not decoration. An armed state
+that nothing on screen reports is a gesture you cannot aim.
+
+**This is the one feature here that takes a touch, and it must be described exactly.** No API lets
+an app watch a touch without receiving it. Gesture detection through the accessibility API requires
+touch exploration, which changes how you drive the whole phone. `dispatchGesture` sends touches and
+never receives them. What remains is an overlay window, and an overlay window that receives a touch
+has taken it. A touch cannot be given back after the stroke starts.
+
+So the strip receives every stroke that starts on it, including the ones that turn out to be a
+scroll. `FLAG_NOT_TOUCH_MODAL` keeps every touch outside the strip going where it always went, and
+the window is never focusable, so this can never cost a key. Because the cost is real:
+
+- The feature is **off until you switch it on**, for the same reason the lock face is.
+- The **width is a setting**: 10, 14, 20 or 28dp. That number is the whole cost.
+- **Any app can be left out**, for apps whose left edge is a control of their own.
+- **Light's own software never gets a strip.** It has a back gesture already, on the same edge.
+- **The lock face and the app switcher never get one either.** Both are full-screen windows above
+  the strip, and both use the left edge for their own swipes.
+
+A stroke that moves further up or down than 34dp, and further that way than it moves across, is read
+as a scroll and cancelled for the rest of the stroke. Nothing later in that stroke can revive it. A
+long flick that drifts sideways at the end is exactly the stroke this rule exists for.
+
+`GLOBAL_ACTION_BACK` is a request rather than a result. What an app does with a back belongs to the
+app. Many apps on their first screen accept the action and do nothing with it, and from outside the
+app that looks identical to the gesture working.
+
 ### Scrolling apps that never heard of the wheel
 
 Nothing lets a normal app inject a scroll, because `INJECT_EVENTS` is signature-only. Two
@@ -376,6 +418,27 @@ private list of things you had waved away would disagree with the rest of the ph
 same message back at the next unlock. The player's card is the exception: swiping it away puts the
 card away and does not touch the music, and it comes back when the session has something new to
 say — a different track, or play pressed again in the app.
+
+**Permanent notifications are dropped, and one flag was missing.** The filter tested
+`FLAG_ONGOING_EVENT` and `FLAG_FOREGROUND_SERVICE`. There is a third flag. `FLAG_NO_CLEAR` says
+nothing about progress. It says the notification cannot be dismissed, and it is the flag LightOS puts
+on its own permanent notice. That notice set neither of the two flags being tested, so it passed
+every check, drew on the face at full importance, and then refused to go: the platform declines
+`cancelNotification` on an un-clearable notification by not removing it, and the rebuild brought the
+row back. On the phone that reads as a swipe that does nothing.
+
+`FLAG_NO_CLEAR` now counts as permanent, together with `CATEGORY_SERVICE`. **Permanent
+notifications** is a switch on the Lock screen page, off by default, for the case where the permanent
+notification is the point: a recording, a download, a route. And a swipe always removes the row now.
+Where the real cancel is refused, the row is held out of the list until the next unlock and then
+forgotten. Nothing is stored, because a face with its own permanent record of what you waved away is
+a face that disagrees with the shade.
+
+**Apps never shown** hides a source by name. The list holds every app that has posted anything,
+taken from the raw shade before any of the face's own rules have filtered it, so an app whose
+notification is already dropped is still there to be hidden for good. Hiding a source changes the
+lock face and nothing else. Nothing is cancelled, nothing about the notification is stored, and the
+shade, Glance and the app itself are untouched.
 
 **And the shade is clamped to the room it has.** The list used to draw four rows into whatever
 space was left under the clock and draw them whether they fit or not, so a busy morning showed two
@@ -651,12 +714,15 @@ keys/ControlService.kt     the filter service: gesture split, consume rules, for
 keys/Brightness.kt         system brightness with a derived scale
 keys/ColorMode.kt          per-app color, written as state and never as a transition
 keys/WheelSwipe.kt         the synthetic finger: one continued stroke, tracked and relifted
+keys/BackGesture.kt        one edge stroke, decided with no Android types in it
+keys/BackSwipe.kt          the edge strip and its indicator, as two windows
 keys/Readout.kt            the brightness level, as one reused overlay window
 keys/VolumeHud.kt          the volume level, reported and never adjusted
 keys/CallAudio.kt          the call speaker, put to maximum once per speaker route
 keys/Grants.kt             what is granted, and the volatile own-window flag
 
 lock/LockOverlay.kt        the Light face as a service-owned window at layer 31
+lock/LockNotifications.kt  the shade, filtered; NoteFilter names the three permanence flags
 lock/LockMedia.kt          what is playing, read off the platform media session
 lock/LockCall.kt           whether the phone is ringing, and the two ways to answer it
 lock/MediaGlyph.kt         the transport marks, drawn rather than shipped as drawables
@@ -736,6 +802,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.54 | **A back gesture, and a lock face that stops repeating itself.** A strip on the left edge goes back, with a small box at the thumb that says when a release would commit it. Off by default, because it is the one feature here that receives a touch, and a received touch cannot be handed back. On the lock face, `FLAG_NO_CLEAR` now counts as permanent, which is what LightOS puts on its own always-running notice: that notice passed every check the filter had and could not be swiped off, because the platform refuses to cancel an un-clearable notification by not removing it. Permanent notifications are a switch now, and any app can be hidden from the face by name |
 | v3.49 | **The dismiss swipe goes left.** Same gesture, other direction: a row is pushed off the left edge to clear it, which is the way every other shade on every other phone does it and the way a right thumb travels most easily |
 | v3.48 | **Swipe left to clear a row, and no more half-notifications.** A notification swiped off the face is really cancelled, so it goes from the shade too; the player's card can be swiped away without touching the music and returns on the next track or the next play. The list now measures the space it is given and draws only whole rows — it was drawing four regardless and clipping the last one against a window nothing can scroll. The face also repaints when the shade changes instead of on the next minute tick |
 | v3.42 | **Hold a row for App info, by thumb or by wheel.** The hold used to force stop the app over adb and background it where there was no shell — one gesture, two outcomes, and a message to say which one happened. Settings' App info page carries AOSP's own Force stop, which needs no shell and no permission, so the hold opens that instead and `ForceStop` and `KILL_BACKGROUND_PROCESSES` are gone. The bottom button is tap-only again: a gesture about an app belongs on the app's row, not on the control furthest from it |

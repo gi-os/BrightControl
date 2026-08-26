@@ -745,6 +745,106 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("lock_hold_to_enter", true)
         set(v) = sp.edit().putBoolean("lock_hold_to_enter", v).apply()
 
+    /**
+     * Whether the face lists notifications an app has marked as permanent.
+     *
+     * Off, and that is the same answer the code gave before this became a setting -- the filter
+     * has always dropped `FLAG_ONGOING_EVENT` and `FLAG_FOREGROUND_SERVICE`. What changed is that
+     * `FLAG_NO_CLEAR` is now read as permanent too, which is the flag that had LightOS's own
+     * always-running notice sitting on the face with nothing that would remove it: a swipe asks
+     * the platform to cancel it, the platform refuses an un-clearable notification by simply not
+     * removing it, and the row came straight back looking like the gesture had failed.
+     *
+     * On is for the case where the permanent notification is the point -- a recording in progress,
+     * a download, a navigation. Those are the notifications the shade keeps on purpose, and
+     * somebody who wants them on the lock face should be able to have them.
+     */
+    var lockPersistent: Boolean
+        get() = sp.getBoolean("lock_persistent", false)
+        set(v) = sp.edit().putBoolean("lock_persistent", v).apply()
+
+    /**
+     * Packages whose notifications the face never shows.
+     *
+     * Per app rather than per notification, because the thing being silenced is a *source*: an app
+     * that posts an unwanted notice posts it again. Nothing is cancelled and nothing is hidden
+     * anywhere else -- the shade, Glance and the app itself are untouched, and this only decides
+     * what the lock face draws.
+     */
+    fun lockHiddenApps(): Set<String> = sp.getStringSet(LOCK_HIDDEN, emptySet()) ?: emptySet()
+
+    fun toggleLockHidden(pkg: String) {
+        val next = lockHiddenApps().toMutableSet()
+        if (!next.add(pkg)) next.remove(pkg)
+        sp.edit().putStringSet(LOCK_HIDDEN, next).apply()
+    }
+
+    // ---------------------------------------------------------------- swipe back
+
+    /**
+     * The edge strip that goes back.
+     *
+     * **Off until it is switched on**, and for the same reason the lock face is: everything else
+     * in this app changes what a *key* does, and a key this service declines to take is a key the
+     * app still gets. A touch is not like that. The strip receives the touches that begin on it,
+     * and a received touch cannot be handed back -- so switching this on genuinely does take
+     * something away from every app on the phone, however narrow the strip is. That is a decision
+     * to be made rather than a default to be discovered.
+     *
+     * See [com.gios.lightcontrol.keys.BackSwipe] for what it costs precisely.
+     */
+    var backSwipe: Boolean
+        get() = sp.getBoolean("back_swipe", false)
+        set(v) = sp.edit().putBoolean("back_swipe", v).apply()
+
+    /**
+     * How wide the strip is, in dp. The entire cost of the feature is this number.
+     *
+     * 14 dp by default -- about 3 mm on this panel, narrow enough that nothing is aimed at it and
+     * wide enough that a thumb starting at the edge lands on it. Adjustable because the apps where
+     * the left edge matters vary, and because a thumb varies.
+     */
+    var backSwipeWidthDp: Int
+        get() = sp.getInt("back_swipe_width", 14).coerceIn(6, 40)
+        set(v) = sp.edit().putInt("back_swipe_width", v.coerceIn(6, 40)).apply()
+
+    /**
+     * How far across the drag has to go before lifting means back, in dp.
+     *
+     * 48 dp. Short enough to be one motion of a thumb, long enough that a tap on the edge is not
+     * a navigation. Crossing it arms the gesture rather than firing it -- see [BackGesture].
+     */
+    var backSwipeTriggerDp: Int
+        get() = sp.getInt("back_swipe_trigger", 48).coerceIn(24, 120)
+        set(v) = sp.edit().putInt("back_swipe_trigger", v.coerceIn(24, 120)).apply()
+
+    /**
+     * Whether the small box appears at the thumb while the gesture is being made.
+     *
+     * On. A gesture with no feedback is indistinguishable from a gesture that is not working, and
+     * this one has an armed state that the user needs to be able to see before they commit to it.
+     */
+    var backSwipeIndicator: Boolean
+        get() = sp.getBoolean("back_swipe_hud", true)
+        set(v) = sp.edit().putBoolean("back_swipe_hud", v).apply()
+
+    /**
+     * Packages the strip stays down for.
+     *
+     * An exclusion list rather than an inclusion one, because the gesture is meant to be a
+     * property of the phone -- something you can rely on being there. The apps that need excluding
+     * are the ones whose left edge is a control, and those are known to the user and not to this
+     * app. Light's own tools are excluded by the built-in table instead; see
+     * [Policy.backSwipeAllowed].
+     */
+    fun backSwipeOffApps(): Set<String> = sp.getStringSet(BACK_OFF_APPS, emptySet()) ?: emptySet()
+
+    fun toggleBackSwipeOff(pkg: String) {
+        val next = backSwipeOffApps().toMutableSet()
+        if (!next.add(pkg)) next.remove(pkg)
+        sp.edit().putStringSet(BACK_OFF_APPS, next).apply()
+    }
+
     // ---------------------------------------------------------------- per-app rules
 
     fun ruleFor(pkg: String): AppRule =
@@ -904,6 +1004,9 @@ class Prefs(context: Context) {
 
         const val RESUME_APPS = "resume_apps"
         const val RESUME_FALLBACK = "resume_fallback"
+
+        const val BACK_OFF_APPS = "back_swipe_off"
+        const val LOCK_HIDDEN = "lock_hidden_apps"
 
         /** Lines of key log kept. A dozen is two or three presses' worth of story. */
         const val LOG_LINES = 12
@@ -1168,6 +1271,47 @@ object Policy {
         if (handsOffPrefixes.any { pkg.startsWith(it) }) return AppRule.Off
         return AppRule.Default
     }
+
+    /**
+     * Whether the back strip stands in front of [pkg].
+     *
+     * Deliberately **not** [ruleFor]. The wheel rules answer a different question -- who
+     * interprets a turn -- and one of their answers, [AppRule.Off], means "this app owns the whole
+     * wheel", which says nothing at all about its left edge. Roll and BrightRecorder are Off for
+     * the wheel and both want a way back like anything else.
+     *
+     * Three refusals, and they are all about a back gesture that already exists:
+     *
+     *  - **Light's own software**, on the same prefixes as the wheel's hands-off list. LightOS has
+     *    a gesture-navigation switch in its own settings and it reaches these; a second strip over
+     *    the top would be two gestures on one edge, and the one this app can offer is the weaker
+     *    of them.
+     *  - **The keyboard**, and anything else drawing over an app rather than replacing it, is
+     *    never the front package by the time this is asked -- see [isTransientWindow] -- so the
+     *    strip stays as the app underneath left it. Stated here because it is the reason no test
+     *    for it is needed.
+     *  - **Whatever the user has excluded.** The apps whose left edge is a control.
+     *
+     * A null package -- nothing known in front, which happens for the first moment after the
+     * service binds -- gets no strip. Guessing wrong here means eating the left edge of a screen
+     * nobody has identified.
+     */
+    fun backSwipeAllowed(prefs: Prefs, pkg: String?): Boolean {
+        val p = pkg ?: return false
+        if (p in prefs.backSwipeOffApps()) return false
+        if (backSwipeRefusedByTable(p)) return false
+        return true
+    }
+
+    /**
+     * Whether the built-in table refuses [pkg] the strip, whatever the user has set.
+     *
+     * Split out for the settings list, which has to say ALWAYS OFF on those rows rather than
+     * offering a switch that does nothing. Asked of the table rather than inferred from
+     * [backSwipeAllowed] so the row keeps telling the truth if the table changes.
+     */
+    fun backSwipeRefusedByTable(pkg: String): Boolean =
+        handsOffPrefixes.any { pkg.startsWith(it) }
 
     fun behaviorFor(prefs: Prefs, pkg: String?): Behavior {
         // LightOS's lock screen and dashboard are one activity, so they are one decision.

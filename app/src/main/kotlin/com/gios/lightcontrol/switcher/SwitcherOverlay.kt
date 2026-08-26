@@ -85,6 +85,21 @@ class SwitcherOverlay(private val context: Context) {
      */
     var onAppInfo: ((String) -> Unit)? = null
 
+    /**
+     * Told whenever this window goes up or comes down.
+     *
+     * Added for the back strip, which is a *lower* window: this one is a full-screen
+     * `TYPE_ACCESSIBILITY_OVERLAY` at layer 31, so a strip left up underneath it is an invisible
+     * column of the screen that swallows touches aimed at this list. The service refuses the strip
+     * while [showing], and until this existed it had no way to find out — the switcher goes up and
+     * down on a key press, with no window-state event anywhere, because events from this package
+     * are dropped before the service sees them.
+     *
+     * Nine call sites take this window down; one hook here is what stops that being nine places to
+     * remember something in.
+     */
+    var onVisibilityChanged: (() -> Unit)? = null
+
     val showing: Boolean get() = root != null
 
     /** The package under the selection, or null when nothing is up. */
@@ -171,6 +186,7 @@ class SwitcherOverlay(private val context: Context) {
         root = view
         runCatching { enter() }
         arm()
+        runCatching { onVisibilityChanged?.invoke() }
         return true
     }
 
@@ -208,6 +224,7 @@ class SwitcherOverlay(private val context: Context) {
         rows = emptyList()
         entries = emptyList()
         index = 0
+        runCatching { onVisibilityChanged?.invoke() }
         return true
     }
 

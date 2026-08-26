@@ -109,4 +109,25 @@ object OwnWindow {
      */
     @Volatile
     var onResumed: (() -> Unit)? = null
+
+    /**
+     * A setting changed that the service has to act on now rather than at the next app switch.
+     *
+     * Almost nothing needs this. The bindings are read at the key event, the colour rules at the
+     * window change, and both are therefore current the moment they are written. The back strip is
+     * the exception: it is a *window*, so switching it on has to put something on screen, and the
+     * settings screen is the one place where no window-state event is coming -- events from this
+     * package are dropped before the service sees them. Without this, turning the strip on and
+     * then trying it inside these settings did nothing at all, which looks exactly like the
+     * feature not working.
+     *
+     * Service and activity share a process, so this is a field rather than any kind of IPC. Null
+     * whenever the service is not bound, and the setting is still written either way.
+     */
+    @Volatile
+    var onSettingChanged: (() -> Unit)? = null
+
+    fun settingChanged() {
+        runCatching { onSettingChanged?.invoke() }
+    }
 }
