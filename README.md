@@ -362,7 +362,16 @@ Answering presses the dialer's own notification buttons, which needs no grant be
 notification listener the face already uses. A dialer whose buttons cannot be identified by their
 labels falls back to `TelecomManager`, which needs `ANSWER_PHONE_CALLS`. The card draws either way.
 
-**Who is calling comes from the `Person` on the notification, not the title.** A `CallStyle`
+**Who is calling comes from telephony, because this phone's dialer posts no notification.**
+LightOS's dialer is a system app showing its own incoming-call activity, so there is nothing in the
+shade for a notification listener to read — which is why the card said "Incoming call" for every
+call it ever drew. The number arrives on the `PHONE_STATE` broadcast and `PhoneLookup` turns it into
+the contact name, which needs `READ_CALL_LOG` and `READ_CONTACTS`; both are in the ADB screen's
+one-tap run, and without them the card falls back to the old wording rather than breaking. The
+number is drawn under the name.
+
+Where a dialer *does* post a notification, that is still read first, and read properly:
+**out of the `Person`, not the title.** A `CallStyle`
 notification leaves the title empty and lets SystemUI build it at draw time, which is a step a
 listener never sees, so the card read the one field the dialer had not filled in. It now takes the
 first real answer out of the call `Person`, the people list, the title, the big title, the
@@ -376,8 +385,14 @@ for the audio mode to move and come back round through the poll is a second of c
 button after a thumb has landed. And uncovering the screen is not the same as raising it — the
 dialer's full-screen intent fired while a window at layer 31 was over the top, so the activity
 underneath may have been stopped or replaced by the keyguard, and the call would connect with
-nothing on screen to mute or hang it up. The full-screen intent, then the content intent, then
-`TelecomManager.showInCallScreen`, once per call.
+nothing on screen to mute or hang it up.
+
+The full-screen intent first, then the content intent, then `TelecomManager.showInCallScreen` —
+which is asked and **not believed**, because it returns nothing and reports nothing and is only a
+request passed to the dialer. When nothing verifiable fired, the face goes and fetches the dialer
+itself: resuming its task puts its call screen in front, since during a call that task's top
+activity is the call. Once per call, latched. The diagnostics log names the route that ran, and
+prints what the phone said about the call when none did.
 
 Once the call is answered, **the face stands down for the length of the call**. LightOS shows mute,
 speaker, the keypad and hang up on its own in-call screen, and all of it sits under layer 31. The
@@ -684,6 +699,8 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.40 | **The caller's name comes from telephony, and the call screen is fetched rather than hoped for.** v3.38 fixed how a call notification is read; on this phone there is no call notification — LightOS's dialer is a system app that shows its own activity and posts nothing. The card now reads the number off the `PHONE_STATE` broadcast and the name out of contacts, behind two new grants in the one-tap ADB run. And `showInCallScreen`, which returns nothing and reports nothing, is no longer treated as a hand-off: when no intent could be sent, the face resumes the dialer's own task, which during a call is the call screen. A log line now says what the phone actually told us, per ring |
+| v3.39 | **A request may ask to repair a broken system app.** One word, one fixed table of two system packages, nothing typed by the sender reaching the shell |
 | v3.38 | **The call card says who is calling, and the call screen comes up when you answer.** The card read `EXTRA_TITLE`, which a CallStyle notification leaves empty — the caller is a `Person` the platform renders at draw time — so every call was "Incoming call". It now reads the person, the people list, four text fields and the number, in that order, and treats a notification as a call on four tests rather than one. ANSWER takes the face down on the press instead of a poll tick later, and asks the dialer for its own screen on the way out rather than merely uncovering whatever was behind |
 | v3.37 | **The lock face knows what it is playing.** One control set for three kinds of thing was wrong twice: previous and next on an hour-long podcast mean lose the hour, and on a live stream they are two dead buttons. Podcasts get back 15 and forward 15, as a real `seekTo` from an extrapolated position rather than the platform's whatever-the-player-decided `fastForward`. Streams get a stop. The kind comes off what the session declares — a queue, a position, a step, a length — so it works for any player and needs no list of package names |
 | v3.17 | **What is playing, on the lock face.** Cover, track and skip controls under the notifications. A player cannot draw this itself. An app window sits at layer 11 and the face sits at 31, so BrightMusic's own controls were painted underneath it. The row reads the platform media session, so it works for any player and needs no new grant |

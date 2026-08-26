@@ -44,6 +44,16 @@ object SelfGrant {
             GrantCheck.Permission(PKG, "android.permission.READ_PHONE_STATE"),
         ),
         Step(
+            "Who is calling (READ_CALL_LOG)",
+            "pm grant $PKG android.permission.READ_CALL_LOG",
+            GrantCheck.Permission(PKG, "android.permission.READ_CALL_LOG"),
+        ),
+        Step(
+            "Caller names (READ_CONTACTS)",
+            "pm grant $PKG android.permission.READ_CONTACTS",
+            GrantCheck.Permission(PKG, "android.permission.READ_CONTACTS"),
+        ),
+        Step(
             "Answer calls (ANSWER_PHONE_CALLS)",
             "pm grant $PKG android.permission.ANSWER_PHONE_CALLS",
             GrantCheck.Permission(PKG, "android.permission.ANSWER_PHONE_CALLS"),

@@ -107,6 +107,23 @@
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 
     <!--
+      Who is calling, when the dialer never says. LightOS's dialer is a system app that shows its
+      own incoming-call activity and posts nothing to the shade, so the notification listener -
+      the card's first source for a name - has nothing to read on this phone, and every call drew
+      "Incoming call". Telephony will still say, to an app holding these two:
+
+        adb shell pm grant com.gios.lightcontrol android.permission.READ_CALL_LOG
+        adb shell pm grant com.gios.lightcontrol android.permission.READ_CONTACTS
+
+      READ_CALL_LOG is what makes the number on the PHONE_STATE broadcast non-empty - Android P
+      moved it behind that permission - and READ_CONTACTS turns the number into the name the user
+      gave the contact. Nothing is stored: both live in memory for the length of the call. Without
+      them the card falls back to the wording it had before. See lock/CallerId.kt.
+    -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!--
       The call speaker's level. A normal permission, granted at install. It moves one index on one
       stream, once per call, and only while the route is the phone's own speaker - see
       keys/CallAudio.kt for why that index is the ceiling for any app on this phone.

@@ -1995,6 +1995,9 @@ class ControlService : AccessibilityService() {
                 // being picked up and wrong for one that is ringing.
                 if (lockFace.showing) runCatching { lockFace.reveal() }
                 log("call ringing · " + if (lockFace.showing) "card up" else "no face")
+                // What the phone actually told us about this call, once per ring. Two fixes to
+                // this card were aimed at the wrong half because this line did not exist.
+                log("call ringing · " + lockCall.evidence())
             }
             LockCallState.Stage.Active -> {
                 runCatching { lockFace.setCall(state) }
@@ -2062,8 +2065,27 @@ class ControlService : AccessibilityService() {
     private fun openCallScreen(why: String) {
         if (callScreenOpened) return
         callScreenOpened = true
-        val ok = runCatching { lockCall.openCallScreen() }.getOrDefault(false)
-        log("call $why · in-call screen " + if (ok) "raised" else "NO ROUTE")
+        val route = runCatching { lockCall.openCallScreen() }.getOrNull()
+        if (route != null) {
+            log("call $why · in-call screen via $route")
+            return
+        }
+        // Nothing in the shade to send, and `showInCallScreen` cannot say whether it worked -- so
+        // go and get the dialer. Resuming its task is what puts its call screen in front, because
+        // during a call that task's top activity *is* the call screen. On this phone the dialer is
+        // LightOS itself, one activity that draws the ring, the call and the lock screen in turn,
+        // and resuming it lands on the call.
+        //
+        // Only reached on a phone that posted no call notification at all. Any dialer that posts
+        // one was handled two lines up, so a launch that would land on a keypad instead of a call
+        // never happens on the dialers where that distinction exists.
+        val dialer = lockCall.dialerPackage()
+        val ok = dialer != null && launch(dialer)
+        log(
+            "call $why · in-call screen " +
+                if (ok) "via ${dialer?.substringAfterLast('.')}" else "NO ROUTE",
+        )
+        if (!ok) log("call $why · " + lockCall.evidence())
     }
 
     /** Whether the keyguard is up. Not [KeyguardManager.isDeviceLocked] — that answers credentials. */

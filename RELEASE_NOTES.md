@@ -1,38 +1,39 @@
-## BrightControl v3.39 — an app may now ask to fix a broken system app
+## BrightControl v3.40 — the card asks telephony, and goes and fetches the call screen
 
-**One request was refused that should not have been.** BrightOura asked this app to reset the
-Settings app, and got the loud no that a request naming somebody else's package is supposed to get:
-*an app may ask to set up itself and nothing else.* That rule is right almost everywhere, and it was
-wrong here. On this phone Settings crashes on the Bluetooth pairing screen — so nothing pairs. Not a
-ring, not the tablet this app's own hotspot trigger waits for. The fix is one command a shell runs
-in a second, and one a person with no computer cannot run at all. Refusing it did not make the phone
-safer, only quieter about being broken.
+**The card was reading the wrong window.** v3.38 taught it to find the caller in a `CallStyle`
+notification's `Person` rather than the empty title, which was a real bug and not this one. The
+actual answer is worse: on this phone **there is no call notification at all**. LightOS's dialer is
+a system app that shows its own incoming-call activity, and a system app does not have to go
+through the shade to take over a screen. A notification listener was never going to see a name that
+was never posted.
 
-**So there is now a second thing a request may ask for that is not about itself.** `repair settings`
-— or `repair bluetooth`, or the `pm clear` line a README would print — and nothing else. It is
-written the same way "start shizuku" is written, as a **word rather than a command**: the request
-carries the word, the word is looked up in a fixed table of two system packages, and the commands
-that run are built here from the table. The package in a `pm clear` line is matched only so it can
-be checked and thrown away. Nothing typed by the sender reaches the shell.
+So the card asks telephony now. `ACTION_PHONE_STATE_CHANGED` carries the number on the ringing
+broadcast, `PhoneLookup` turns it into the name on the contact, and neither route needs this app to
+be the dialer. The notification stays as the first source where it exists — a dialer that wrote a
+name has often done something this app cannot, a business lookup or a spam label — with the contact
+name behind it, the number behind that, and the old wording only when all three are empty. The
+number goes on the second line under the name, grouped for the region, because a lock screen is
+read at arm's length.
 
-What that buys, precisely:
+**Two new grants, and the ADB screen has them.** `READ_CALL_LOG` is what makes the number on that
+broadcast non-empty — Android P moved it behind that permission — and `READ_CONTACTS` is the name.
+Both are in the one-tap run with the rest. Without them the card falls back to exactly what it says
+today, so an ungranted phone is no worse off than it was; the diagnostics log says `tel=NO GRANT`
+so the reason is on the screen rather than a guess.
 
-- **No third-party package is nameable.** The escalation this file exists to stop is one app
-  reaching another app, and it still cannot happen. `pm clear com.whatsapp` is refused, by name, and
-  the refusal says which package it turned down.
-- **Two verbs, and one of them is an un-break.** `pm uninstall`, `pm disable`, and `pm grant` naming
-  those same packages are all still unreachable.
-- **What is lost is a system app's own settings.** Not your files, not an account, not an installed
-  app. Settings rebuilds its state the next time it opens, which is the whole reason to run it.
-- **Enable comes before clear.** A package that whatever broke it also disabled will refuse the
-  clear outright, and then the run reports a failure for the step that was meant to be the fix.
+**And the in-call screen: `showInCallScreen` was being believed.** With no notification there was no
+full-screen intent and no content intent to send, so the whole hand-off rested on
+`TelecomManager.showInCallScreen`, which returns nothing, reports nothing, and is only a request
+passed to the dialer's in-call service. On a phone where that request goes unanswered, a call was
+answered into a stock lock screen: the face had stood down, and nothing had come up behind it.
 
-**The consent screen says so out loud.** It used to promise that every line names the app in front
-of you — a promise it can no longer make for these two, so it does not make it. A repair step is
-labeled as touching another app, above a paragraph that says what a reset actually costs, and
-nothing runs until you say so. A request is still all or nothing: one line nobody can parse and the
-whole thing is turned down.
+It is still asked, and it is no longer believed. When nothing verifiable fired, the face goes and
+fetches the dialer itself — resuming its task, which during a call is the call screen, and on this
+phone is the one LightOS activity that draws the ring, the call and the lock screen in turn. That
+route is only ever reached on a phone that posted no call notification, so a dialer that would have
+landed on a keypad instead of a call never gets there.
 
-Five new tests hold the shape: the two commands are pinned whatever the request said, the word and
-the command line come out identical, only the phone's own system apps are reachable, no other verb
-can be smuggled onto them, and a refusal names the package it refused.
+**A line in the log saying what the phone actually said.** `note=none who=- fsi=- tel=ok name=yes
+dialer=lightos`, once per ring and again on a failed hand-off. Both previous attempts at this card
+were aimed at the wrong half of the problem, and the reason is that this line did not exist. Shake
+to report carries it now.

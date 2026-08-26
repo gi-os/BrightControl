@@ -47,6 +47,15 @@ class LockCall(private val context: Context) {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    /**
+     * Who is calling, from telephony, for the case the notification never covers.
+     *
+     * The second source for *who* -- the shade was the first and on this phone it is often not
+     * there at all, because LightOS's dialer shows its own activity without posting anything. See
+     * [CallerId].
+     */
+    private val callerId = CallerId(context)
+
     /** Told on the main thread whenever the answer changes. Null means no call. */
     var onChange: ((LockCallState?) -> Unit)? = null
 
@@ -94,6 +103,8 @@ class LockCall(private val context: Context) {
         if (listening) return
         listening = true
         LockCalls.onChange = { handler.post { evaluate() } }
+        callerId.onChange = { handler.post { evaluate() } }
+        callerId.start()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching {
                 context.getSystemService(AudioManager::class.java)?.addOnModeChangedListener(
@@ -110,6 +121,8 @@ class LockCall(private val context: Context) {
         listening = false
         stopPolling()
         LockCalls.onChange = null
+        callerId.onChange = null
+        callerId.stop()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching {
                 context.getSystemService(AudioManager::class.java)?.removeOnModeChangedListener(
@@ -149,6 +162,32 @@ class LockCall(private val context: Context) {
         }.getOrDefault(false)
     }
 
+    /** Whichever app the phone rings through, for the launch route and for the log. */
+    fun dialerPackage(): String? = runCatching {
+        context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage
+    }.getOrNull()
+
+    /**
+     * What was known about this call, in one line, for the diagnostics log.
+     *
+     * Written because the last two attempts at this were both fixed in the wrong place: the card
+     * was blank and the reason -- no notification at all, rather than a notification with no name
+     * -- was not visible from anywhere. A shake-to-report now carries the answer.
+     */
+    fun evidence(): String {
+        val note = LockCalls.current
+        return buildString {
+            append("note=").append(if (note == null) "none" else note.pkg.substringAfterLast('.'))
+            append(" who=").append(if (note?.who.isNullOrBlank()) "-" else "yes")
+            append(" fsi=").append(if (note?.fullScreen != null) "yes" else "-")
+            append(" content=").append(if (note?.content != null) "yes" else "-")
+            append(" tel=").append(if (callerId.granted()) "ok" else "NO GRANT")
+            append(" name=").append(if (callerId.name != null) "yes" else "-")
+            append(" number=").append(if (callerId.number != null) "yes" else "-")
+            append(" dialer=").append(dialerPackage()?.substringAfterLast('.') ?: "none")
+        }
+    }
+
     /**
      * Put the dialer's own call screen in front, now.
      *
@@ -159,22 +198,28 @@ class LockCall(private val context: Context) {
      * a hand-off is how a call ends up connected with no screen for it -- no mute, no keypad, no
      * hang up, on a phone that looks idle.
      *
-     * Three routes, in the order of how much they know. The **full-screen intent** is the one the
-     * dialer built for exactly this -- a call taking over a phone that was not being looked at --
-     * and it is the only one that comes up over a keyguard by right. The **content intent** is the
-     * same screen reached the ordinary way, which is what an ongoing call carries once the ring is
-     * over. `TelecomManager.showInCallScreen` is the platform asking the dialer directly, and it
-     * needs no notification at all, which is what makes it the floor: a call answered on a headset
-     * with no listener grant still gets a screen.
+     * The **full-screen intent** is the one the dialer built for exactly this -- a call taking over
+     * a phone that was not being looked at -- and it is the only one that comes up over a keyguard
+     * by right. The **content intent** is the same screen reached the ordinary way, which is what
+     * an ongoing call carries once the ring is over.
+     *
+     * `TelecomManager.showInCallScreen` is asked underneath both, and **does not count as a
+     * route**. It returns nothing and reports nothing: it is a request passed to the dialer's
+     * in-call service, and on a phone where that request goes unanswered a method that always
+     * "succeeded" is how the last fix came to stop at a screen that never appeared. So it is asked
+     * and then not believed, and this returns null, which is the caller's cue to go and fetch the
+     * dialer itself.
+     *
+     * @return the route that definitely fired, or null if only the unverifiable one did.
      */
-    fun openCallScreen(): Boolean {
+    fun openCallScreen(): String? {
         val note = LockCalls.current
-        if (send(note?.fullScreen)) return true
-        if (send(note?.content)) return true
-        return runCatching {
+        if (send(note?.fullScreen)) return "full-screen intent"
+        if (send(note?.content)) return "content intent"
+        runCatching {
             context.getSystemService(TelecomManager::class.java)?.showInCallScreen(false)
-            true
-        }.getOrDefault(false)
+        }
+        return null
     }
 
     private fun send(intent: android.app.PendingIntent?): Boolean =
@@ -205,18 +250,24 @@ class LockCall(private val context: Context) {
 
         if (stage == null) {
             stopPolling()
+            callerId.forget()
             publish(null)
             return
         }
         startPolling()
         if (state?.stage != stage) stageSince = SystemClock.elapsedRealtime()
-        val who = note?.who?.takeIf { it.isNotBlank() }
-            ?: if (stage == LockCallState.Stage.Ringing) "Incoming call" else "On a call"
+        val lines = CallerText.of(
+            noteWho = note?.who,
+            noteText = note?.text,
+            name = callerId.name,
+            number = callerId.number,
+            ringing = stage == LockCallState.Stage.Ringing,
+        )
         publish(
             LockCallState(
                 stage = stage,
-                who = who,
-                sub = note?.text.orEmpty(),
+                who = lines.who,
+                sub = lines.sub,
                 since = stageSince,
             ),
         )
