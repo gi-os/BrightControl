@@ -93,6 +93,59 @@ class GrantRequestTest {
         assertEquals("pm install /sdcard/evil.apk", r.line)
     }
 
+    // ---- repairing a system app ---------------------------------------------
+
+    @Test
+    fun `a repair is two pinned commands whatever the request said`() {
+        val steps = ok(roll, "pm clear com.android.settings").steps
+        assertEquals(
+            listOf("pm enable com.android.settings", "pm clear com.android.settings"),
+            steps.map { it.command },
+        )
+        assertTrue(steps.all { it.foreign })
+    }
+
+    @Test
+    fun `the word and the command line mean the same thing`() {
+        assertEquals(
+            ok(roll, "pm clear com.android.settings").steps.map { it.command },
+            ok(roll, "repair settings").steps.map { it.command },
+        )
+    }
+
+    @Test
+    fun `only the phone's own system apps can be repaired`() {
+        listOf(
+            "pm clear com.gios.lightcontrol",
+            "pm clear com.whatsapp",
+            "pm enable com.gios.roll",
+            "repair roll",
+            "pm clear com.android.settings.evil",
+        ).forEach { line ->
+            val r = GrantRequest.parse(roll, listOf(line))
+            assertTrue("should have refused: $line", r is GrantRequest.Parsed.Refused)
+        }
+    }
+
+    @Test
+    fun `a repair cannot be widened into another verb`() {
+        listOf(
+            "pm uninstall com.android.settings",
+            "pm disable com.android.settings",
+            "pm grant com.android.settings android.permission.WRITE_SECURE_SETTINGS",
+            "pm clear com.android.settings; pm install /sdcard/evil.apk",
+        ).forEach { line ->
+            val r = GrantRequest.parse(roll, listOf(line))
+            assertTrue("should have refused: $line", r is GrantRequest.Parsed.Refused)
+        }
+    }
+
+    @Test
+    fun `refusing a repair says why the package is not allowed`() {
+        val r = refused(roll, "pm clear com.whatsapp")
+        assertTrue(r.why, r.why.contains("com.whatsapp"))
+    }
+
     // ---- the dangerous one we rebuild ourselves -----------------------------
 
     @Test

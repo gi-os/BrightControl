@@ -34,7 +34,16 @@ object GrantRequest {
      * here is where the package is already pinned — a check inferred from the string afterwards
      * would be a second parser of the same untrusted line, and the two could disagree.
      */
-    data class Step(val label: String, val command: String, val check: GrantCheck)
+    data class Step(
+        val label: String,
+        val command: String,
+        val check: GrantCheck,
+        /**
+         * True for the one shape that is not about the requester: a repair of a named system app.
+         * The screen says so in its own words rather than inferring it from the command string.
+         */
+        val foreign: Boolean = false,
+    )
 
     sealed interface Parsed {
         data class Ok(val steps: List<Step>) : Parsed
@@ -58,11 +67,10 @@ object GrantRequest {
         for (raw in lines) {
             val line = normalize(raw)
             if (line.isBlank()) continue
-            val step = step(pkg, line) ?: return Parsed.Refused(
-                raw.trim(),
-                refusalFor(pkg, line),
-            )
-            steps += step
+            val made = repair(line)
+                ?: step(pkg, line)?.let(::listOf)
+                ?: return Parsed.Refused(raw.trim(), refusalFor(pkg, line))
+            steps += made
         }
         if (steps.isEmpty()) return Parsed.Refused("", "nothing to run")
         return Parsed.Ok(steps.distinctBy { it.command })
@@ -139,6 +147,64 @@ object GrantRequest {
     }
 
     /**
+     * Put a broken **system** app back on its feet. The second thing here that is not about the
+     * requesting package, and the more dangerous shape of the two, so it is the more tightly drawn.
+     *
+     * ### Why this exists
+     *
+     * A phone can reach a state where the request an app needs cannot be answered at all. The one
+     * that forced this: on LightOS the Settings app crashes on the Bluetooth pairing screen, so
+     * *nothing* can be paired — not a ring, not a tablet for this app's own hotspot trigger. The
+     * fix is `pm clear com.android.settings`, which is a thing a shell can do in a second and a
+     * thing a user with no computer cannot do at all. Refusing it left the phone broken and the
+     * user with no route at all, which is not a safer outcome, only a quieter one.
+     *
+     * ### Why it is not the hole it looks like
+     *
+     * `pm clear` on an arbitrary package is somebody else's data deleted, so the package is never
+     * taken from the request. The request carries a **word**, the word maps to one of [REPAIRABLE],
+     * and the commands are written here. So:
+     *
+     *  - The set is fixed and small, and every member is a system app shipped with the phone. No
+     *    third-party app is nameable, which is the property that matters — the escalation this
+     *    file exists to stop is one app reaching another app.
+     *  - What is lost is a system app's own settings. Not the user's files, not an account, not an
+     *    app. Settings rebuilds its state on next launch, which is the entire point of running it.
+     *  - `pm uninstall`, `pm disable`, `pm grant` naming these packages: still unreachable. Two
+     *    verbs, and the enable is only ever the un-break of a disable.
+     *  - The consent screen still runs, and marks these steps as touching another app rather than
+     *    letting them read as "this app setting itself up".
+     *
+     * The literal `pm clear <pkg>` / `pm enable <pkg>` spellings are matched too, because that is
+     * what an app's README would say — but they are matched only to be *thrown away*: what runs is
+     * rebuilt from [REPAIRABLE] either way, and a line naming anything else is refused.
+     */
+    private fun repair(line: String): List<Step>? {
+        val name = REPAIR.matchEntire(line)?.groupValues?.get(1)?.lowercase()
+        val pkg = REPAIRABLE[name]
+            ?: REPAIR_LINE.matchEntire(line)?.groupValues?.get(1)?.takeIf { it in REPAIRABLE.values }
+            ?: return null
+        val label = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+        // Enable before clear, not after. A package that was disabled by whatever broke it will
+        // refuse the clear outright, and then the run reports a failure for the step that was
+        // supposed to be the fix.
+        return listOf(
+            Step(
+                label = "Re-enable $label",
+                command = "pm enable $pkg",
+                check = GrantCheck.None,
+                foreign = true,
+            ),
+            Step(
+                label = "Reset $label",
+                command = "pm clear $pkg",
+                check = GrantCheck.None,
+                foreign = true,
+            ),
+        )
+    }
+
+    /**
      * Start Shizuku, which is the one thing here that is not about the requesting app.
      *
      * ### Why this is a verb and not a command
@@ -171,12 +237,17 @@ object GrantRequest {
     private fun refusalFor(pkg: String, line: String): String {
         val named = listOf(PM_GRANT, APPOPS, NOTIFICATION_LISTENER, ACCESSIBILITY)
             .firstNotNullOfOrNull { it.matchEntire(line)?.groupValues?.getOrNull(1) }
+        val repairing = REPAIR_LINE.matchEntire(line)?.groupValues?.getOrNull(1)
         return when {
+            repairing != null && repairing !in REPAIRABLE.values ->
+                "asks to reset $repairing. Only the phone's own " +
+                    REPAIRABLE.values.joinToString(" and ") + " can be repaired this way — " +
+                    "any other package would be somebody's data deleted"
             named != null && named != pkg ->
                 "names $named, but this request is from $pkg — an app may only set up itself"
             else ->
-                "not a permission, app op, notification listener, accessibility service, or " +
-                    "\"start shizuku\""
+                "not a permission, app op, notification listener, accessibility service, " +
+                    "\"repair settings\", or \"start shizuku\""
         }
     }
 
@@ -221,6 +292,26 @@ object GrantRequest {
      * anything with an argument on it is a different request, and there is only one thing to say.
      */
     private val SHIZUKU = Regex("""(?:start|run) shizuku""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The system apps a request may ask to have reset, by the word that names each one. A map and
+     * not a predicate on purpose: the package that runs comes out of here, so no part of the
+     * request reaches the command line even when the request spelled the package out.
+     */
+    private val REPAIRABLE = mapOf(
+        "settings" to "com.android.settings",
+        "bluetooth" to "com.android.bluetooth",
+    )
+
+    /** The declaration form, like [ACCESSIBILITY] and [SHIZUKU]: a word, not a command. */
+    private val REPAIR =
+        Regex("""(?:repair|reset|fix) (settings|bluetooth)(?: app)?""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The spelling a README carries. Matched so the package in it can be *checked against*
+     * [REPAIRABLE] and then discarded; nothing captured here is ever run.
+     */
+    private val REPAIR_LINE = Regex("""pm (?:clear|enable) ($PKG)""")
 
     private val APPOP_MODES = setOf("allow", "deny", "ignore", "default")
 }

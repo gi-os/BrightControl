@@ -114,12 +114,32 @@ fun GrantRequestScreen(
                 }
 
                 is GrantRequest.Parsed.Ok -> {
+                    // A repair step is the one shape that touches a package other than the
+                    // requester, so it gets said out loud instead of hiding inside a list the
+                    // paragraph above has just promised names one app.
+                    val foreign = parsed.steps.filter { it.foreign }
                     SectionLabel("WHAT $appLabel IS ASKING FOR")
                     GuideText(
-                        "$pkg needs these to work. They are the same lines its README would have " +
-                            "you run from a computer. Each one names $pkg and nothing else — that " +
-                            "is checked here, not taken on trust.",
+                        if (foreign.isEmpty()) {
+                            "$pkg needs these to work. They are the same lines its README would " +
+                                "have you run from a computer. Each one names $pkg and nothing " +
+                                "else — that is checked here, not taken on trust."
+                        } else {
+                            "$pkg needs these to work. They are the same lines its README would " +
+                                "have you run from a computer, and every one of them is rebuilt " +
+                                "here rather than run as sent."
+                        },
                     )
+                    if (foreign.isNotEmpty()) {
+                        SectionLabel("THIS ONE TOUCHES ANOTHER APP")
+                        GuideText(
+                            "Resetting a system app clears that app's own settings, and it is the " +
+                                "fix for one that crashes every time you open it — Bluetooth " +
+                                "pairing, most often. It does not touch your files, your " +
+                                "accounts, or any app you installed, and only the phone's own " +
+                                "system apps can be named this way.",
+                        )
+                    }
                     parsed.steps.forEach { step ->
                         MenuRow(
                             label = step.label,
