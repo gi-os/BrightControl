@@ -31,7 +31,20 @@ class AdbPairReader : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!AdbPairSession.armed) return
+        // Events are the fast path, not the only one. See [sweep].
+        scheduleSweep()
 
+        read()
+    }
+
+    /**
+     * One pass over every window, offering each to [AdbPairSession].
+     *
+     * Called from an accessibility event and from [sweep]; both are cheap and neither is trusted to
+     * be the one that happens.
+     */
+    private fun read() {
+        if (!AdbPairSession.armed) return
         // **Every window, not just the active one.**
         //
         // light-reports#65 and #68 carried the text this read, and it was the *Wireless debugging
@@ -71,6 +84,43 @@ class AdbPairReader : AccessibilityService() {
     }
 
     override fun onInterrupt() = Unit
+
+    /**
+     * Look at every window on a timer, as well as when an event arrives.
+     *
+     * ### Why events are not enough
+     *
+     * "Sometimes it never sees the pair with device code." Reading on events means reading when the
+     * framework says something changed — and a dialog that arrives while the app is settling, or
+     * whose window announces itself with an event type this service does not subscribe to, produces
+     * no read at all. The window is sitting there with six digits on it and nobody looks again until
+     * something else moves.
+     *
+     * So while armed, this sweeps every half second regardless. It costs a walk of the window list
+     * on a phone that is doing nothing else, and it stops the moment a code is found or the ninety
+     * seconds run out — the same two conditions that disarm the reader.
+     */
+    private fun scheduleSweep() {
+        if (sweepScheduled) return
+        sweepScheduled = true
+        sweeper.post(sweep)
+    }
+
+    private val sweeper = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private var sweepScheduled = false
+
+    private val sweep = object : Runnable {
+        override fun run() {
+            if (!AdbPairSession.armed) {
+                sweepScheduled = false
+                return
+            }
+            read()
+            // Re-armed rather than looped forever: the check above is what ends it.
+            sweeper.postDelayed(this, SWEEP_MS)
+        }
+    }
 
     private var lastTarget: String? = null
     private var lastTapAt = 0L
@@ -125,5 +175,13 @@ class AdbPairReader : AccessibilityService() {
 
     private companion object {
         const val TAP_DEBOUNCE_MS = 1_500L
+
+        /**
+         * Between sweeps of the window list while armed.
+         *
+         * Half a second: a pairing code sits on screen for as long as somebody leaves it there, so
+         * this only has to be faster than a person's patience, not faster than the dialog.
+         */
+        const val SWEEP_MS = 500L
     }
 }
