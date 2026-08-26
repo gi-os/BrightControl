@@ -1,4 +1,4 @@
-## BrightControl v3.54 — a back gesture, and a lock face that stops showing you the same notice forever
+## BrightControl v3.56 — a back gesture, and a lock face that stops showing you the same notice forever
 
 Two things, both asked for by Ryan Ness in Discord, and both about something this phone does not
 have.

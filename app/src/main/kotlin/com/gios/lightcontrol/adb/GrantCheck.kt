@@ -93,6 +93,8 @@ object GrantCheckRunner {
         check: GrantCheck,
         /** How long this one command may take before the socket is closed under it. */
         timeoutMs: Long = AdbManager.COMMAND_MS,
+        /** Told each line the command prints while it is still running. */
+        onLine: (String) -> Unit = {},
     ): StepResult {
         // Through [AdbManager.runVia], which owns both of the things this used to do by hand: one
         // reconnect-and-retry for a socket that died while nobody was looking, and — the part that
@@ -100,7 +102,7 @@ object GrantCheckRunner {
         // rather than closing never gets there, so the read blocked forever: three grants into a
         // batch the buttons greyed and nothing else was ever printed, because a step's line is
         // written after its command returns. It never returned.
-        val output = AdbManager.runVia(context, command, timeoutMs)
+        val output = AdbManager.runVia(context, command, timeoutMs, onLine)
         val threw = output.startsWith("error:")
         val said = output.removePrefix("error:").trim()
 

@@ -185,17 +185,47 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
      * asked: throw the socket away, reconnect, run the command once more. See [runVia], which is
      * where callers who have a Context get that for free.
      */
-    fun runCommand(command: String): String {
+    fun runCommand(command: String): String = runCommand(command) {}
+
+    /**
+     * The same, reporting each line as it arrives rather than only at the end.
+     *
+     * ### Why a command needs to say what it is doing
+     *
+     * Some of these are slow *on purpose*. Answering a Bluetooth pairing request means sitting
+     * there for the better part of a minute waiting for the platform to raise it, and the helper
+     * that does it prints its progress the whole way — `createBond true`, `state BONDING`,
+     * `setPairingConfirmation true`. None of that reached anybody: the output was accumulated until
+     * the stream closed, so a screen showed RUNNING… for forty-five seconds and then everything at
+     * once. Indistinguishable, from the outside, from a button that hung — which is exactly what it
+     * was reported as.
+     *
+     * So lines are emitted as they complete. A trailing fragment with no newline is emitted at the
+     * end, because the last thing a command says is often the answer and often unterminated.
+     */
+    fun runCommand(command: String, onLine: (String) -> Unit): String {
         val stream = openStream("shell:$command")
         val output = StringBuilder()
+        val pending = StringBuilder()
         stream.openInputStream().use { input ->
             val buffer = ByteArray(4096)
             while (true) {
                 val read = input.read(buffer)
                 if (read < 0) break
-                output.append(String(buffer, 0, read, StandardCharsets.UTF_8))
+                val chunk = String(buffer, 0, read, StandardCharsets.UTF_8)
+                output.append(chunk)
+                pending.append(chunk)
+                // Whole lines only. Half a line on screen reads as corruption.
+                var newline = pending.indexOf("\n")
+                while (newline >= 0) {
+                    val line = pending.substring(0, newline).trim()
+                    pending.delete(0, newline + 1)
+                    if (line.isNotEmpty()) runCatching { onLine(line) }
+                    newline = pending.indexOf("\n")
+                }
             }
         }
+        pending.toString().trim().takeIf { it.isNotEmpty() }?.let { runCatching { onLine(it) } }
         return output.toString().trim()
     }
 
@@ -322,14 +352,33 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             context: Context,
             command: String,
             timeoutMs: Long = COMMAND_MS,
+            /** Told each line the command prints, as it prints it. See [AdbManager.runCommand]. */
+            onLine: (String) -> Unit = {},
         ): String {
-            val first = bounded(context, command, timeoutMs)
+            // **One budget for the whole thing, not one per attempt.**
+            //
+            // This used to hand the full deadline to each try, so a command allowed
+            // three quarters of a minute could run for a hundred seconds: forty-five, a
+            // twelve-second reconnect, then forty-five more. Somebody watching a button that
+            // promised to give up at forty-five is right to think something is wrong at ninety.
+            val deadline = System.currentTimeMillis() + timeoutMs
+            val first = bounded(context, command, timeoutMs, onLine)
             if (!first.startsWith(DEAD)) return first
+            val left = deadline - System.currentTimeMillis()
+            if (left < MIN_RETRY_MS) {
+                // Nothing useful can be attempted in what is left. Reporting the first failure
+                // beats spending another minute to report the same one.
+                return failed(command, first.removePrefix(DEAD))
+            }
             reset()
-            if (!ensureAlive(context)) {
+            if (!ensureAlive(context, minOf(RECONNECT_MS, left))) {
                 return failed(command, "the connection is gone and could not be picked back up")
             }
-            val second = bounded(context, command, timeoutMs)
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining < MIN_RETRY_MS) {
+                return failed(command, "no time left after reconnecting")
+            }
+            val second = bounded(context, command, remaining, onLine)
             if (second.startsWith(DEAD)) {
                 return failed(command, second.removePrefix(DEAD))
             }
@@ -406,10 +455,15 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * which is what actually unblocks the read and lets that thread die. Daemon, so it can
          * never hold the process open.
          */
-        private fun bounded(context: Context, command: String, timeoutMs: Long): String {
+        private fun bounded(
+            context: Context,
+            command: String,
+            timeoutMs: Long,
+            onLine: (String) -> Unit = {},
+        ): String {
             var result: String? = null
             val worker = Thread {
-                result = runCatching { getInstance(context).runCommand(command) }
+                result = runCatching { getInstance(context).runCommand(command, onLine) }
                     .getOrElse { e -> DEAD + (e.message ?: e.javaClass.simpleName) }
             }
             worker.isDaemon = true
@@ -439,6 +493,15 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * Anything shorter cuts off the thing it was asked to do.
          */
         const val SLOW_COMMAND_MS = 45_000L
+
+        /**
+         * Below this, a retry is not a retry, it is a second failure with a different message.
+         *
+         * Two seconds is enough for a grant, nowhere near enough for a pairing confirmation — and
+         * that is the point: a command that needs half a minute and has three seconds left should
+         * report what went wrong the first time rather than manufacture a timeout.
+         */
+        private const val MIN_RETRY_MS = 2_000L
 
         /** Marks a failure that is about the connection rather than about the command. */
         private const val DEAD = "!!"

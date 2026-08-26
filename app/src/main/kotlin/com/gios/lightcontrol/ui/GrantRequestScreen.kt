@@ -30,6 +30,8 @@ import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.GrantCheckRunner
 import com.gios.lightcontrol.adb.GrantRequest
 import com.gios.lightcontrol.adb.Outcome
+import androidx.compose.ui.unit.sp
+import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.adb.StepResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -85,6 +87,16 @@ fun GrantRequestScreen(
     var ran by remember { mutableStateOf(false) }
     /** The last press could not reach the daemon. Not the same thing as never having had one. */
     var dropped by remember { mutableStateOf(false) }
+    /**
+     * What the running command is saying, as it says it. See [AdbManager.runCommand].
+     *
+     * Named `saying` and not `live`: the run handler already has a local `live` holding whether the
+     * connection came up, and a state variable shadowed by a Boolean fails to compile in a way that
+     * reads as a Compose problem rather than a naming one.
+     */
+    var saying by remember { mutableStateOf(listOf<String>()) }
+    /** Which step of how many, so a wait has a shape. */
+    var at by remember { mutableStateOf(0) }
     // Success is every step read back and confirmed. Nothing weaker: reaching the end of the list
     // is what the old DONE meant, and a run where the socket died on the first command reached
     // the end of the list too.
@@ -260,6 +272,7 @@ fun GrantRequestScreen(
                         }
                         BigButton(
                             label = when {
+                                busy && parsed.steps.size > 1 -> "RUNNING $at/${parsed.steps.size}…"
                                 busy -> "RUNNING…"
                                 allHeld -> "DONE"
                                 dropped || ran -> "TRY AGAIN"
@@ -274,6 +287,8 @@ fun GrantRequestScreen(
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                         ) {
                             busy = true
+                            saying = emptyList()
+                            at = 0
                             scope.launch {
                                 // Reconnect rather than probe. The daemon's listener does not
                                 // survive leaving the Wireless-debugging screen, so a connection
@@ -298,19 +313,35 @@ fun GrantRequestScreen(
                                 // the phone says about each grant afterwards is a better answer
                                 // than what a probe said about the socket beforehand.
                                 dropped = !live
-                                val out = withContext(Dispatchers.IO) {
+                                // One at a time, and each one narrating. A pairing confirmation
+                                // waits three quarters of a minute for the platform to raise its
+                                // request; run as a `map` with the results shown at the end, that
+                                // is a screen saying RUNNING… over a command that is talking the
+                                // whole time and nobody listening.
+                                val collected = mutableListOf<StepResult>()
+                                withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
-                                    parsed.steps.map { step ->
-                                        GrantCheckRunner.runAndVerify(
+                                    parsed.steps.forEachIndexed { index, step ->
+                                        withContext(Dispatchers.Main) {
+                                            at = index + 1
+                                            saying = saying + "· ${step.label}"
+                                        }
+                                        collected += GrantCheckRunner.runAndVerify(
                                             context = context,
                                             adb = adb,
                                             label = step.label,
                                             command = step.command,
                                             check = step.check,
                                             timeoutMs = step.timeoutMs,
-                                        )
+                                        ) { line ->
+                                            // Off the reader thread; the list is Compose state.
+                                            scope.launch(Dispatchers.Main) {
+                                                saying = (saying + line).takeLast(MAX_LIVE_LINES)
+                                            }
+                                        }
                                     }
                                 }
+                                val out = collected.toList()
                                 results = out
                                 // Held only if nothing got through at all. One step failing is a
                                 // grant that did not take; every step failing on a socket error is
@@ -323,6 +354,25 @@ fun GrantRequestScreen(
                                 ran = true
                             }
                         }
+                    }
+
+                    // **What it is actually doing.** The helper that answers a pairing request
+                    // prints `createBond true`, then `state BONDING`, then either
+                    // `setPairingConfirmation true` and `RESULT bonded` or the reason it gave up.
+                    // Reading that as it happens is the difference between waiting and watching —
+                    // and it is the only place the ring's own answer ever appears.
+                    if (saying.isNotEmpty()) {
+                        SectionLabel(if (busy) "WHAT IT IS SAYING" else "WHAT IT SAID")
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            saying.forEach { line ->
+                                Text(
+                                    line,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                                    color = if (line.startsWith("·")) Color.White else Dim,
+                                )
+                            }
+                        }
+                        Rule()
                     }
 
                     if (results.isNotEmpty()) {
@@ -416,3 +466,11 @@ fun GrantRequestScreen(
         }
     }
 }
+
+/**
+ * How many lines of a command's own output to keep on screen.
+ *
+ * A pairing confirmation prints a handful; a command that goes wrong in a loop could print
+ * thousands. The last of them is always the answer, so the tail is the part worth keeping.
+ */
+private const val MAX_LIVE_LINES = 40
