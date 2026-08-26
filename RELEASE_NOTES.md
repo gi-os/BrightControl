@@ -1,32 +1,16 @@
-## BrightControl v3.78 — the connect port was on screen the whole time
+## BrightControl v3.79 — the transcript is kept whether it worked or not
 
-Report #122, from a phone that had just paired successfully:
+An unseen notification arriving 17 seconds into a ring pairing is the best news of the evening: it
+means `createBond` finally went through, the platform raised its consent request, and something was
+there to answer. And nothing was written down, because this app files a relayed command's transcript
+**only when the run fails** — so a run that ended `RESULT bonded` left no record at all.
 
-```
-Could not connect after a pairing the daemon accepted.
-the pairing was accepted and mDNS then found nothing to connect to.
-```
+That is the wrong side to be silent on. A relayed command's transcript is the only place its own
+words exist, the app that asked for it mostly cannot file reports of its own, and *"RESULT bonded"* is
+worth keeping for exactly the reason *"RESULT gave up"* is: it answers a question somebody spent an
+evening on. So a transcript that mentions `RESULT` is filed too. Only one command prints that word,
+so this stays rare rather than becoming noise.
 
-Everything up to that point worked — the reader found the code, the daemon accepted the key — and
-then discovery answered nothing. Which it does, sometimes, on this phone.
-
-**The port was never a mystery.** The Wireless debugging screen prints it, in the same window the
-pairing reader is already flattening to look for a code:
-
-```
-IP address & Port
-192.168.10.220:38675
-```
-
-So the reader takes it while it is up, and every connect falls back to it when mDNS finds nothing.
-A phone whose discovery answers silence is still perfectly connectable; there was simply nothing
-written down.
-
-**Only from the list screen, and that distinction matters.** Both screens show an `ip:port` and they
-are **different ports** — the dialog's is the *pairing* port, thrown away the moment the box closes,
-while the list's is the connect port and stays put while wireless debugging is on. Connecting to the
-wrong one produces a failure indistinguishable from the one this fixes, so it is gated on exactly the
-test written to keep the list from being mistaken for the dialog. Three new tests hold that line.
-
-This also means the port field I removed in v3.44 is properly gone rather than merely absent: nobody
-has to read a number off a screen and type it back, because the phone reads its own.
+**And there is a COPY WHAT IT SAID row**, because most of tonight's diagnosis actually happened by
+somebody reading a phone screen into a chat window by hand. One tap now puts the whole transcript on
+the clipboard.
