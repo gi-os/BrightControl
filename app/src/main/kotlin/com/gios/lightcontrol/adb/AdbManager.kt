@@ -318,7 +318,14 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
                     com.gios.lightcontrol.Prefs(context).adbPort.toIntOrNull()
                 }.getOrNull()
                 if (saved != null) {
-                    up = runCatching { fresh.connectPort(context, saved) }.getOrDefault(false)
+                    // **On a thread we can walk away from.** `connectPort` opens a socket and a
+                    // TCP connect to a port nothing is listening on does not fail quickly — it
+                    // retries SYNs for minutes. A run that sat at "RUNNING 224s" was this call,
+                    // waiting on a stale port with no deadline of its own. Same discipline as a
+                    // command: bounded, and abandoned rather than awaited.
+                    up = withinDeadline(CONNECT_MS) {
+                        runCatching { fresh.connectPort(context, saved) }.getOrDefault(false)
+                    }
                 }
             }
             if (!up) return false
@@ -340,6 +347,32 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             }
             return false
         }
+
+        /**
+         * Run something that has no timeout of its own, and give up on it.
+         *
+         * A TCP connect is the case this exists for: it can sit in SYN retries for minutes, and
+         * there is no interrupting it from outside. So it runs on a daemon thread that is abandoned
+         * if it overruns — the attempt finishes into a value nobody reads, and the socket it was
+         * holding is closed by the next [reset].
+         */
+        private fun withinDeadline(timeoutMs: Long, work: () -> Boolean): Boolean {
+            var result = false
+            val worker = Thread { result = work() }
+            worker.isDaemon = true
+            worker.start()
+            worker.join(timeoutMs)
+            return if (worker.isAlive) false else result
+        }
+
+        /**
+         * How long to let a direct connect attempt run.
+         *
+         * A port that is listening answers in milliseconds on the phone's own loopback. Six seconds
+         * is generous for the case that works and short enough that the case that does not is not
+         * mistaken for a hung app.
+         */
+        private const val CONNECT_MS = 6_000L
 
         /** How many times to ask a new socket whether it can carry a command. */
         private const val PROBES = 3
@@ -540,10 +573,16 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
         /**
          * For the one command that is *supposed* to take its time: a pairing confirmation, which
-         * sits there answering a request the platform raises several seconds after the bond starts.
-         * Anything shorter cuts off the thing it was asked to do.
+         * sits there answering a request the platform raises several seconds after the bond starts —
+         * and then waits for the bond itself, which is slower still.
+         *
+         * Two and a half minutes, because 45 seconds killed one. The transcript read `RESULT gave up
+         * in state BONDING (request was answered)` followed by `Killed`: the confirmation had gone
+         * through, the two ends were exchanging keys, and this deadline closed the socket underneath
+         * them. A deadline exists to stop a command that is stuck, and a bond in progress is the
+         * opposite of stuck.
          */
-        const val SLOW_COMMAND_MS = 45_000L
+        const val SLOW_COMMAND_MS = 150_000L
 
         /**
          * Below this, a retry is not a retry, it is a second failure with a different message.

@@ -401,7 +401,7 @@ object GrantRequest {
      * pairing request stands for about thirty seconds; this covers it without leaving a command
      * running on the shell for longer than the thing it waits for can exist.
      */
-    private const val CONFIRM_MS = 24_000
+    private const val CONFIRM_MS = 55_000
 
     private val APPOP_MODES = setOf("allow", "deny", "ignore", "default")
 }

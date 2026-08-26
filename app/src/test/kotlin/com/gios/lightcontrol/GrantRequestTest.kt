@@ -102,8 +102,11 @@ class GrantRequestTest {
         val parsed = GrantRequest.parse(roll, listOf("confirm pairing AA:BB:CC:DD:EE:FF"), apk)
         val step = (parsed as GrantRequest.Parsed.Ok).steps.single()
         assertEquals(
+            // The budget is decided in GrantRequest, not by the request — so this asserts the
+            // shape and the pinned parts rather than the number, which has already moved once:
+            // 24 seconds killed a bond that was still exchanging keys.
             "sh -c 'CLASSPATH=/data/app/~~x/com.gios.roll-1/base.apk app_process / " +
-                "com.gios.roll.helper.Confirm AA:BB:CC:DD:EE:FF 24000'",
+                "com.gios.roll.helper.Confirm AA:BB:CC:DD:EE:FF 55000'",
             step.command,
         )
     }

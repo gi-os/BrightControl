@@ -458,7 +458,14 @@ fun GrantRequestScreen(
                                 val saidFailed = transcript.contains("FAILED") ||
                                     transcript.contains("gave up") ||
                                     transcript.contains("refused")
-                                if (anyFailed || saidFailed) {
+                                // **Also when it worked.** A relayed command's transcript is the
+                                // only record of what happened, the app that asked for it mostly
+                                // cannot file its own reports, and "RESULT bonded" is worth having
+                                // written down for the same reason "RESULT gave up" is: it is the
+                                // answer to a question somebody spent an evening on. `RESULT` is
+                                // printed by exactly one command, so this stays rare.
+                                val saidResult = transcript.contains("RESULT")
+                                if (anyFailed || saidFailed || saidResult) {
                                     com.gios.lightcontrol.report.Trouble.record(
                                         "finish $appLabel's request",
                                         if (transcript.isBlank()) {
@@ -572,6 +579,29 @@ fun GrantRequestScreen(
                         // another app asked for it, and the run finishing is the moment to return
                         // to that app rather than to this one's home screen. Shown after a result
                         // of any kind: a failure is also a thing to go and look at over there.
+                        if (saying.isNotEmpty()) {
+                            // The transcript is the only place a relayed command's own words exist,
+                            // and reading it off a phone screen into a chat window by hand is how
+                            // most of tonight's diagnosis actually happened.
+                            MenuRow(
+                                label = "Copy what it said",
+                                detail = "${saying.size} LINES",
+                                sub = "the whole transcript, for pasting somewhere it can be read",
+                                onClick = {
+                                    runCatching {
+                                        context.getSystemService(android.content.ClipboardManager::class.java)
+                                            ?.setPrimaryClip(
+                                                android.content.ClipData.newPlainText(
+                                                    "transcript",
+                                                    saying.joinToString("\n"),
+                                                ),
+                                            )
+                                    }
+                                },
+                            )
+                            Rule()
+                        }
+
                         SectionLabel("NEXT")
                         BigButton(
                             label = "OPEN $appLabel".uppercase(),
