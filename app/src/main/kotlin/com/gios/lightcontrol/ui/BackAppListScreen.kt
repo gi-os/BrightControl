@@ -29,7 +29,12 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.OwnWindow
 import com.gios.lightcontrol.ui.theme.Dim
 
-private data class Candidate(val label: String, val pkg: String)
+/**
+ * Named for this screen, not for what it is. `Candidate` and `Installed` are both taken by other
+ * screens in this package, and a private top-level class does not stop a redeclaration -- it only
+ * stops the other file using it.
+ */
+private data class BackApp(val label: String, val pkg: String)
 
 /**
  * Which apps the back strip stands down for.
@@ -56,7 +61,7 @@ fun BackAppListScreen(onBack: () -> Unit) {
             val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             pm.queryIntentActivities(launchable, PackageManager.MATCH_ALL)
                 .map {
-                    Candidate(
+                    BackApp(
                         label = it.loadLabel(pm).toString(),
                         pkg = it.activityInfo.packageName,
                     )

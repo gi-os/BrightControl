@@ -171,7 +171,6 @@ class BackSwipe(private val context: Context) {
             .onSuccess {
                 strip = view
                 gesture = g
-                stripWidthDp = widthDp
             }
     }
 
