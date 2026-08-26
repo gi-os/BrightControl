@@ -77,6 +77,23 @@ object AdbPairSession {
     var armed = false
         private set
 
+    /**
+     * The first line of every window seen while armed, in order, deduplicated.
+     *
+     * ### Why silence had to become data
+     *
+     * The reader used to report every screen it thought was the dialog and could not read, which
+     * produced two reports against the *Wireless debugging list* — a screen that has never had a
+     * code on it. Excluding the list stopped the false reports and took the signal with it: a
+     * ninety-second window that ends with nothing said is now indistinguishable from one where the
+     * dialog never opened, one where it opened in a window nobody looked at, and one where the user
+     * simply never got there.
+     *
+     * A list of what was actually seen tells those apart in one line, and costs a string per
+     * window.
+     */
+    private val seen = LinkedHashSet<String>()
+
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var expire: Runnable? = null
@@ -95,6 +112,7 @@ object AdbPairSession {
         cancelExpiry()
         grants = emptyList()
         unreadable = null
+        synchronized(seen) { seen.clear() }
         phase = Phase.Waiting
         message = "waiting for the pairing dialog — open Wireless debugging → Pair device with pairing code"
         armed = true
@@ -102,7 +120,18 @@ object AdbPairSession {
             if (armed) {
                 armed = false
                 phase = Phase.Failed
+                val windows = synchronized(seen) { seen.toList() }
                 message = "timed out after ${WINDOW_MS / 1000}s without seeing a pairing code"
+                // Reported, not just shown: a window that ends in silence is the case that needs
+                // explaining most, and the list of screens it did see is the whole explanation.
+                com.gios.lightcontrol.report.Trouble.record(
+                    "find the pairing dialog in ${WINDOW_MS / 1000} seconds",
+                    if (windows.isEmpty()) {
+                        "no Settings window was read at all — the pairing helper may not be running"
+                    } else {
+                        "windows seen while waiting:\n" + windows.joinToString("\n")
+                    },
+                )
             }
         }.also { main.postDelayed(it, WINDOW_MS) }
     }
@@ -141,6 +170,13 @@ object AdbPairSession {
      */
     fun offerScreen(context: Context, text: String): Boolean {
         if (!armed) return false
+        // Cheap and bounded: the heading of each distinct window, which is enough to say whether
+        // the dialog was ever among them.
+        text.lineSequence().firstOrNull { it.isNotBlank() }?.let { heading ->
+            synchronized(seen) {
+                if (seen.size < MAX_SEEN) seen += heading.trim().take(60)
+            }
+        }
         val code = AdbPairCode.extract(text) ?: run {
             // Only worth reporting if this really looks like the pairing dialog; the user walks
             // through several Settings screens on the way there.
@@ -230,6 +266,9 @@ object AdbPairSession {
             message = "paired, connected, and granted. You can turn the pairing reader back off."
         }
     }
+
+    /** Enough windows to tell what happened, few enough that a report stays readable. */
+    private const val MAX_SEEN = 12
 
     const val READER_COMPONENT = "com.gios.lightcontrol/com.gios.lightcontrol.adb.AdbPairReader"
 }

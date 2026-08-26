@@ -343,7 +343,10 @@ fun GrantRequestScreen(
                         // which loses the transcript, the run, and any idea of what happened.
                         if (working) {
                             BigButton(
-                                label = "STOP",
+                                // Says so the instant it is pressed. A command already inside a
+                                // twelve-second lookup cannot be interrupted, so the honest thing
+                                // is to admit the wait rather than leave the button looking ignored.
+                                label = if (GrantRun.stopRequested) "STOPPING…" else "STOP",
                                 filled = false,
                                 enabled = !GrantRun.stopRequested,
                                 modifier = Modifier.fillMaxWidth()

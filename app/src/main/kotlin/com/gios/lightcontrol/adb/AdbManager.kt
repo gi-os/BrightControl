@@ -292,11 +292,23 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
          * off, or a pairing this phone has forgotten. That is a thing worth showing a screen for.
          */
         fun ensureAlive(context: Context, timeoutMs: Long = RECONNECT_MS): Boolean {
+            // **Where a stopped batch was actually spending its time.**
+            //
+            // STOP was honoured by [runVia] and [bounded] and not here, and this is the slow part:
+            // with nothing to connect to, every step of a nine-grant batch sits in mDNS discovery
+            // for twelve seconds before failing. Nine of those is nearly two minutes of a button
+            // that has already been pressed and a screen that will not let go.
+            if (aborting) return false
             if (runCatching { getInstance(context).alive() }.getOrDefault(false)) return true
+            if (aborting) return false
             // Reset rather than reconnect in place: a half-open socket is exactly what got us
             // here, and the manager would otherwise keep reusing it.
             reset()
+            if (aborting) return false
             val fresh = getInstance(context)
+            // The twelve seconds live in here. There is no interrupting mDNS discovery once it has
+            // started, so the check goes immediately in front of it and the worst a stop can cost
+            // is the one lookup already running.
             val up = runCatching { fresh.connectAuto(context, timeoutMs) }.getOrDefault(false)
             if (!up) return false
             // **Probe more than once, because the first command on a new socket dies.**
@@ -311,6 +323,7 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             // Three tries, a fifth of a second apart. Cheap on the path that works, and it removes
             // the settling race rather than reporting it as a broken setup.
             repeat(PROBES) { attempt ->
+                if (aborting) return false
                 if (runCatching { fresh.alive() }.getOrDefault(false)) return true
                 if (attempt < PROBES - 1) runCatching { Thread.sleep(PROBE_GAP_MS) }
             }

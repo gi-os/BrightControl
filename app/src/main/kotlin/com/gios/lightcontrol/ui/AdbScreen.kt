@@ -554,7 +554,7 @@ fun AdbScreen(
                 // The same escape the request screen has. Closing the socket is what ends a
                 // command that is blocked in a read; a flag on its own would only be a promise.
                 BigButton(
-                    label = "STOP",
+                    label = if (GrantRun.stopRequested) "STOPPING…" else "STOP",
                     filled = false,
                     enabled = !GrantRun.stopRequested,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
