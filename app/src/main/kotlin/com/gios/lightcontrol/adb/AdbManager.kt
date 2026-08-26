@@ -364,6 +364,9 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             val deadline = System.currentTimeMillis() + timeoutMs
             val first = bounded(context, command, timeoutMs, onLine)
             if (!first.startsWith(DEAD)) return first
+            // Somebody pressed STOP. The socket is closed because that is what stopping *is*;
+            // reconnecting and running the command again would undo the only thing they asked for.
+            if (aborting) return "error: stopped"
             val left = deadline - System.currentTimeMillis()
             if (left < MIN_RETRY_MS) {
                 // Nothing useful can be attempted in what is left. Reporting the first failure
@@ -461,6 +464,7 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             timeoutMs: Long,
             onLine: (String) -> Unit = {},
         ): String {
+            if (aborting) return DEAD + "stopped"
             var result: String? = null
             val worker = Thread {
                 result = runCatching { getInstance(context).runCommand(command, onLine) }
@@ -516,6 +520,38 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
                 runCatching { instance?.close() }
                 instance = null
             }
+        }
+
+        /**
+         * Set while somebody has asked the work to stop.
+         *
+         * ### Why STOP did nothing
+         *
+         * Stopping closes the socket, which is the only thing that ends a read blocked with no
+         * timeout. It worked exactly as designed — and then [runVia] did what it does for *any*
+         * dead socket: reset, reconnect, and run the command again. So pressing STOP reconnected
+         * the connection it had just closed and started the command over, which from the outside is
+         * a button that does nothing.
+         *
+         * A retry is right for a socket that died on its own and wrong for one somebody killed on
+         * purpose, and only this flag can tell the two apart.
+         */
+        @Volatile
+        private var aborting = false
+
+        /** True while a stop is in force. Cleared when the next run starts. */
+        val stopping: Boolean
+            get() = aborting
+
+        /** Ask everything in flight to stop, and end the command that is blocked in a read. */
+        fun abort() {
+            aborting = true
+            reset()
+        }
+
+        /** Called as a run starts, so a stop from last time cannot cancel this one. */
+        fun clearAbort() {
+            aborting = false
         }
 
         private fun certFile(context: Context) = File(context.filesDir, "adb_cert.pem")

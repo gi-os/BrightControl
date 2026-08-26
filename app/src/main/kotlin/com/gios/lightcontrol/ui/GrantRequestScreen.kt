@@ -406,7 +406,9 @@ fun GrantRequestScreen(
                                     parsed.steps.forEachIndexed { index, step ->
                                         // Asked to stop: do not start another command. The one
                                         // already running was ended by the socket closing.
-                                        if (GrantRun.stopRequested) return@forEachIndexed
+                                        if (GrantRun.stopRequested || AdbManager.stopping) {
+                                            return@forEachIndexed
+                                        }
                                         withContext(Dispatchers.Main) {
                                             GrantRun.at(index + 1, step.label)
                                         }

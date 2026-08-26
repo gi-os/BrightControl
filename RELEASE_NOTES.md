@@ -1,4 +1,4 @@
-## BrightControl v3.60 — every edge has two swipes, and both are bound like a button
+## BrightControl v3.61 — every edge has two swipes, and both are bound like a button
 
 The edges did one fixed thing each: left went back, right opened the switcher. Now each edge has a
 **short swipe and a long one**, and all four are ordinary bindings picked from the same screen the

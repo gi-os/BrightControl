@@ -445,6 +445,9 @@ fun AdbScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 run("grant all") {
+                    // A stop from an earlier run would otherwise cancel this one on its first
+                    // command, before anybody had pressed anything.
+                    AdbManager.clearAbort()
                     // Reconnect in front of the batch. The listener does not survive leaving
                     // the Wireless-debugging screen, so by the time anyone presses this the
                     // connection from step 3 is usually gone — and the port that replaced it is
@@ -491,7 +494,7 @@ fun AdbScreen(
                         withContext(Dispatchers.Main) {
                             say("${index + 1}/${SelfGrant.steps.size}  ${r.label} — $state")
                         }
-                        if (GrantRun.stopRequested) {
+                        if (GrantRun.stopRequested || AdbManager.stopping) {
                             withContext(Dispatchers.Main) { say("stopped") }
                             break
                         }
