@@ -1,48 +1,33 @@
-## BrightControl v3.53 — it can switch the debugging service back on itself
+## BrightControl v3.54 — a running command says what it is doing
 
-**light-reports#63, filed by the phone twenty minutes ago:**
+**RUNNING… for forty-five seconds, and then everything at once.** That is what the request screen did
+while another app's command was in flight, and from the outside it is indistinguishable from a button
+that hung. Worse, the command it was hiding is the most talkative one there is: the helper that
+answers a Bluetooth pairing request prints `createBond true`, then `state BONDING`, then either
+`setPairingConfirmation true` and `RESULT bonded` or the reason it gave up. None of that reached
+anybody, because the output was accumulated until the stream closed.
 
-```
-Could not run "CLASSPATH=<path> app_process / com.gios.brightoura.helper.Confirm <address>"
-the connection is gone and could not be picked back up
-```
-
-Two things in one line. The hand-off works — another app asked for a pairing to be confirmed, the
-request was accepted, and the command was built correctly. And it never ran, because there was no
-shell to run it on.
-
-**Wireless debugging goes off by itself.** A reboot clears it; so does a wander through Developer
-options. When it goes, the daemon stops listening and every screen here reports the consequence —
-*"the connection is gone"* — which is true and useless. The pairing is still on disk. There is simply
-nothing to connect to, and until today the only way back was a cable, which on a phone whose whole
-point is not needing a computer is a poor answer.
-
-**So it says which of the two things is wrong, and offers the fix.** `adb_wifi_enabled` is an
-ordinary global setting: readable with no permission at all, and writable by anything holding
-`WRITE_SECURE_SETTINGS` — which this app granted itself on first run, for the colour writes. So the
-ADB screen now leads with the cause rather than the steps:
+It arrives as it happens now:
 
 ```
-WIRELESS DEBUGGING IS OFF
-Nothing here can work while the phone's debugging service is not listening. The
-pairing this app already has is kept — there is simply nothing to connect to.
-[ TURN WIRELESS DEBUGGING ON ]
+WHAT IT IS SAYING
+· Answer the pairing request · 4C:6B:CA:60:96:28
+device 4C:6B:CA:60:96:28 state NONE
+createBond true
+state BONDING
+waiting… 21s left, state BONDING
+setPairingConfirmation true
+RESULT bonded
 ```
 
-One tap writes the setting, waits for the framework to act on it, reads it back, and goes straight on
-to connecting — the pairing is kept, the port is discoverable, so there is nothing left to do by
-hand. If Developer options are off it says that instead, because wireless debugging lives inside
-them and no amount of writing will conjure it.
+Whole lines only — half a line on screen reads as corruption — with a trailing fragment flushed at
+the end, because the last thing a command says is usually the answer and often unterminated. The
+last forty lines are kept, since the tail is the part that matters.
 
-The same button appears on the request screen, as **TURN IT ON AND RUN**, because that is where
-people actually meet the failure — an app asked for something, and the reason it could not happen is
-one tap away on the screen that reported it.
+**And a request with more than one command says which one it is on.** The button reads `RUNNING 2/3…`
+rather than `RUNNING…`, and the steps run one at a time with the step's own name pushed into the
+transcript in front of its output. A wait with a shape is a different experience from a wait without
+one, even when it takes exactly as long.
 
-**Not done silently.** Switching a phone's debugging daemon on changes how exposed it is, and a user
-who set this app up for the wheel and the camera button should not find it doing that on its own. It
-is a button, it says what it did, and the read-back is what decides — which is also the honest way to
-discover the grant has gone missing.
-
-**And a failure now names the command rather than an install hash.** #63's label was sixty characters
-of `/data/app/~~9Z7nxY0zTvXG3qtGAFJ-qw==` and none of the verb. Paths come out, the verb and its
-subject stay in.
+This is also the only place the ring's own answer has ever been visible. Every attempt so far has
+been read afterwards, out of a logcat, on a laptop.
