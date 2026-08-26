@@ -93,7 +93,7 @@ class LockOverlay(private val context: Context) {
     private val swipeThreshold: Int get() = type.gridPx(4f)
 
     /**
-     * How far right a row has to be pushed before letting go dismisses it.
+     * How far left a row has to be pushed before letting go dismisses it.
      *
      * Longer than a flick and shorter than the panel: five grid units is far enough that the
      * gesture cannot be a wobble on the way to the power button, and near enough that a thumb
@@ -607,7 +607,7 @@ class LockOverlay(private val context: Context) {
         // presses its whole panel — a face that got out of the way on any touch is a face that
         // spends the day out of the way, and then the picture is a thing you see only when you
         // meant to see something else. So every gesture here has to be one nothing does by
-        // accident: a deliberate drag, up for the keypad or right to dismiss a row. See
+        // accident: a deliberate drag, up for the keypad or left to dismiss a row. See
         // [LockFrame], which is where all of it is read.
 
         face = content
@@ -631,7 +631,7 @@ class LockOverlay(private val context: Context) {
      * covers the whole panel and a phone in a pocket presses the whole panel:
      *
      *  - **Up** — put the face away and show the keypad underneath.
-     *  - **Right, on a row** — dismiss that notification, or put the player's card away.
+     *  - **Left, on a row** — dismiss that notification, or put the player's card away.
      *  - **Press and hold, once unlocked** — go in. See [startHold].
      *
      * ### Why this intercepts
@@ -717,7 +717,7 @@ class LockOverlay(private val context: Context) {
             // This is a drag, not a hold. Whatever it turns out to be, it is not that.
             cancelHold()
             drag = if (abs(dx) > abs(dy)) {
-                val row = if (dx > 0) rowAt(downX, downY) else null
+                val row = if (dx < 0) rowAt(downX, downY) else null
                 if (row == null) {
                     Drag.DEAD
                 } else {
@@ -730,13 +730,13 @@ class LockOverlay(private val context: Context) {
             return true
         }
 
-        /** The row follows the finger, and fades as it goes. Right only; left is not a gesture. */
+        /** The row follows the finger, and fades as it goes. Left only; right is not a gesture. */
         private fun push(dx: Float) {
             val row = target ?: return
-            val amount = dx.coerceAtLeast(0f)
+            val amount = dx.coerceAtMost(0f)
             val span = (width.takeIf { it > 0 } ?: 1).toFloat()
             row.translationX = amount
-            row.alpha = 1f - (amount / span).coerceIn(0f, 1f) * 0.8f
+            row.alpha = 1f - (-amount / span).coerceIn(0f, 1f) * 0.8f
         }
 
         private fun finish(ev: MotionEvent) {
@@ -745,7 +745,7 @@ class LockOverlay(private val context: Context) {
             when (drag) {
                 Drag.SIDEWAYS -> {
                     val row = target
-                    if (row != null && dx > swipeAwayThreshold) away(row) else settle()
+                    if (row != null && -dx > swipeAwayThreshold) away(row) else settle()
                 }
                 // Up, far enough to be meant. Remembered, so screen-on does not raise the face
                 // again: swiping to reach the keypad and having it come straight back would make
@@ -759,12 +759,12 @@ class LockOverlay(private val context: Context) {
             drag = Drag.NONE
         }
 
-        /** Off the right-hand edge, and only then is anything actually dismissed. */
+        /** Off the left-hand edge, and only then is anything actually dismissed. */
         private fun away(row: View) {
             val span = (width.takeIf { it > 0 } ?: row.width).toFloat()
             target = null
             row.animate()
-                .translationX(span)
+                .translationX(-span)
                 .alpha(0f)
                 .setDuration(SWIPE_OUT_MS)
                 .withEndAction {

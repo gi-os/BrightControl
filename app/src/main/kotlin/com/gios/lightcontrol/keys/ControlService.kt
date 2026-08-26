@@ -282,7 +282,7 @@ class ControlService : AccessibilityService() {
         // The now-playing row on the face reports a tap here rather than starting anything itself.
         // Every activity start in this app goes through one throttle, one log line and one cover.
         lockFace.onOpenPlayer = { pkg -> runCatching { openFromLock(pkg) } }
-        // Swipe right on a row. The face reports the key; the cancel goes through the bound
+        // Swipe left on a row. The face reports the key; the cancel goes through the bound
         // notification listener, which is the only object allowed to make one.
         lockFace.onDismissNote = { key ->
             runCatching {
