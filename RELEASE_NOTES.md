@@ -1,27 +1,26 @@
-## BrightControl v3.46 — a request arriving finds the page, and a dead socket gets another go
+## BrightControl v3.47 — stop asking the socket and just send the command
 
-**An app asking for setup while BrightControl was already open got BrightControl's home page.** The
-activity is `singleTop`, so a second launch does not run `onCreate` again — it calls `onNewIntent`,
-and nothing was listening. The request was parsed exactly once, at launch, and any request that
-arrived afterwards was read by nobody. It looked precisely like being ignored, because it was. There
-is an `onNewIntent` now, and a request always wins the page: nobody presses a button in another app
-in order to look at this one's home screen.
+**NFC ON worked and GRANT ALL said the connection was gone, on the same socket, in the same
+minute.** That pair of facts is the whole bug. NFC asks nothing: it sends its command. GRANT ALL and
+the request screen both called `ensureAlive()` first and refused to run on the answer — and
+`ensureAlive` proves a connection by sending a command of its own, down a socket that may have been
+connected milliseconds earlier. **The first command on a new socket is the one that dies.** This file
+already knew that about batches, in a comment, and then trusted a single probe against it anyway.
 
-**"Stream closed" no longer takes the retry button away with it.** The daemon drops its listener
-when you leave the Wireless-debugging screen, so the first press after setting anything up regularly
-lands on a socket that is already gone. Nothing runs, which is fine — but the screen answered that
-by clearing the results and deciding it was *not connected*, which replaced TRY AGAIN with a trip
-back to ADB setup that had nothing to do there. The pairing is on disk and the port is discoverable;
-the next press usually just works. So it says what happened, in those words, and leaves TRY AGAIN
-exactly where it was. Twice in a row means wireless debugging is off, and it says that too.
+So a working connection answered "no", and the two screens that asked reported that nothing ran,
+while every screen that simply sent a command was fine.
 
-**The commands that had no retry at all now have one.** NFC, Shizuku, the advanced command box and
-the grants the automatic pairing applies all went straight at `runCommand`, so a dead socket was
-reported as the command failing. They go through `runVia` now: one reconnect, one retry, and only
-for the IOException that means the connection went away — never on the strength of what a command
-printed, because `shell:` carries no exit status and printing something is not an error.
+Three changes, and they all point the same way — state the intent, then ask the phone what happened:
 
-**And a request is set aside the moment it is known it cannot run yet**, rather than when somebody
-taps GO TO ADB SETUP. People leave with Home. A request lost that way has to be asked for again from
-the app that sent it, and when it carries a Bluetooth address that means a rescan, because the
-address has rotated by then.
+- **The probe is asked three times**, a fifth of a second apart, after any reconnect. Free on the
+  path that works; removes the settling race instead of reporting it as a broken setup.
+- **A "no" no longer stops the run.** Both batches keep the answer as a warning and run the steps
+  regardless — each step reconnects and retries on its own, and what the phone says about each grant
+  afterwards is a better answer than what a probe said about the socket beforehand.
+- **"Nothing got through" is now a claim about the run**, not about a prediction. It appears when
+  every step failed, and it says what to do: press TRY AGAIN, and if it happens twice, wireless
+  debugging is off.
+
+GRANT ALL logs the probe's opinion when it disagreed with reality — *"the connection did not answer
+a probe first — ran anyway"* — because a probe that keeps being wrong is worth seeing, and it is no
+longer allowed to be the thing that decides.

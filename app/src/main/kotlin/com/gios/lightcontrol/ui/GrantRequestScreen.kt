@@ -214,14 +214,14 @@ fun GrantRequestScreen(
                         )
                     } else {
                         if (dropped) {
-                            SectionLabel("THE CONNECTION WENT AWAY")
+                            SectionLabel("NOTHING GOT THROUGH")
                             GuideText(
-                                "Nothing ran. The phone's debugging service drops its listener " +
-                                    "when you leave the Wireless-debugging screen, so the first " +
-                                    "press after setting up often lands on a socket that is " +
-                                    "already gone. The pairing is kept and the port is found " +
-                                    "again on its own — press TRY AGAIN. If it says this twice, " +
-                                    "wireless debugging has been switched off.",
+                                "The phone's debugging service drops its listener when you leave " +
+                                    "the Wireless-debugging screen, and the first command on a " +
+                                    "freshly made connection is the one most likely to die. Both " +
+                                    "fix themselves on a second attempt: the pairing is kept and " +
+                                    "the port is found again on its own. Press TRY AGAIN. If it " +
+                                    "says this twice, wireless debugging has been switched off.",
                             )
                         }
                         BigButton(
@@ -250,21 +250,20 @@ fun GrantRequestScreen(
                                 val live = withContext(Dispatchers.IO) {
                                     AdbManager.ensureAlive(context)
                                 }
-                                if (!live) {
-                                    // **Do not take the button away.** This used to set
-                                    // `connected = false` and clear the results, which swapped the
-                                    // one thing left to try — pressing it again — for a trip to
-                                    // ADB setup that has nothing to do. A dead socket after a trip
-                                    // through Settings is the ordinary case, not a broken setup:
-                                    // the pairing is on disk and the port is discoverable, so the
-                                    // next press usually just works. Say what happened and leave
-                                    // TRY AGAIN where it is.
-                                    AdbManager.reset()
-                                    dropped = true
-                                    busy = false
-                                    return@launch
-                                }
-                                dropped = false
+                                // **A "no" from the probe does not stop the run.**
+                                //
+                                // This used to return here, reporting that nothing ran — and it
+                                // was wrong often enough to be worth not asking. The probe sends
+                                // its own command down a socket that may have been connected
+                                // milliseconds ago, and the first command on a new socket is the
+                                // one that dies; NFC worked on the same connection in the same
+                                // minute because it asks nothing and simply sends. Each step
+                                // reconnects and retries on its own anyway.
+                                //
+                                // So the answer is kept as a warning and the steps are run. What
+                                // the phone says about each grant afterwards is a better answer
+                                // than what a probe said about the socket beforehand.
+                                dropped = !live
                                 val out = withContext(Dispatchers.IO) {
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.map { step ->
@@ -278,6 +277,10 @@ fun GrantRequestScreen(
                                     }
                                 }
                                 results = out
+                                // Held only if nothing got through at all. One step failing is a
+                                // grant that did not take; every step failing on a socket error is
+                                // a connection, and those read differently on the page.
+                                dropped = out.isNotEmpty() && out.all { it.outcome == Outcome.Failed }
                                 connected = runCatching {
                                     AdbManager.getInstance(context).connected()
                                 }.getOrDefault(false)

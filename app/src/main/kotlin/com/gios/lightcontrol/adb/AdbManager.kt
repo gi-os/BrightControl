@@ -266,11 +266,32 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             // Reset rather than reconnect in place: a half-open socket is exactly what got us
             // here, and the manager would otherwise keep reusing it.
             reset()
-            return runCatching {
-                val fresh = getInstance(context)
-                fresh.connectAuto(context, timeoutMs) && fresh.alive()
-            }.getOrDefault(false)
+            val fresh = getInstance(context)
+            val up = runCatching { fresh.connectAuto(context, timeoutMs) }.getOrDefault(false)
+            if (!up) return false
+            // **Probe more than once, because the first command on a new socket dies.**
+            //
+            // The daemon reports the connection up before it can carry a stream, so the very first
+            // `shell:` after a connect regularly comes back as `Stream closed` — a fact this file
+            // already knew about batches and then trusted a single probe against anyway. One failed
+            // probe therefore returned false about a connection that was working a second later,
+            // which is how GRANT ALL refused to run while NFC — which asks no questions and just
+            // sends its command — worked on the same socket in the same minute.
+            //
+            // Three tries, a fifth of a second apart. Cheap on the path that works, and it removes
+            // the settling race rather than reporting it as a broken setup.
+            repeat(PROBES) { attempt ->
+                if (runCatching { fresh.alive() }.getOrDefault(false)) return true
+                if (attempt < PROBES - 1) runCatching { Thread.sleep(PROBE_GAP_MS) }
+            }
+            return false
         }
+
+        /** How many times to ask a new socket whether it can carry a command. */
+        private const val PROBES = 3
+
+        /** Between probes. Long enough for a daemon to finish settling, short enough to not feel. */
+        private const val PROBE_GAP_MS = 200L
 
         /**
          * How long to let mDNS look for the daemon.

@@ -388,11 +388,14 @@ fun AdbScreen(
                     // the Wireless-debugging screen, so by the time anyone presses this the
                     // connection from step 3 is usually gone — and the port that replaced it is
                     // discoverable, so there is nothing here to ask the user.
-                    if (!AdbManager.ensureAlive(context)) {
-                        return@run "could not reach the phone's debugging service, so nothing " +
-                            "was run. Check that wireless debugging is still switched on, then " +
-                            "pair again at step 2 if this keeps saying it."
-                    }
+                    // Reconnect if it takes one, but do not refuse to run on the answer. The
+                    // probe inside this sends a command of its own, and the first command on a
+                    // freshly connected socket is the one that dies — so a working connection
+                    // regularly answered "no" here and GRANT ALL reported that nothing ran, on a
+                    // phone where NFC ON worked a second later. Each grant below reconnects and
+                    // retries by itself, and what the phone says about each one afterwards is the
+                    // better answer.
+                    val reachable = AdbManager.ensureAlive(context)
                     val adb = AdbManager.getInstance(context)
                     // Each grant is read back off the phone rather than judged by what the
                     // command printed. `shell:` carries no exit status, so a command that failed
@@ -408,6 +411,11 @@ fun AdbScreen(
                         )
                     }
                     val lines = StringBuilder()
+                    if (!reachable) {
+                        lines.append(
+                            "the connection did not answer a probe first — ran anyway\n",
+                        )
+                    }
                     results.forEach { r ->
                         val state = when (r.outcome) {
                             Outcome.Held -> "OK"
