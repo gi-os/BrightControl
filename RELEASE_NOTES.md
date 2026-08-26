@@ -1,3 +1,19 @@
+## BrightControl v3.74 — BrightNotebook was drawing a second box
+
+Banners knew about two apps with a heads-up box of their own, and there were three. BrightNotebook
+has had a reminder box since long before this feature existed, and nothing here named it — so from
+v3.65 to v3.71, a reminder coming due drew BrightNotebook's box and then this app's over the top of
+it. The only symptom was two boxes, which is the one thing the stand-down arrangement exists to
+prevent.
+
+It is on the list now. BrightNotebook v1.53 is the other half; both are needed.
+
+Worth saying plainly, because it will happen again: **an app this one has never heard of keeps
+drawing its own box.** The list is named rather than discovered — walking every installed app
+looking for one that might listen would be a permission and a guess to save three lines — so a new
+app with a box of its own has to be added here.
+
+
 ## BrightControl v3.73 — the switcher shows each app's icon
 
 The recents list was a column of names. Names have to be read, and the app switcher is the one

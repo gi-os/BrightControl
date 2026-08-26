@@ -42,9 +42,18 @@ object AlertHandoff {
      *
      * Named rather than discovered. A broadcast to a package that is not installed costs nothing,
      * and the alternative -- walking every installed app looking for one that might listen -- is
-     * a permission and a guess to save a list of two.
+     * a permission and a guess to save a list of three.
+     *
+     * A box this app does not know about is a box that keeps drawing itself, and the only symptom
+     * is two of them on screen at once. BrightNotebook was exactly that: it had had a reminder box
+     * since long before this feature and nothing here named it, so v3.65 through v3.71 drew a
+     * second box over its first every time a reminder came due.
      */
-    val CONSUMERS = listOf("com.gios.lightchat", "com.gios.lightsports")
+    val CONSUMERS = listOf(
+        "com.gios.lightchat",
+        "com.gios.lightsports",
+        "com.gios.lightnotebook",
+    )
 
     /**
      * Whether this app is actually drawing the box.

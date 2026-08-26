@@ -143,8 +143,8 @@ fun NotificationsScreen(onHiddenApps: () -> Unit, onBack: () -> Unit) {
             dim = consumers.isEmpty(),
             sub = when {
                 consumers.isEmpty() ->
-                    "BrightChat and BrightSports each draw a box of their own. Neither is " +
-                        "installed, so there is nothing to arrange."
+                    "BrightChat, BrightSports and BrightNotebook each draw a box of their own. " +
+                        "None is installed, so there is nothing to arrange."
                 AlertHandoff.owned(context) ->
                     "told to stop drawing theirs, so a message is one box and not two. Their buzz " +
                         "and their notification are untouched, and turning banners off gives them " +
