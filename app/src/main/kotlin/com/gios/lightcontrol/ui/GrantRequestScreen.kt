@@ -56,9 +56,17 @@ fun GrantRequestScreen(
     lines: List<String>,
     onBack: () -> Unit,
     onAdb: () -> Unit,
+    /**
+     * How long this request sat waiting for a connection, if it came back from ADB setup rather
+     * than straight from the app. Said out loud rather than used to hide anything: a Bluetooth
+     * address in a request goes stale in about fifteen minutes, and only the person holding the
+     * ring can judge whether it has.
+     */
+    heldMinutes: Long? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = remember { com.gios.lightcontrol.Prefs(context) }
 
     // The APK path is looked up here rather than accepted in the request: "confirm pairing" runs
     // the requesting app's own installed code as the shell, and *own* is a fact only the package
@@ -124,6 +132,16 @@ fun GrantRequestScreen(
                 }
 
                 is GrantRequest.Parsed.Ok -> {
+                    if (heldMinutes != null && heldMinutes >= 10) {
+                        SectionLabel("THIS WAITED $heldMinutes MINUTES")
+                        GuideText(
+                            "It was set aside while you set up ADB, and it is being offered as it " +
+                                "arrived. If there is a Bluetooth address in it, the device may " +
+                                "have changed address by now — a ring rotates its own every " +
+                                "quarter of an hour. Run it, and if it finds nothing, ask the app " +
+                                "again for a fresh one.",
+                        )
+                    }
                     // A repair step is the one shape that touches a package other than the
                     // requester, so it gets said out loud instead of hiding inside a list the
                     // paragraph above has just promised names one app.
@@ -175,7 +193,15 @@ fun GrantRequestScreen(
                             enabled = true,
                             modifier = Modifier.fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
-                            onClick = onAdb,
+                            onClick = {
+                                // Set the request aside before leaving. Setup is a trip through
+                                // Settings and this process does not reliably survive it — the
+                                // pairing helper is an accessibility service, and coming back from
+                                // that screen is exactly where everything in memory has gone. The
+                                // ADB screen hands it back as soon as it has a connection.
+                                prefs.holdGrantRequest(pkg, lines)
+                                onAdb()
+                            },
                         )
                     } else {
                         BigButton(

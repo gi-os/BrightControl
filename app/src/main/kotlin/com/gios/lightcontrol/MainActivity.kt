@@ -81,6 +81,11 @@ private sealed interface Screen {
         val label: String,
         val pkg: String,
         val lines: List<String>,
+        /**
+         * Minutes this request spent waiting for a connection, when it is one the ADB screen handed
+         * back rather than one an app just sent. Null for a fresh arrival.
+         */
+        val heldMinutes: Long? = null,
     ) : Screen
 
     /** [fromSettings] only decides where Back returns the picker to. */
@@ -209,7 +214,20 @@ class MainActivity : ComponentActivity() {
                             onBack = { screen = Screen.ResumeApps },
                         )
 
-                        Screen.Adb -> AdbScreen(onBack = home)
+                        Screen.Adb -> AdbScreen(
+                            onBack = home,
+                            // A request that was waiting for a connection now has one. Going
+                            // straight to it beats leaving somebody on a setup screen whose only
+                            // button sets up a different app.
+                            onCarriedRequest = { pkg, lines, held ->
+                                screen = Screen.GrantRequestFor(
+                                    label = labelOf(pkg),
+                                    pkg = pkg,
+                                    lines = lines,
+                                    heldMinutes = held,
+                                )
+                            },
+                        )
 
                         Screen.WifiLogin -> WifiLoginScreen(onBack = home)
                         Screen.Hotspot -> HotspotScreen(onBack = home)
@@ -218,6 +236,7 @@ class MainActivity : ComponentActivity() {
                             appLabel = current.label,
                             pkg = current.pkg,
                             lines = current.lines,
+                            heldMinutes = current.heldMinutes,
                             onBack = home,
                             onAdb = { screen = Screen.Adb },
                         )

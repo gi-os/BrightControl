@@ -70,13 +70,19 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdbScreen(onBack: () -> Unit) {
+fun AdbScreen(
+    onBack: () -> Unit,
+    /**
+     * Called with a request that was set aside because there was no connection, the moment there
+     * is one. See [Prefs.holdGrantRequest] — the screen that promised "this request will still be
+     * here" is the reason this parameter exists.
+     */
+    onCarriedRequest: (pkg: String, lines: List<String>, heldMinutes: Long) -> Unit = { _, _, _ -> },
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val scope = rememberCoroutineScope()
 
-    var pairCode by remember { mutableStateOf("") }
-    var connectPort by remember { mutableStateOf(prefs.adbPort) }
     var command by remember { mutableStateOf("") }
 
     var busy by remember { mutableStateOf(false) }
@@ -99,6 +105,34 @@ fun AdbScreen(onBack: () -> Unit) {
             connected = conn
             busy = false
         }
+    }
+
+    // **Hand a carried request back the moment there is a connection to run it with.**
+    //
+    // The request screen says "this request will still be here" and then sends people here, where
+    // until now the request was gone and the only button was GRANT ALL — this app setting *itself*
+    // up, which is not what anybody was asked to approve. So it is kept in [Prefs] across the trip
+    // through Settings (which this process does not reliably survive) and handed straight back.
+    //
+    // Watched rather than read once, because on the automatic route the connection comes up while
+    // this screen is already open — the pairing finishes, `connected` flips, and the right screen
+    // to be looking at is no longer this one.
+    //
+    // Six hours is a cap on resurrection, not an expiry: a request older than that is somebody
+    // else's abandoned session, and being yanked to a screen you have forgotten asking for is
+    // worse than losing it. Anything inside it is offered, however old, with its age said out
+    // loud — an address in it may have moved on, and that is for the person to judge.
+    var connectedWas by remember { mutableStateOf(false) }
+    LaunchedEffect(connected) {
+        if (!connected || connectedWas) return@LaunchedEffect
+        connectedWas = true
+        val pkg = prefs.pendingGrantPkg
+        val lines = prefs.pendingGrantLines
+        if (pkg.isBlank() || lines.isEmpty()) return@LaunchedEffect
+        val heldMs = System.currentTimeMillis() - prefs.pendingGrantAt
+        prefs.clearGrantRequest()
+        if (heldMs > 6 * 60 * 60 * 1000L) return@LaunchedEffect
+        onCarriedRequest(pkg, lines, heldMs / 60_000L)
     }
 
     val scroll = rememberScrollState()
@@ -244,70 +278,17 @@ fun AdbScreen(onBack: () -> Unit) {
                 }
             }
 
-            Rule()
-            Guide("Or type the code yourself. This only works while the pairing box is still on " +
-                "screen, so it means a second device or a very fast thumb — the automatic route " +
-                "above exists precisely because this one mostly cannot be done:")
-
-            AdbField("Six-digit pairing code", pairCode, KeyboardType.Number) { pairCode = it }
-            BigButton(
-                label = if (busy) "PAIRING… (up to 60s)" else "PAIR",
-                filled = true,
-                enabled = !busy && pairCode.trim().length == 6,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                run("pair with code") {
-                    val adb = AdbManager.getInstance(context)
-                    val ok = adb.pairViaMdns(context, pairCode.trim(), 60_000L)
-                    if (!ok) {
-                        "no pairing service found, or the code was wrong. Make sure the pairing " +
-                            "box is still open (left with Home, not Back), then try again — the " +
-                            "code is fresh each time the box opens."
-                    } else {
-                        // Pairing does not connect on its own; go straight on to it.
-                        val c = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
-                        if (c) "paired and connected" else "paired — now tap CONNECT below"
-                    }
-                }
-            }
-            Rule()
-
-            SectionLabel("STEP 3 — CONNECT")
-            Step("6", "Tap CONNECT. It finds the running daemon over Wi-Fi. If it can't, read the " +
-                "connect port from the top of the Wireless debugging screen (the number after the " +
-                "colon), type it below, and connect.")
-            BigButton(
-                label = if (busy) "…" else "CONNECT",
-                filled = true,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                run("connect (auto)") {
-                    AdbManager.reset()
-                    val ok = AdbManager.getInstance(context).connectAuto(context, 15_000L)
-                    if (ok) "connected" else "not found automatically — type the connect port below"
-                }
-            }
-            AdbField("Connect port (fallback)", connectPort, KeyboardType.Number) { connectPort = it }
-            BigButton(
-                label = "CONNECT ON PORT",
-                enabled = !busy && connectPort.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                val port = connectPort.trim().toIntOrNull()
-                if (port == null) { say("connect port is not a number"); return@BigButton }
-                prefs.adbPort = connectPort.trim()
-                run("connect $port") {
-                    AdbManager.reset()
-                    val ok = AdbManager.getInstance(context).connectPort(context, port)
-                    if (ok) "connected" else "refused — check the port, and that pairing succeeded"
-                }
-            }
-            Rule()
-
-            SectionLabel("STEP 4 — GRANT EVERYTHING")
-            Step("7", "With the status at the top reading Connected, tap GRANT ALL. It enables the " +
-                "key service and every permission, then reopen the app so they're picked up.")
+            SectionLabel("STEP 3 — BRIGHTCONTROL'S OWN GRANTS")
+            Guide(
+                "These are the permissions *this* app needs — the key service, the colour writes, " +
+                    "the caller name. If you came here from another app's request, that request is " +
+                    "waiting and comes back on its own the moment the connection is up; this " +
+                    "button is not it.",
+            )
+            Step(
+                if (readerOn) "4" else "5",
+                "Tap GRANT ALL, then reopen the app so the new permissions are picked up.",
+            )
             if (!connected) {
                 MenuRow(
                     label = "Not showing as connected",

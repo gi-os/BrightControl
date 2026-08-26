@@ -836,9 +836,59 @@ class Prefs(context: Context) {
         get() = sp.getString("adb_port", "") ?: ""
         set(v) = sp.edit().putString("adb_port", v).apply()
 
+    /**
+     * A grant request that arrived before there was a connection to run it with.
+     *
+     * ### Why this is stored at all
+     *
+     * The request screen tells the user "this request will still be here" and then sends them to
+     * ADB setup — where the request was dropped on the floor, leaving them looking at GRANT ALL,
+     * which is this app's own setup and not the thing they were asked to approve. The one action
+     * on the screen was the one nobody wanted.
+     *
+     * Held here rather than in the navigation state because setup is a trip through *Settings*, and
+     * this process does not reliably survive it: the pairing helper is an accessibility service,
+     * and coming back from Accessibility with it switched on is the point at which everything
+     * in memory has already gone.
+     *
+     * Lines are newline-joined, which is safe because [GrantRequest] refuses a line with a newline
+     * in it long before it gets here — a request is a list of single-line commands or it is a
+     * refusal.
+     */
+    var pendingGrantPkg: String
+        get() = sp.getString(PENDING_PKG, "") ?: ""
+        set(v) = sp.edit().putString(PENDING_PKG, v).apply()
+
+    var pendingGrantLines: List<String>
+        get() = (sp.getString(PENDING_LINES, "") ?: "")
+            .split('\n')
+            .filter { it.isNotBlank() }
+        set(v) = sp.edit().putString(PENDING_LINES, v.joinToString("\n")).apply()
+
+    /** When it was set aside, so the screen can say how old it is rather than guess. */
+    var pendingGrantAt: Long
+        get() = sp.getLong(PENDING_AT, 0L)
+        set(v) = sp.edit().putLong(PENDING_AT, v).apply()
+
+    /** Set the three together; nothing useful can be done with one of them. */
+    fun holdGrantRequest(pkg: String, lines: List<String>) {
+        sp.edit()
+            .putString(PENDING_PKG, pkg)
+            .putString(PENDING_LINES, lines.joinToString("\n"))
+            .putLong(PENDING_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun clearGrantRequest() {
+        sp.edit().remove(PENDING_PKG).remove(PENDING_LINES).remove(PENDING_AT).apply()
+    }
+
     private fun appKey(pkg: String) = APP_PREFIX + pkg
 
     private companion object {
+        const val PENDING_PKG = "pendingGrantPkg"
+        const val PENDING_LINES = "pendingGrantLines"
+        const val PENDING_AT = "pendingGrantAt"
         const val HOTSPOT_AUTO = "hotspotAuto"
         const val HOTSPOT_TRIGGERS = "hotspotTriggers"
         const val HOTSPOT_TRUSTED = "hotspotTrustedSsids"
