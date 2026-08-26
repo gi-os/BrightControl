@@ -1,25 +1,41 @@
-## BrightControl v3.42 — hold a row for App info, and the force-stop gesture goes
+## BrightControl v3.43 — an app may ask the shell to answer a pairing request
 
-**The hold on a row opens Settings' App info page for that app.** By thumb, or by holding the wheel
-click on the selection — the same pair as before, pointed somewhere better.
+**Nothing on this phone can pair a device that asks for consent.** The bond raises a
+`PAIRING_VARIANT_CONSENT` request, the request becomes
+`com.android.settings/.bluetooth.BluetoothPairingDialog`, and LightOS's pairing fragment builds a
+**null** dialog for that variant and dies in `DialogFragment.prepareDialog`. With the screen off
+the platform posts a notification instead — and its "Pair & connect" button fires
+`ACTION_PAIRING_DIALOG`, which starts that same activity and takes the pairing service down too.
+Three routes, one dead end. It is why the Oura ring will not pair, and why the iPad this app's own
+hotspot trigger waits for would not pair either.
 
-What it replaced: a hold that ran `am force-stop` over this app's own adb shell, and fell back to
-`killBackgroundProcesses` when there was no shell to run it. Two different outcomes behind one
-gesture, and the weaker one had to announce itself as **BACKGROUNDED · no adb for a full stop**,
-because backgrounding an app is not what somebody holding a row on a misbehaving app asked for. The
-honest message was the tell: a gesture whose meaning depends on whether a pairing has been done is
-a gesture nobody can rely on.
+**`setPairingConfirmation` answers with no UI at all, and the shell is allowed to call it.** The
+permission is `BLUETOOTH_PRIVILEGED` — `signature|privileged`, so no sideloaded app will ever hold
+it — but `com.android.shell` has it granted, along with `BLUETOOTH_STACK`. This app has held an adb
+shell since v1. So there is now a third verb beside "start shizuku" and "repair settings":
 
-App info has AOSP's own Force stop button on it. It needs no shell, no pairing and no runtime
-permission, it is the real force stop every time, and Uninstall, storage and permissions are on the
-same page. One hold, one meaning, and the thing it leads to is stronger than what the hold used to
-manage on a good day.
+```
+confirm pairing AA:BB:CC:DD:EE:FF
+```
 
-So `switcher/ForceStop.kt` is gone, and with it the `KILL_BACKGROUND_PROCESSES` permission — this
-app asks for one fewer thing than it did yesterday, which is the right direction for a permission
-list this long.
+and what runs is written here:
 
-**And SYSTEM SWITCHER is tap-only again.** v3.41 put App info on a hold of that button, which was
-the wrong place for it: the app a gesture is about is the row, and the button at the bottom is the
-control furthest from it. Tapping it still asks the platform for its own recents and still says
-**NOTHING CAME UP** when nothing does.
+```
+sh -c 'CLASSPATH=<the requester's own APK> app_process / <requester>.helper.Confirm <MAC> 24000'
+```
+
+**One thing crosses over, and it is six hex pairs.** The pattern admits hex and colons; a line with
+a path, a space, a quote or a second command on it does not match at all, and `matchEntire` is what
+stops `confirm pairing AA:… ; rm -rf /` from being a MAC address with a tail. The `CLASSPATH` is
+the APK path *this phone* resolved for the requesting package, and the class is
+`<that package>.helper.Confirm` — so an app can only run code it already shipped and you already
+installed. What it gains is the uid, for the length of one command, to do the one thing the request
+names. A package with no installed code is refused with that as the reason rather than guessed at.
+
+And it still asks. The consent screen shows the built line before anything runs, and the bond it
+answers is one you were already trying to make — this replaces a dialog you cannot answer, not one
+you never saw.
+
+Four new tests: the command is pinned to the requester's own APK and class, only a MAC gets
+through, a lower-case address comes back rebuilt in upper case, and an uninstalled package is a
+refusal rather than a path.

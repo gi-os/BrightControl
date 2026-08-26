@@ -93,6 +93,52 @@ class GrantRequestTest {
         assertEquals("pm install /sdcard/evil.apk", r.line)
     }
 
+    // ---- answering a pairing request ----------------------------------------
+
+    private val apk = { named: String -> "/data/app/~~x/$named-1/base.apk" }
+
+    @Test
+    fun `confirm pairing runs the requester's own code as the shell`() {
+        val parsed = GrantRequest.parse(roll, listOf("confirm pairing AA:BB:CC:DD:EE:FF"), apk)
+        val step = (parsed as GrantRequest.Parsed.Ok).steps.single()
+        assertEquals(
+            "sh -c 'CLASSPATH=/data/app/~~x/com.gios.roll-1/base.apk app_process / " +
+                "com.gios.roll.helper.Confirm AA:BB:CC:DD:EE:FF 24000'",
+            step.command,
+        )
+    }
+
+    @Test
+    fun `nothing but a MAC address gets through`() {
+        listOf(
+            "confirm pairing AA:BB:CC:DD:EE:FF; rm -rf /sdcard",
+            "confirm pairing ../../evil",
+            "confirm pairing AA:BB:CC:DD:EE",
+            "confirm pairing /data/local/tmp/evil.dex",
+            "confirm pairing AA:BB:CC:DD:EE:FF' ; sh '",
+            "confirm pairing",
+        ).forEach { line ->
+            val r = GrantRequest.parse(roll, listOf(line), apk)
+            assertTrue("should have refused: $line", r is GrantRequest.Parsed.Refused)
+        }
+    }
+
+    @Test
+    fun `a package with no installed code is refused, not guessed at`() {
+        val r = GrantRequest.parse(roll, listOf("confirm pairing AA:BB:CC:DD:EE:FF")) as
+            GrantRequest.Parsed.Refused
+        assertTrue(r.why, r.why.contains("could not find"))
+    }
+
+    @Test
+    fun `the class is always the requester's, whatever the line says`() {
+        val step = (GrantRequest.parse(roll, listOf("answer pairing aa:bb:cc:dd:ee:ff"), apk)
+            as GrantRequest.Parsed.Ok).steps.single()
+        assertTrue(step.command, step.command.contains("com.gios.roll.helper.Confirm"))
+        // Lower case in, upper case out: the address is rebuilt here like everything else.
+        assertTrue(step.command, step.command.contains("AA:BB:CC:DD:EE:FF"))
+    }
+
     // ---- repairing a system app ---------------------------------------------
 
     @Test

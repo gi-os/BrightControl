@@ -59,7 +59,17 @@ object GrantRequest {
      * applied: a half-granted app is a worse thing to hand back than a clear refusal, and a line
      * nobody could parse is the case most likely to be someone trying something.
      */
-    fun parse(pkg: String, lines: List<String>): Parsed {
+    fun parse(
+        pkg: String,
+        lines: List<String>,
+        /**
+         * Where the requesting package's own APK lives, asked of the phone rather than stated in
+         * the request. Only [confirmPairing] needs it, and it needs it for the property that makes
+         * that verb safe: the code that runs is the requester's own installed code, at a path this
+         * phone resolved, never a path anybody sent.
+         */
+        apkOf: (String) -> String? = { null },
+    ): Parsed {
         if (pkg.isBlank()) return Parsed.Refused("", "no package named")
         if (lines.isEmpty()) return Parsed.Refused("", "nothing to run")
 
@@ -68,6 +78,7 @@ object GrantRequest {
             val line = normalize(raw)
             if (line.isBlank()) continue
             val made = repair(line)
+                ?: confirmPairing(pkg, line, apkOf)?.let(::listOf)
                 ?: step(pkg, line)?.let(::listOf)
                 ?: return Parsed.Refused(raw.trim(), refusalFor(pkg, line))
             steps += made
@@ -144,6 +155,54 @@ object GrantRequest {
             return Step(label = "Start Shizuku", command = START_SHIZUKU, check = GrantCheck.None)
         }
         return null
+    }
+
+    /**
+     * Answer a Bluetooth pairing request on behalf of an app that cannot answer one itself.
+     *
+     * ### Why this is worth a verb
+     *
+     * On this phone no app can pair anything that asks for consent. The request becomes
+     * `com.android.settings/.bluetooth.BluetoothPairingDialog`, LightOS's pairing fragment builds a
+     * **null** dialog for that variant, and Settings dies in `DialogFragment.prepareDialog`. With
+     * the screen off the request is posted as a notification instead — whose Pair button fires
+     * `ACTION_PAIRING_DIALOG`, which starts the same activity and takes the pairing service down
+     * with it. Three routes, one dead end. An Oura ring cannot be paired; neither could the iPad
+     * this app's own hotspot trigger was waiting for.
+     *
+     * `BluetoothDevice.setPairingConfirmation` answers with no UI at all. It needs
+     * `BLUETOOTH_PRIVILEGED` — `signature|privileged`, so ungrantable to anything sideloaded — and
+     * **`com.android.shell` holds it**. This app holds a shell. That is the whole idea.
+     *
+     * ### Why it is not a hole
+     *
+     * The line may carry one thing: a MAC address, matched by shape. Everything else is written
+     * here.
+     *
+     *  - **The code that runs is the requester's own.** `CLASSPATH` is the APK path this phone
+     *    resolved for the requesting package, and the class is `<that package>.helper.Confirm`. An
+     *    app can therefore only run code it already shipped and the user already installed — code
+     *    it could run anyway, in its own process. What it gains is the uid, for as long as one
+     *    command takes.
+     *  - **Nothing composes.** No path, no flag, no second command, no shell metacharacter: the
+     *    pattern admits hex and colons, and the rest of the line is a constant.
+     *  - **It still asks.** The consent screen shows the built line, and the bond is one the user
+     *    was already trying to make — this replaces a dialog they cannot answer, not one they never
+     *    saw.
+     *
+     * A request from a package with no resolvable APK is refused rather than guessed at.
+     */
+    private fun confirmPairing(pkg: String, line: String, apkOf: (String) -> String?): Step? {
+        val mac = CONFIRM_PAIRING.matchEntire(line)?.groupValues?.get(1)?.uppercase() ?: return null
+        val apk = apkOf(pkg)?.takeIf { it.startsWith("/") && !it.contains(' ') && "'" !in it }
+            ?: return null
+        return Step(
+            label = "Answer the pairing request · $mac",
+            // Wrapped in `sh -c` because a leading `VAR=value` is shell syntax, and the daemon
+            // gives each command a process rather than a login shell.
+            command = "sh -c 'CLASSPATH=$apk app_process / $pkg.helper.Confirm $mac $CONFIRM_MS'",
+            check = GrantCheck.None,
+        )
     }
 
     /**
@@ -245,9 +304,12 @@ object GrantRequest {
                     "any other package would be somebody's data deleted"
             named != null && named != pkg ->
                 "names $named, but this request is from $pkg — an app may only set up itself"
+            CONFIRM_PAIRING.matches(line) ->
+                "asks to answer a pairing request, but this phone could not find $pkg's own " +
+                    "installed code to run it from"
             else ->
                 "not a permission, app op, notification listener, accessibility service, " +
-                    "\"repair settings\", or \"start shizuku\""
+                    "\"repair settings\", \"confirm pairing <MAC>\", or \"start shizuku\""
         }
     }
 
@@ -312,6 +374,26 @@ object GrantRequest {
      * [REPAIRABLE] and then discarded; nothing captured here is ever run.
      */
     private val REPAIR_LINE = Regex("""pm (?:clear|enable) ($PKG)""")
+
+    /**
+     * A declaration carrying exactly one argument, and that argument is six hex pairs.
+     *
+     * The pattern is the security boundary for [confirmPairing], so it is written as tightly as the
+     * thing it describes: no path can hide in it, no space, no quote, no second command. Matched
+     * with [Regex.matchEntire], which is what stops `confirm pairing AA:… ; rm -rf /` from being a
+     * MAC address with a tail on it.
+     */
+    private val CONFIRM_PAIRING = Regex(
+        """(?:confirm|answer) pairing ((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * How long the helper keeps answering, in milliseconds — decided here, not by the request. A
+     * pairing request stands for about thirty seconds; this covers it without leaving a command
+     * running on the shell for longer than the thing it waits for can exist.
+     */
+    private const val CONFIRM_MS = 24_000
 
     private val APPOP_MODES = setOf("allow", "deny", "ignore", "default")
 }

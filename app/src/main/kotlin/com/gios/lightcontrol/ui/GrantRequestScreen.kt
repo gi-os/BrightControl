@@ -60,7 +60,17 @@ fun GrantRequestScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val parsed = remember(pkg, lines) { GrantRequest.parse(pkg, lines) }
+    // The APK path is looked up here rather than accepted in the request: "confirm pairing" runs
+    // the requesting app's own installed code as the shell, and *own* is a fact only the package
+    // manager can establish. A package that is not installed resolves to null, and the request is
+    // refused with that as the reason.
+    val parsed = remember(pkg, lines) {
+        GrantRequest.parse(pkg, lines) { named ->
+            runCatching {
+                context.packageManager.getApplicationInfo(named, 0).sourceDir
+            }.getOrNull()
+        }
+    }
     var connected by remember { mutableStateOf(AdbManager.getInstance(context).connected()) }
     var busy by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf(listOf<StepResult>()) }
