@@ -121,6 +121,7 @@ class AdbPairReader : AccessibilityService() {
             }
         // True either way: this window was the one to act on, so no other window needs trying.
         return tapped != null
+    }
 
     private companion object {
         const val TAP_DEBOUNCE_MS = 1_500L
