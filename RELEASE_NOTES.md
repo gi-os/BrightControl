@@ -1,18 +1,26 @@
-## BrightControl v3.72 — a failed relayed command files its own transcript
+## BrightControl v3.73 — the switcher shows each app's icon
 
-BrightOura's pairing helper printed `removeBond false`, `createBond false`, `state NONE` — and none
-of it reached anybody, because the *command* succeeded. It exited zero having printed the word
-FAILED, so nothing in here counted it as a failure, and the transcript was **hand-typed into a chat
-window, line by line**, to get it looked at.
+The recents list was a column of names. Names have to be read, and the app switcher is the one
+screen in this app nobody looks at — it is passed through, in the second between deciding to leave
+an app and leaving it. So each row now carries **the app's own icon, inline, ahead of its name**:
+the part of an app you already know by shape, doing the work the reading was doing.
 
-That is the wrong way round twice over. This app holds a reporting key; the apps it relays for mostly
-do not — BrightOura's own reports have been queuing on the phone unsent since the day it was written.
-So the one place a relayed command's own words exist was the one place nothing could read them.
+It costs nothing on the screen. The icon is drawn **exactly one line tall**, tied to the type beside
+it rather than to the grid, so a row with an icon in it is the same height as a row without — which
+means the same number of apps still fit, and the app furthest back (the one a switcher is actually
+for) does not get pushed below a fold this list deliberately cannot be scrolled past.
 
-**A run that did not work now files its transcript, once.** Failure is read from the outcomes *and*
-from what the command said — `FAILED`, `refused`, `gave up` — because a command can fail perfectly
-politely with an exit code of zero. The tail of the transcript goes in the report, which is worth far
-more than the outcome codes around it: `createBond true` followed by `no request ever arrived` is a
-diagnosis, and `FAILED` is not.
+The selection still reads the same way. Brightness is the only thing this screen has to say "here",
+so **the icon dims with the name it belongs to** — full strength on the selected row, the same grey
+as the text everywhere else. Eight icons at full strength would be eight bright things arguing with
+the one that means something.
 
-One report per run, since [Trouble] holds a floor of a minute between any two whatever they say.
+Two small things behind it:
+
+- **Icons are loaded once and held.** A resource read per app, on the main thread, in the moment the
+  window opens is the one place in this app where a few milliseconds are the whole feature.
+- **An app whose icon will not load gets an empty box the same size**, so its name still lines up.
+  A row that shuffles left because its icon was missing is worse than a gap.
+
+Nothing else changed: the wheel still moves, a click still opens, a hold is still App info, home
+still closes.

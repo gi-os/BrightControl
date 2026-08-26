@@ -3,6 +3,7 @@ package com.gios.lightcontrol.switcher
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -69,6 +70,17 @@ class SwitcherOverlay(private val context: Context) {
     private var entries: List<Entry> = emptyList()
     private var index = 0
 
+    /**
+     * Each app's own icon, by package, kept across shows.
+     *
+     * Loading one is a resource read, and this list is built on the main thread in the moment
+     * between deciding to leave an app and leaving it -- the one place in this app where a few
+     * milliseconds are the whole feature. So they are read once and held. The map is dropped
+     * wholesale rather than aged out: an entry is a small bitmap, [CACHE] of them is nothing, and
+     * an eviction policy would be more code than the thing it manages.
+     */
+    private val icons = HashMap<String, Drawable?>()
+
     /** Told which package was chosen. The service does the launching — it owns the throttle. */
     var onPick: ((String) -> Unit)? = null
 
@@ -131,6 +143,8 @@ class SwitcherOverlay(private val context: Context) {
      */
     fun capacity(): Int {
         val metrics = context.resources.displayMetrics
+        // The icon is drawn exactly one line tall (see [iconPx]), so a row with one in it is the
+        // same height as a row without -- which is why this arithmetic does not mention it.
         val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
         val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
         val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
@@ -330,6 +344,14 @@ class SwitcherOverlay(private val context: Context) {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
                 typeface = type.regular
                 setPadding(0, type.gridPx(0.75f), 0, type.gridPx(0.75f))
+                // The app's own icon, inline, ahead of its name. A switcher is read at a glance
+                // and a column of names is a column of things that have to be read; the icon is
+                // the part of an app you already know by shape. It is a compound drawable rather
+                // than a row of its own views because that is one View per app instead of three,
+                // on a list rebuilt every time the window opens.
+                gravity = Gravity.CENTER_VERTICAL
+                compoundDrawablePadding = type.gridPx(0.75f)
+                setCompoundDrawablesRelative(art(entry.pkg), null, null, null)
                 isClickable = true
                 setOnClickListener {
                     val pkg = entry.pkg
@@ -412,11 +434,50 @@ class SwitcherOverlay(private val context: Context) {
         arm()
     }
 
+    /**
+     * One line tall, matching the type beside it.
+     *
+     * Deliberately not bigger. A compound drawable taller than the line it sits on makes the
+     * TextView taller, which would change how many rows fit and quietly push the app furthest
+     * back below a fold this list cannot be scrolled past — the exact bug [capacity] exists to
+     * stop. Tied to the type rather than to the grid so the two move together.
+     */
+    private fun iconPx(): Int = (sp(type.copy * SCALE) * LINE_SPACING).toInt()
+
+    /**
+     * The icon for [pkg], sized and ready to hang off a row.
+     *
+     * Never null: an app whose icon cannot be loaded gets an empty box of the same size, so its
+     * name still lines up with every other name. A row that shuffles left because its icon was
+     * missing is a worse answer than a gap.
+     *
+     * `mutate()` because the alpha is set per row — see [paint]. Without it, dimming one row's
+     * icon dims every row that shares the same constant-state drawable.
+     */
+    private fun art(pkg: String): Drawable {
+        if (icons.size > CACHE) icons.clear()
+        val loaded = icons.getOrPut(pkg) {
+            runCatching {
+                val pm = context.packageManager
+                pm.getApplicationIcon(pm.getApplicationInfo(pkg, 0)).mutate()
+            }.getOrNull()
+        }
+        val box = iconPx()
+        val art = loaded ?: ColorDrawable(Color.TRANSPARENT)
+        art.setBounds(0, 0, box, box)
+        return art
+    }
+
     /** The selection is drawn as brightness, not as a box — this phone has no color to spend. */
     private fun paint() {
         rows.forEachIndexed { i, row ->
-            row.setTextColor(if (i == index) Color.WHITE else DIM)
-            row.typeface = if (i == index) type.medium else type.regular
+            val on = i == index
+            row.setTextColor(if (on) Color.WHITE else DIM)
+            row.typeface = if (on) type.medium else type.regular
+            // The icon dims with the name it belongs to. The selection on this screen is one
+            // thing being brighter than the rest, and an icon that stayed at full strength on
+            // every row would be eight bright things arguing with it.
+            runCatching { row.compoundDrawablesRelative.firstOrNull()?.alpha = if (on) 255 else DIM_ALPHA }
         }
         val row = rows.getOrNull(index) ?: return
         val scroll = row.parent?.parent as? ScrollView ?: return
@@ -426,6 +487,12 @@ class SwitcherOverlay(private val context: Context) {
     private companion object {
         /** LightOS's own secondary grey. The same value as the app's Compose `Dim`. */
         val DIM: Int = Color.rgb(0x9A, 0x9A, 0x9A)
+
+        /** [DIM] as an alpha, for the icons — the same grey, arrived at the only way a bitmap can. */
+        const val DIM_ALPHA = 0x9A
+
+        /** Icons held before the map is dropped. Comfortably more than the list can show. */
+        const val CACHE = 32
 
         /** Fewer than this and the gesture is not worth making. */
         const val FLOOR = 3
