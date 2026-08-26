@@ -131,7 +131,7 @@ object LockNotes {
     }
 
     /**
-     * Swipe right on the face: cancel it, everywhere.
+     * Swiped off the face: cancel it, everywhere.
      *
      * The real cancel rather than a local hide, because a lock face that quietly kept its own list
      * of what you had waved away would disagree with the shade, with Glance and with the app that
