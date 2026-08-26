@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.GrantCheckRunner
+import com.gios.lightcontrol.adb.GrantRun
 import com.gios.lightcontrol.adb.GrantRequest
 import com.gios.lightcontrol.adb.Outcome
 import androidx.compose.ui.unit.sp
@@ -83,20 +84,32 @@ fun GrantRequestScreen(
     }
     var connected by remember { mutableStateOf(AdbManager.getInstance(context).connected()) }
     var busy by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf(listOf<StepResult>()) }
-    var ran by remember { mutableStateOf(false) }
     /** The last press could not reach the daemon. Not the same thing as never having had one. */
     var dropped by remember { mutableStateOf(false) }
-    /**
-     * What the running command is saying, as it says it. See [AdbManager.runCommand].
-     *
-     * Named `saying` and not `live`: the run handler already has a local `live` holding whether the
-     * connection came up, and a state variable shadowed by a Boolean fails to compile in a way that
-     * reads as a Compose problem rather than a naming one.
-     */
-    var saying by remember { mutableStateOf(listOf<String>()) }
-    /** Which step of how many, so a wait has a shape. */
-    var at by remember { mutableStateOf(0) }
+
+    // Read from the run itself rather than kept here: a run takes up to three quarters of a minute
+    // and outlives this composition, and local state rebuilt is local state gone — which is why a
+    // run in progress came back looking like a run that never happened. A stale run belonging to
+    // another app's request is dropped rather than shown against this one. See [GrantRun].
+    LaunchedEffect(pkg) { GrantRun.clearIfNot(pkg) }
+    val saying = GrantRun.saying
+    val at = GrantRun.step
+    val busyRun = GrantRun.phase == GrantRun.Phase.Running
+    val results = GrantRun.results
+    val ran = GrantRun.phase == GrantRun.Phase.Done
+    /** Either this composition started something, or a run outlived the composition that did. */
+    val working = busy || busyRun
+
+    // A second hand, so the screen counts rather than asserts that something is happening. Ticks
+    // only while something is running, and stops on its own when the run ends.
+    var tick by remember { mutableStateOf(0L) }
+    LaunchedEffect(working) {
+        while (working) {
+            tick = GrantRun.elapsedSeconds
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
+
     // Success is every step read back and confirmed. Nothing weaker: reaching the end of the list
     // is what the old DONE meant, and a run where the socket died on the first command reached
     // the end of the list too.
@@ -123,7 +136,7 @@ fun GrantRequestScreen(
     // request, and whether that request becomes a dialog or a notification is decided by whether
     // the phone is interactive. A screen going dark mid-run does not just hide the answer, it
     // changes it.
-    KeepAwake(busy)
+    KeepAwake(working)
 
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -159,6 +172,60 @@ fun GrantRequestScreen(
                 }
 
                 is GrantRequest.Parsed.Ok -> {
+                    // **Status, before anything else, always.** The complaint that produced this
+                    // was "I have no clue its actual status", and it was fair: the screen showed a
+                    // button and nothing else, so a run that had not started, one in flight, and
+                    // one that had finished badly all looked the same. Three facts, none of them
+                    // inferred: whether there is a shell, whether the daemon is even listening, and
+                    // what the last or current run is doing.
+                    SectionLabel("STATUS")
+                    MenuRow(
+                        label = "Shell",
+                        detail = if (connected) "READY" else "NO",
+                        sub = if (connected) {
+                            "connected to the phone's debugging service"
+                        } else {
+                            "not connected — nothing can run until it is"
+                        },
+                        dim = !connected,
+                    )
+                    Rule()
+                    val wifi = com.gios.lightcontrol.adb.AdbWifi.on(context)
+                    MenuRow(
+                        label = "Wireless debugging",
+                        detail = when (wifi) {
+                            true -> "ON"
+                            false -> "OFF"
+                            null -> "?"
+                        },
+                        sub = when (wifi) {
+                            true -> "the daemon is listening"
+                            false -> "the daemon is not listening, which is why nothing runs"
+                            null -> "the phone will not say"
+                        },
+                        dim = wifi != true,
+                    )
+                    Rule()
+                    MenuRow(
+                        label = "This request",
+                        detail = when {
+                            working -> "${tick}s"
+                            allHeld -> "DONE"
+                            ran -> "FAILED"
+                            else -> "READY"
+                        },
+                        sub = when {
+                            working && GrantRun.steps > 1 ->
+                                "running step $at of ${GrantRun.steps}"
+                            working -> "running — the transcript below is live"
+                            allHeld -> "every line ran and read back as done"
+                            ran -> "it ran and did not take — see what it said below"
+                            else -> "nothing has been run yet"
+                        },
+                        dim = !working && !ran,
+                    )
+                    Rule()
+
                     if (heldMinutes != null && heldMinutes >= 10) {
                         SectionLabel("THIS WAITED $heldMinutes MINUTES")
                         GuideText(
@@ -243,7 +310,7 @@ fun GrantRequestScreen(
                             BigButton(
                                 label = "TURN IT ON AND RUN",
                                 filled = true,
-                                enabled = !busy,
+                                enabled = !working,
                                 modifier = Modifier.fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
@@ -272,8 +339,11 @@ fun GrantRequestScreen(
                         }
                         BigButton(
                             label = when {
-                                busy && parsed.steps.size > 1 -> "RUNNING $at/${parsed.steps.size}…"
-                                busy -> "RUNNING…"
+                                // Seconds, because a wait that counts is a wait somebody can
+                                // believe. Steps too, when there is more than one.
+                                working && GrantRun.steps > 1 ->
+                                    "RUNNING $at/${GrantRun.steps} · ${tick}s"
+                                working -> "RUNNING… ${tick}s"
                                 allHeld -> "DONE"
                                 dropped || ran -> "TRY AGAIN"
                                 else -> "RUN THESE ${parsed.steps.size}"
@@ -282,13 +352,12 @@ fun GrantRequestScreen(
                             // Still tappable after a failed run. The old screen disabled itself
                             // on DONE, so the one thing to do about a failure was the one thing
                             // the screen would not let you do.
-                            enabled = !busy && !allHeld,
+                            enabled = !working && !allHeld,
                             modifier = Modifier.fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 6.dp),
                         ) {
                             busy = true
-                            saying = emptyList()
-                            at = 0
+                            GrantRun.start(pkg, parsed.steps.size)
                             scope.launch {
                                 // Reconnect rather than probe. The daemon's listener does not
                                 // survive leaving the Wireless-debugging screen, so a connection
@@ -323,8 +392,7 @@ fun GrantRequestScreen(
                                     val adb = AdbManager.getInstance(context)
                                     parsed.steps.forEachIndexed { index, step ->
                                         withContext(Dispatchers.Main) {
-                                            at = index + 1
-                                            saying = saying + "· ${step.label}"
+                                            GrantRun.at(index + 1, step.label)
                                         }
                                         collected += GrantCheckRunner.runAndVerify(
                                             context = context,
@@ -334,15 +402,14 @@ fun GrantRequestScreen(
                                             check = step.check,
                                             timeoutMs = step.timeoutMs,
                                         ) { line ->
-                                            // Off the reader thread; the list is Compose state.
-                                            scope.launch(Dispatchers.Main) {
-                                                saying = (saying + line).takeLast(MAX_LIVE_LINES)
-                                            }
+                                            // Called from the stream reader's thread. [GrantRun.say]
+                                            // is synchronised for exactly this.
+                                            GrantRun.say(line)
                                         }
                                     }
                                 }
                                 val out = collected.toList()
-                                results = out
+                                GrantRun.finished(out)
                                 // Held only if nothing got through at all. One step failing is a
                                 // grant that did not take; every step failing on a socket error is
                                 // a connection, and those read differently on the page.
@@ -351,7 +418,8 @@ fun GrantRequestScreen(
                                     AdbManager.getInstance(context).connected()
                                 }.getOrDefault(false)
                                 busy = false
-                                ran = true
+                                // `ran` comes from the run's phase now, which [GrantRun.finished]
+                                // has already set.
                             }
                         }
                     }
@@ -362,7 +430,9 @@ fun GrantRequestScreen(
                     // Reading that as it happens is the difference between waiting and watching —
                     // and it is the only place the ring's own answer ever appears.
                     if (saying.isNotEmpty()) {
-                        SectionLabel(if (busy) "WHAT IT IS SAYING" else "WHAT IT SAID")
+                        SectionLabel(
+                            if (working) "WHAT IT IS SAYING · ${tick}s" else "WHAT IT SAID",
+                        )
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             saying.forEach { line ->
                                 Text(
