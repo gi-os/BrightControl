@@ -799,26 +799,40 @@ class Prefs(context: Context) {
     /**
      * The strip down the **left** edge, which goes back.
      *
-     * **Off until it is switched on**, and for the same reason the lock face is: everything else
-     * in this app changes what a *key* does, and a key this service declines to take is a key the
-     * app still gets. A touch is not like that. The strip receives the touches that begin on it,
-     * and a received touch cannot be handed back -- so switching this on genuinely does take
-     * something away from every app on the phone, however narrow the strip is. That is a decision
-     * to be made rather than a default to be discovered.
+     * **On.** It shipped off, on the reasoning that this is the one feature here which takes a
+     * *touch* rather than a key -- a key this service declines is a key the app still gets, and a
+     * touch that lands on the strip cannot be handed back. So it was a decision to be made rather
+     * than a default to be discovered.
+     *
+     * That reasoning was right about the cost and wrong about the conclusion. **A phone with no
+     * back button is broken in a way that a phone with a 14 dp strip down one edge is not.** An app
+     * that pushes a screen and draws no arrow of its own is a dead end, and somebody who has just
+     * sideloaded their first app has no reason to know that the way out of it is three screens deep
+     * in a settings app they have not opened. A default nobody discovers is a feature nobody has.
+     *
+     * What keeps it honest is that the cost is small, visible and reversible: 14 dp, adjustable;
+     * excluded per app; off in one tap on its own screen; and gone entirely with the EVERYTHING OFF
+     * switch at the top of the app. The **right** edge stays off, because the recents list is
+     * already reachable by a double press of home -- it adds convenience rather than repairing an
+     * absence.
+     *
+     * Turning it off writes `false`, so this default only decides for a phone that has never had an
+     * opinion. Nobody's choice is overridden by the change.
      *
      * See [com.gios.lightcontrol.keys.EdgeSwipe] for what it costs precisely.
      */
     var leftEdgeOn: Boolean
-        get() = sp.getBoolean("back_swipe", false)
+        get() = sp.getBoolean("back_swipe", true)
         set(v) = sp.edit().putBoolean("back_swipe", v).apply()
 
     /**
      * The strip down the **right** edge, which opens the app switcher.
      *
-     * The same gesture pointing the other way, and off by default for the same reason. It is worth
-     * having separately from the double press of home: the double press works everywhere the home
-     * button does, which is not LightOS's own screens while a visit is in progress, and it costs a
-     * press of a physical button on a phone that has four of them.
+     * The same gesture pointing the other way, and **off** -- which is now a difference from the
+     * left edge rather than a matching default. The left edge repairs an absence: there is no back
+     * button on this phone at all. This one adds convenience to something that already works, since
+     * a double press of home opens the same window. Convenience is worth opting into; an absence is
+     * worth filling.
      */
     var rightEdgeOn: Boolean
         get() = sp.getBoolean("switcher_swipe", false)

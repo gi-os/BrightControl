@@ -1,30 +1,34 @@
-## BrightControl v3.62 — STOP gives the buttons back immediately
+## BrightControl v3.63 — the left edge goes back out of the box
 
-*"When stop happens we should be able to press the buttons again — that's the main goal."* That is a
-different requirement from the one the last two releases were solving, and it is the right one.
+Swipe in from the left edge of the screen and the app goes back. **On, without being switched on.**
 
-Every version so far treated stopping as a request the work had to *notice*: set a flag, close the
-socket, wait for the loop to agree. That cannot give the buttons back, because a command is blocked
-in a read with a deadline of up to forty-five seconds and a lookup already inside mDNS discovery
-cannot be interrupted at all. The screen stayed exactly as stuck as before, which is why STOP got
-reported three times.
+It shipped off, three releases ago, on the reasoning that this is the one feature in the app which
+takes a *touch* rather than a key: a key this service declines is a key the app still gets, and a
+touch that lands on the strip cannot be handed back. So it was framed as a decision to be made rather
+than a default to be discovered.
 
-**So the run is declared over the moment you press it.** The socket closes, nothing further starts,
-the phase goes to Done, and the buttons come back — while whatever is still unwinding in the
-background is *abandoned* rather than awaited.
+That was right about the cost and wrong about the conclusion. **A phone with no back button is broken
+in a way that a phone with a 14 dp strip down one edge is not.** An app that pushes a screen and
+draws no arrow of its own is a dead end, and somebody who has just sideloaded their first app has no
+reason to know the way out is three screens deep in a settings app they have not opened. A default
+nobody discovers is a feature nobody has.
 
-**Abandoned work must not come back to haunt the next attempt**, and that is the only subtle part. A
-stopped run's steps keep going for as long as their deadlines take, and nothing stops their results
-arriving a minute later, on top of a run you have since started. Each run now carries a generation
-number, bumped by both starting and stopping:
+What keeps it honest is that the cost is small, visible and reversible:
 
-```kotlin
-fun finished(generation: Int, results: List<StepResult>) {
-    if (generation != this.generation) return   // a question nobody is asking any more
-    …
-}
-```
+- **14 dp**, and adjustable — 10, 20 or 28.
+- **Off in one tap**, on its own screen under Controls → Edge gestures.
+- **Excluded per app**, for anything whose left edge is a control of its own.
+- **Gone entirely** with the EVERYTHING OFF switch at the top of the app, like every other key and
+  gesture here.
+- **A long drag still opens the app switcher**, and both bindings are still yours to change.
 
-Late results from a stopped run are dropped on arrival. Press STOP, press RUN again straight away,
-and the second run owns the screen — no crossed wires, no results from the run you cancelled
-appearing under the one you did not.
+**The right edge stays off.** That is now a difference rather than a matching default, and the
+difference is the point: the left edge repairs an absence, and the right one adds convenience to
+something that already works, since a double press of home opens the same window. An absence is worth
+filling. Convenience is worth opting into.
+
+**Nobody's setting is overridden.** Turning the edge off writes a real `false`, so this default only
+decides for a phone that has never had an opinion about it. If you switched it off, it stays off.
+
+The first-run guide now mentions it, because a gesture that is on and undocumented is a gesture that
+reads as the phone behaving oddly.

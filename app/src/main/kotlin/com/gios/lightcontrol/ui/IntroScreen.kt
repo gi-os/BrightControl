@@ -46,6 +46,11 @@ fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
             Bullet("The wheel", "changes brightness, or scrolls, in any app.")
             Bullet("The buttons", "the wheel click and camera key become bindings you choose.")
             Bullet("The home button", "can open Luma or any launcher instead of LightOS.")
+            Bullet(
+                "Swipe back",
+                "drag in from the left edge of the screen. This phone has no back button, so " +
+                    "this edge is on already — a long drag opens the app switcher.",
+            )
             Bullet("Color", "force full color in the apps you pick, on a phone that is mono " +
                 "everywhere else.")
             Bullet("A lock face", "a Light-style clock, notifications and your own photo over the " +

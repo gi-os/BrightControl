@@ -72,12 +72,18 @@ fun EdgeSwipeScreen(
                 sub = when {
                     !canOverlay -> "needs the overlay grant above"
                     on && side == EdgeSide.Left ->
-                        "on. Touches that start within $width dp of the left edge come here " +
-                            "instead of going to the app. Everything else is untouched."
+                        "on, as it ships. Touches that start within $width dp of the left edge " +
+                            "come here instead of going to the app. Everything else on the screen " +
+                            "is untouched, and one tap here turns it off."
                     on ->
                         "on. Touches that start within $width dp of the right edge come here " +
                             "instead of going to the app."
-                    else -> "off. Turn it on to use the two swipes below."
+                    side == EdgeSide.Left ->
+                        "off. This is the edge that goes back, and this phone has no other way " +
+                            "to — turn it back on unless an app you use needs its left edge."
+                    else ->
+                        "off, as it ships. The app switcher is already a double press of home; " +
+                            "turn this on to reach it by thumb as well."
                 },
                 onClick = {
                     val next = !on

@@ -25,7 +25,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | | |
 |---|---|
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
-| **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. A phone with no navigation bar. Each edge is off until you switch it on |
+| **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. The left edge goes back and is on out of the box, because this phone has no back button; the right edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without |
@@ -47,7 +47,7 @@ Out of the box:
 | Tap the home button | Home, whichever launcher is default |
 | Press the home button twice | The app switcher: the apps you have been in, newest first |
 | Hold the home button | The LightOS dashboard, by name. Rebind it to anything |
-| Drag in from the left edge | Nothing, until you switch it on. Then back, or the app switcher on a long drag |
+| Drag in from the left edge | Back. A long drag opens the app switcher |
 | Drag in from the right edge | Nothing, until you switch it on. Then the app switcher, or back on a long drag |
 | Wake the phone | The stock lock screen. Or a Light face over it, once you turn it on |
 | Volume keys, tap or hold | Passed through, but bindable. The level appears on screen |
@@ -363,7 +363,12 @@ So a strip receives every stroke that starts on it, including the ones that turn
 `FLAG_NOT_TOUCH_MODAL` keeps every touch outside the strip going where it always went, and the window
 is never focusable, so this can never cost a key. Because the cost is real:
 
-- Each edge is **off until you switch it on**, for the same reason the lock face is.
+- **The left edge is on out of the box. The right edge is not.** The left one repairs an absence:
+  there is no back button on this phone at all, and an app that pushes a screen and draws no arrow of
+  its own is a dead end. The right one adds convenience to something that already works, since a
+  double press of home opens the same window. An absence is worth filling; convenience is worth
+  opting into. Either edge is off in one tap on its own screen, and both are gone with the
+  EVERYTHING OFF switch.
 - The **width is a setting**: 10, 14, 20 or 28dp. That number is the whole cost. It is one number for
   both edges, because nobody wants their left edge to be a different size from their right.
 - **A long swipe costs nothing more than a short one.** The strip is the same width either way. Only
@@ -873,6 +878,8 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.63 | **The left edge goes back out of the box.** It shipped off, on the reasoning that this is the one feature here that takes a touch rather than a key. That was right about the cost and wrong about the conclusion: a phone with no back button is broken in a way that a phone with a 14 dp strip down one edge is not, and a default nobody discovers is a feature nobody has. The right edge stays off, because the recents list is already a double press of home — an absence is worth filling, convenience is worth opting into. Turning it off writes a real false, so no existing choice is overridden |
+| v3.62 | **STOP gives the buttons back immediately.** Stopping a run in flight no longer waits to be noticed: the buttons come back the moment you press it |
 | v3.61 | **Every edge has two swipes, and both are bound like a button.** A short drag inwards does one thing and a long one does another, and all four are ordinary actions picked from the same screen the buttons use. `Go back` and `App switcher` are actions now rather than behaviour the strips owned privately, so the camera button can go back too. The indicator grew a tick for where the long binding takes over — without one the only way to find the second stage is to drag until the word changes, which is a gesture you learn by overshooting the one you wanted |
 | v3.60 | **A run can be stopped, and STOP stands the retry down.** The ADB screens grew a way out of a command in flight, and stopping one no longer leaves the retry armed to start it again |
 | v3.58 | **The right edge opens the switcher, and the home flicker is found.** A second strip, on the other edge, for the recents list. The flicker between a home screen and the toolbox was shadow mode adding a second destination: LightOS does not read a home press as "start the home activity", so a shadowed press produced LightOS's answer and a `CATEGORY_HOME` intent, racing. It only showed right after an unlock because that is the window where LightOS is still the front app. A plain Home tap is no longer fired in shadow while LightOS is in front. And pointing the tap at LightOS no longer costs the app switcher: succeeding starts a *visit*, and the visit was claiming the double press for its own exit before the switcher was asked |
