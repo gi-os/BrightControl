@@ -6,89 +6,118 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import com.gios.lightcontrol.EdgeLength
+import com.gios.lightcontrol.EdgeSide
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.keys.OwnWindow
 
 /**
- * The two edge gestures: which are on, how wide the strips are, and which apps are left out.
+ * The edge gestures: which edges are live, what each one's two swipes do, and the distances.
  *
- * The guide says what they cost rather than what they do, because what they do is obvious and what
- * they cost is not: these are the only features in the app that take a *touch*, and somebody who
- * turns one on and later finds an app whose edge no longer works needs to be able to connect the
- * two.
+ * Laid out like the Buttons screen, because it is the same thing: a set of gestures, each with a
+ * short and a long version, each bound to an [Action] chosen from the same picker. The guide says
+ * what they cost rather than what they do, because what they do is obvious and what they cost is
+ * not — these are the only features in the app that take a *touch*, and somebody who turns one on
+ * and later finds an app whose edge no longer works needs to be able to connect the two.
  */
 @Composable
-fun EdgeSwipeScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
+fun EdgeSwipeScreen(
+    onPerApp: () -> Unit,
+    onPick: (EdgeSide, EdgeLength) -> Unit,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val canOverlay = Grants.canDrawOverlays(context)
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
 
-    var back by remember { mutableStateOf(prefs.backSwipe) }
-    var apps by remember { mutableStateOf(prefs.switcherSwipe) }
+    var left by remember { mutableStateOf(prefs.leftEdgeOn) }
+    var right by remember { mutableStateOf(prefs.rightEdgeOn) }
     var width by remember { mutableIntStateOf(prefs.edgeWidthDp) }
     var trigger by remember { mutableIntStateOf(prefs.edgeTriggerDp) }
+    var long by remember { mutableIntStateOf(prefs.edgeLongDp) }
     var hud by remember { mutableStateOf(prefs.edgeIndicator) }
     val excluded = prefs.edgeSwipeOffApps().size
-    val either = back || apps
+    val either = left || right
 
     SectionScaffold(
         title = "Edge gestures",
         onBack = onBack,
         guide = "LightOS has no navigation bar, and its gesture-navigation setting only reaches " +
             "Light's own tools. So an app you sideloaded has no way back and no way to the recents " +
-            "list. These put a thin strip down an edge of the screen. Drag it inwards and let go.",
+            "list. These put a thin strip down an edge of the screen. Each edge does one thing on " +
+            "a short swipe inwards and another on a long one, and both are bound like a button.",
     ) {
-        MenuRow(
-            label = "Left edge · go back",
-            detail = if (!canOverlay) "NO GRANT" else if (back) "ON" else "OFF",
-            dim = !canOverlay,
-            sub = when {
-                !canOverlay -> "the strip is a window, so it needs the overlay grant below"
-                back ->
-                    "on. Drag right from the left edge and let go. Touches that start within " +
-                        "$width dp of that edge come here instead of going to the app."
-                else -> "off. Turn it on for a back gesture in every app except Light's own."
-            },
-            onClick = {
-                back = !back
-                prefs.backSwipe = back
-                // Acted on now rather than at the next app switch, so the gesture can be tried on
-                // this very screen. See [OwnWindow.settingChanged].
-                OwnWindow.settingChanged()
-            },
-        )
-        MenuRow(
-            label = "Right edge · app switcher",
-            detail = if (!canOverlay) "NO GRANT" else if (apps) "ON" else "OFF",
-            dim = !canOverlay,
-            sub = when {
-                !canOverlay -> "same grant as the left edge"
-                apps ->
-                    "on. Drag left from the right edge and let go. The same list the home button " +
-                        "opens on a double press, without needing a button."
-                else ->
-                    "off. Turn it on to reach the recent-apps list by thumb — including on " +
-                        "LightOS's own screens, where the home button is LightOS's."
-            },
-            onClick = {
-                apps = !apps
-                prefs.switcherSwipe = apps
-                OwnWindow.settingChanged()
-            },
-        )
         if (!canOverlay) {
             GrantRow(
                 label = "Draw over other apps",
                 ok = false,
                 fix = "adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow",
-                sub = "a strip is a window. Set it on the ADB screen, or with this line",
+                sub = "a strip is a window, so nothing here works until this is granted. Set it " +
+                    "on the ADB screen, or with this line",
             )
+            Rule()
+        }
+
+        for (side in EdgeSide.entries) {
+            val on = if (side == EdgeSide.Left) left else right
+            SectionLabel(side.label.uppercase())
+            MenuRow(
+                label = side.label,
+                detail = if (!canOverlay) "NO GRANT" else if (on) "ON" else "OFF",
+                dim = !canOverlay,
+                sub = when {
+                    !canOverlay -> "needs the overlay grant above"
+                    on && side == EdgeSide.Left ->
+                        "on. Touches that start within $width dp of the left edge come here " +
+                            "instead of going to the app. Everything else is untouched."
+                    on ->
+                        "on. Touches that start within $width dp of the right edge come here " +
+                            "instead of going to the app."
+                    else -> "off. Turn it on to use the two swipes below."
+                },
+                onClick = {
+                    val next = !on
+                    if (side == EdgeSide.Left) {
+                        left = next
+                        prefs.leftEdgeOn = next
+                    } else {
+                        right = next
+                        prefs.rightEdgeOn = next
+                    }
+                    // Acted on now rather than at the next app switch, so a gesture can be tried
+                    // on this very screen. See [OwnWindow.settingChanged].
+                    OwnWindow.settingChanged()
+                },
+            )
+            if (on) {
+                for (length in EdgeLength.entries) {
+                    val action = prefs.edgeAction(side, length)
+                    MenuRow(
+                        label = length.label,
+                        detail = shortLabel(action),
+                        sub = when {
+                            length == EdgeLength.Long && !action.acts ->
+                                "nothing. This edge has one gesture, and the indicator measures " +
+                                    "the short one."
+                            length == EdgeLength.Long ->
+                                longLabel(context.packageManager, action).orEmpty() +
+                                    " — carry the drag past $long dp"
+                            else ->
+                                longLabel(context.packageManager, action).orEmpty() +
+                                    " — a drag of $trigger dp"
+                        },
+                        onClick = { onPick(side, length) },
+                    )
+                }
+            }
         }
         Rule()
 
-        SectionLabel("THE GESTURE")
+        SectionLabel("THE DISTANCES")
         MenuRow(
             label = "Strip width",
             detail = "$width dp",
@@ -106,10 +135,10 @@ fun EdgeSwipeScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
             },
         )
         MenuRow(
-            label = "How far to drag",
+            label = "Short swipe",
             detail = "$trigger dp",
-            sub = "past this the gesture is armed and letting go acts. Come back under it and it " +
-                "disarms, so a stroke can always be changed your mind about.",
+            sub = "past this the short binding is armed and letting go performs it. Come back " +
+                "under it and it disarms, so a stroke can always be changed your mind about.",
             onClick = {
                 trigger = when (trigger) {
                     32 -> 48
@@ -122,13 +151,36 @@ fun EdgeSwipeScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
             },
         )
         MenuRow(
+            label = "Long swipe",
+            detail = if (long == 0) "OFF" else "$long dp",
+            sub = if (long == 0) {
+                "off. Both edges have one gesture each, whatever the long bindings say."
+            } else {
+                "carry the drag this far and the long binding replaces the short one. The screen " +
+                    "is $screenWidthDp dp across, and a threshold past four fifths of it is " +
+                    "pulled back so the gesture stays completable."
+            },
+            onClick = {
+                long = when (long) {
+                    0 -> 110
+                    110 -> 150
+                    150 -> 200
+                    200 -> 260
+                    else -> 0
+                }
+                prefs.edgeLongDp = long
+                OwnWindow.settingChanged()
+            },
+        )
+        MenuRow(
             label = "Show the indicator",
             detail = if (hud) "ON" else "OFF",
             sub = if (hud) {
-                "a small box at your thumb: an outline while the drag is short, white and " +
-                    "labelled BACK or APPS once letting go would act"
+                "a box at your thumb: an outline while the drag is short, then the name of " +
+                    "whichever binding a release would perform. A tick marks where the long " +
+                    "swipe takes over."
             } else {
-                "hidden. The gestures still work, with nothing on screen to say whether one is " +
+                "hidden. The gestures still work, with nothing on screen to say which one is " +
                     "armed yet."
             },
             onClick = {
@@ -169,15 +221,12 @@ fun EdgeSwipeScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
                 "the strip's, even when it turns out to be a scroll.",
             dim = true,
         )
-        if (back) {
-            MenuRow(
-                label = "Going back is a request",
-                sub = "the phone is asked to go back; what the app does with that is the app's. " +
-                    "On its first screen many apps accept it and do nothing, which from out here " +
-                    "is indistinguishable from working.",
-                dim = true,
-            )
-        }
+        MenuRow(
+            label = "A long swipe costs no more than a short one",
+            sub = "the strip is the same width either way. Only how far the finger travels " +
+                "afterwards differs, and by then the touch is already ours.",
+            dim = true,
+        )
         if (either) {
             MenuRow(
                 label = "It can never cost a key",

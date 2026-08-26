@@ -141,12 +141,12 @@ fun HomeScreen(
             MenuRow(
                 label = "Edge gestures",
                 detail = when {
-                    prefs.backSwipe && prefs.switcherSwipe -> "BOTH"
-                    prefs.backSwipe -> "BACK"
-                    prefs.switcherSwipe -> "APPS"
+                    prefs.leftEdgeOn && prefs.rightEdgeOn -> "BOTH"
+                    prefs.leftEdgeOn -> "LEFT"
+                    prefs.rightEdgeOn -> "RIGHT"
                     else -> "›"
                 },
-                sub = "swipe in from an edge to go back, or to reach the app switcher",
+                sub = "swipe in from an edge — short and long, bound like a button",
                 onClick = onEdges,
             )
             MenuRow(

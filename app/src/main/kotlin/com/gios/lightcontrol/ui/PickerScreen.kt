@@ -23,32 +23,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.gios.lightcontrol.Action
+import com.gios.lightcontrol.BindSlot
 import com.gios.lightcontrol.Button
-import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.ui.theme.Dim
 
 private data class Choice(val action: Action, val label: String, val sub: String?)
 
 /**
- * What one gesture on one button should do.
+ * What one gesture should do — a press of a button, or a swipe from an edge.
  *
  * The built-in actions and the app list are one scroll rather than two screens: on a 3.9"
  * panel a second hop to "…and now pick which app" is a hop too many, and the apps are the
- * long tail anyway — the four fixed choices sit at the top where a thumb lands.
+ * long tail anyway — the fixed choices sit at the top where a thumb lands.
+ *
+ * One screen for both kinds of binding, addressed by [BindSlot]. A second picker for the edges
+ * would have been a second list of actions to keep in step with this one, which is how a phone ends
+ * up able to bind an app to a button and not to a gesture for no reason anybody chose.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PickerScreen(
-    button: Button,
-    gesture: Gesture,
+    slot: BindSlot,
     onDone: () -> Unit,
     /** Straight on to choosing which apps, because the action does nothing until some are. */
     onChooseResumeApps: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
-    val current = remember { prefs.action(button, gesture) }
+    val current = remember { prefs.action(slot) }
 
     val fixed = listOf(
         Choice(Action.PassThrough, "Pass through", "the app in front gets the key"),
@@ -58,6 +61,8 @@ fun PickerScreen(
         Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
         Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
         Choice(Action.Resume, "Back to where you were", "a chosen app if the screen slept in it"),
+        Choice(Action.Back, "Go back", "the back this phone has no button for"),
+        Choice(Action.Switcher, "App switcher", "the list of apps you have been in"),
     )
 
     // Guarded: this is one binder call carrying every launchable activity on the phone, and on a
@@ -85,9 +90,9 @@ fun PickerScreen(
                 colors = barColors(),
                 title = {
                     Column {
-                        Text(button.label, style = MaterialTheme.typography.titleMedium)
+                        Text(slot.title, style = MaterialTheme.typography.titleMedium)
                         Text(
-                            gesture.label.lowercase(),
+                            slot.sub,
                             style = MaterialTheme.typography.labelSmall,
                             color = Dim,
                         )
@@ -108,7 +113,7 @@ fun PickerScreen(
                     detail = if (choice.action == current) "•" else null,
                     sub = choice.sub,
                     onClick = {
-                        prefs.setAction(button, gesture, choice.action)
+                        prefs.setAction(slot, choice.action)
                         // Picking Resume and landing back on a screen that says RESUME, with
                         // nothing chosen to resume to, is a setting that reads as finished and
                         // isn't. The list is the second half of this choice, not a follow-up.
@@ -119,7 +124,11 @@ fun PickerScreen(
             }
             item {
                 SectionLabel(
-                    if (button == Button.Home) "OPEN AN APP INSTEAD OF HOME" else "OPEN AN APP",
+                    if (slot is BindSlot.Key && slot.button == Button.Home) {
+                        "OPEN AN APP INSTEAD OF HOME"
+                    } else {
+                        "OPEN AN APP"
+                    },
                 )
             }
             if (apps.isEmpty()) {
@@ -137,7 +146,7 @@ fun PickerScreen(
                     label = label,
                     detail = if (current == Action.Launch(pkg)) "•" else null,
                     onClick = {
-                        prefs.setAction(button, gesture, Action.Launch(pkg))
+                        prefs.setAction(slot, Action.Launch(pkg))
                         onDone()
                     },
                 )

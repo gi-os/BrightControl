@@ -205,6 +205,8 @@ fun shortLabel(action: Action): String = when (action) {
     Action.DefaultHome -> "HOME"
     Action.LightOsHome -> "LIGHTOS"
     Action.Resume -> "RESUME"
+    Action.Back -> "BACK"
+    Action.Switcher -> "APPS"
     is Action.Launch -> "APP"
 }
 
@@ -216,6 +218,8 @@ fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
     Action.DefaultHome -> "whichever launcher is default"
     Action.LightOsHome -> "Light's dashboard, by name"
     Action.Resume -> "back to a chosen app if the screen went off in it, else where you set"
+    Action.Back -> "goes back — the one thing this phone has no button for"
+    Action.Switcher -> "the list of apps you have been in"
     is Action.Launch -> appLabel(pm, action.pkg)
 }
 

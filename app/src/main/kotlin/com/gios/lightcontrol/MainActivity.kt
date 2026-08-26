@@ -94,11 +94,13 @@ private sealed interface Screen {
         val heldMinutes: Long? = null,
     ) : Screen
 
-    /** [fromSettings] only decides where Back returns the picker to. */
+    /**
+     * The picker, for a button press or for an edge swipe. [back] is where its Back arrow returns
+     * to -- it hangs off three different lists now, so the caller says.
+     */
     data class Pick(
-        val button: Button,
-        val gesture: Gesture,
-        val fromSettings: Boolean = false,
+        val slot: BindSlot,
+        val back: Screen,
     ) : Screen
 }
 
@@ -212,7 +214,9 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Screen.Buttons -> ButtonsScreen(
-                            onPick = { button, gesture -> screen = Screen.Pick(button, gesture) },
+                            onPick = { button, gesture ->
+                                screen = Screen.Pick(BindSlot.Key(button, gesture), Screen.Buttons)
+                            },
                             onResumeApps = { screen = Screen.ResumeApps },
                             onBack = home,
                         )
@@ -226,6 +230,12 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Edges -> EdgeSwipeScreen(
                             onPerApp = { screen = Screen.PerAppEdges },
+                            onPick = { side, length ->
+                                screen = Screen.Pick(
+                                    BindSlot.Edge(side, length),
+                                    Screen.Edges,
+                                )
+                            },
                             onBack = home,
                         )
 
@@ -294,11 +304,8 @@ class MainActivity : ComponentActivity() {
                         Screen.Diagnostics -> DiagnosticsScreen(onBack = home)
 
                         is Screen.Pick -> PickerScreen(
-                            button = current.button,
-                            gesture = current.gesture,
-                            onDone = {
-                                screen = if (current.fromSettings) Screen.Home else Screen.Buttons
-                            },
+                            slot = current.slot,
+                            onDone = { screen = current.back },
                             onChooseResumeApps = { screen = Screen.ResumeApps },
                         )
                     }
@@ -364,7 +371,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.LockApps -> Screen.Lock
     Screen.Background -> Screen.Lock
     Screen.ResumeFallback -> Screen.ResumeApps
-    is Screen.Pick -> if (screen.fromSettings) Screen.Home else Screen.Buttons
+    is Screen.Pick -> screen.back
     else -> Screen.Home
 }
 

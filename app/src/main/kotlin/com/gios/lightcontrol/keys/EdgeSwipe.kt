@@ -12,22 +12,43 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import com.gios.lightcontrol.EdgeGlyph
+import com.gios.lightcontrol.EdgeLength
+import com.gios.lightcontrol.EdgeSide
+
+/**
+ * How one edge is set up: what its two swipes do, and what the indicator says about them.
+ *
+ * Passed in whole rather than read here, because turning a binding into a word means resolving a
+ * package id to an app name and this class has no business knowing what an [com.gios.lightcontrol.Action]
+ * is. See `ControlService.edgeFace`.
+ */
+data class EdgeFace(
+    val shortLabel: String,
+    val shortGlyph: EdgeGlyph,
+    /** Null for an edge with no long swipe, which is what an unbound long binding means. */
+    val longLabel: String?,
+    val longGlyph: EdgeGlyph,
+)
 
 /**
  * An edge gesture, on a phone with no navigation bar.
  *
  * LightOS removed the navigation bar and put a gesture-navigation switch in its own settings, and
  * that switch reaches Light's own tools. Everything sideloaded is left with no way back at all, and
- * no way to the recents list either: an app that pushes a screen and forgot to draw its own arrow
- * is a dead end until you press home. So this is the missing pair of gestures, supplied from
- * outside. A thin strip down one edge of the screen, a drag inwards, and:
+ * no way to the recents list either: an app that pushes a screen and forgot to draw its own arrow is
+ * a dead end until you press home. So this is the missing set of gestures, supplied from outside. A
+ * thin strip down one edge of the screen, a drag inwards, and **two** bindings per edge:
  *
- *  - **left edge** performs `GLOBAL_ACTION_BACK`,
- *  - **right edge** opens this app's own switcher.
+ *  - a **short** drag performs one,
+ *  - carrying on to the **long** threshold performs the other instead.
  *
- * One class, two instances, because the two are the same gesture pointing opposite ways. Everything
- * that differs is [side]: which way a stroke has to travel (in [BackGesture]), which side of the
- * screen the window sits on, what the indicator says, and what the lift calls.
+ * Both are ordinary [com.gios.lightcontrol.Action] bindings, picked from the same screen the
+ * buttons use. Out of the box the two edges mirror each other: left is back then switcher, right is
+ * switcher then back.
+ *
+ * One class, two instances. Everything that differs is [side]: which way a stroke has to travel (in
+ * [BackGesture]), which side of the screen the window sits on, and which way the box grows.
  *
  * ### The strip consumes what it watches, and that is the whole cost of the feature
  *
@@ -45,6 +66,9 @@ import android.view.WindowManager
  * strip is narrow, but it is not free, and the apps where an edge is a control are exactly the ones
  * the user knows about and this app does not.
  *
+ * Note that a *long* swipe costs nothing more than a short one. The strip is the same width either
+ * way; only how far the finger travels afterwards differs, and by then the touch is already ours.
+ *
  * ### Two windows, not one
  *
  * The strip is 14 dp wide by default, which is no room to draw anything in. The indicator is
@@ -56,13 +80,12 @@ import android.view.WindowManager
 class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
 
     /**
-     * Do the thing. Returns whether the platform accepted it, which is all the service can know
-     * for a back: the global action answers for the dispatch and not for what the app in front did
-     * with it. For the switcher it answers whether a window went up.
+     * Do the thing bound to [EdgeLength]. Returns whether it was accepted, which for some actions
+     * is less than it sounds — see [com.gios.lightcontrol.Action.Back].
      *
      * Set by the service, because every action this app takes goes through one log line there.
      */
-    var onFire: (() -> Boolean)? = null
+    var onFire: ((EdgeLength) -> Boolean)? = null
 
     /** Told when a stroke was thrown away as a scroll, for the key log. */
     var onCancelled: (() -> Unit)? = null
@@ -75,8 +98,9 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
 
     private var gesture: BackGesture? = null
 
-    /** Whether the indicator is drawn at all. Read at attach, so a change needs no restart. */
+    /** Whether the indicator is drawn at all, and what it says. Read at each stroke. */
     private var indicator = true
+    private var face = EdgeFace("", EdgeGlyph.Mark, null, EdgeGlyph.Mark)
 
     private val hideHud = Runnable { detachHud() }
 
@@ -93,8 +117,10 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         wanted: Boolean,
         widthDp: Int,
         triggerDp: Int,
+        longDp: Int,
         slopDp: Int,
         showIndicator: Boolean,
+        face: EdgeFace,
     ) {
         if (!wanted) {
             hide()
@@ -102,16 +128,19 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         }
         if (!allowed()) return
         indicator = showIndicator
-        // The width sizes the window and the other two are baked into the gesture at attach, so a
-        // change to any of them needs the strip rebuilt. Rebuilt rather than adjusted in place: a
-        // window resized mid-stroke retargets the touch it is holding, and a gesture whose trigger
-        // moves under a finger already down cannot be reasoned about at all.
-        val shape = "$widthDp:$triggerDp:$slopDp"
+        // Held rather than baked in, so a rebinding shows up on the next stroke without the window
+        // being rebuilt. The thresholds below are the opposite: they are inside the gesture.
+        this.face = face
+        // The width sizes the window and the rest are baked into the gesture at attach, so a change
+        // to any of them needs the strip rebuilt. Rebuilt rather than adjusted in place: a window
+        // resized mid-stroke retargets the touch it is holding, and a gesture whose thresholds move
+        // under a finger already down cannot be reasoned about at all.
+        val shape = "$widthDp:$triggerDp:$longDp:$slopDp"
         if (strip != null) {
             if (shape == stripShape) return
             hide()
         }
-        attach(widthDp, triggerDp, slopDp)
+        attach(widthDp, triggerDp, longDp, slopDp)
         if (strip != null) stripShape = shape
     }
 
@@ -139,21 +168,26 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
 
     /**
-     * The three numbers the live strip was built from, as one string.
+     * The four numbers the live strip was built from, as one string.
      *
-     * One value rather than three fields because the only question ever asked of them is "are these
-     * the numbers the window on screen already has", and a field per number is three places for
-     * that question to be asked incompletely. It was, once: the width was compared and the trigger
-     * was not, so moving the trigger in the settings changed nothing until the next app switch.
+     * One value rather than four fields because the only question ever asked of them is "are these
+     * the numbers the window on screen already has", and a field per number is four places for that
+     * question to be asked incompletely. It was, once: the width was compared and the trigger was
+     * not, so moving the trigger in the settings changed nothing until the next app switch.
      */
     private var stripShape = ""
 
-    private fun attach(widthDp: Int, triggerDp: Int, slopDp: Int) {
+    private fun attach(widthDp: Int, triggerDp: Int, longDp: Int, slopDp: Int) {
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         val density = context.resources.displayMetrics.density
+        // A long threshold past the edge of the screen is a gesture that cannot be completed, and
+        // the settings screen offers distances in dp without knowing how wide this panel is. So the
+        // ceiling is applied here, where the answer is known.
+        val reach = context.resources.displayMetrics.widthPixels * LONG_REACH
         val g = BackGesture(
             triggerPx = triggerDp * density,
             slopPx = slopDp * density,
+            longPx = if (longDp <= 0) 0f else (longDp * density).coerceAtMost(reach),
             side = side,
         )
 
@@ -204,10 +238,10 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val fire = g.up()
-                if (fire) {
-                    val ok = runCatching { onFire?.invoke() }.getOrNull() ?: false
-                    flashHud(ok)
+                val fires = g.up()
+                if (fires != null) {
+                    val ok = runCatching { onFire?.invoke(fires) }.getOrNull() ?: false
+                    flashHud(fires, ok)
                 } else {
                     detachHud()
                 }
@@ -235,7 +269,14 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         handler.removeCallbacks(hideHud)
         val view = hud ?: HudView(context, side).also { hud = it }
-        view.set(g.travel, g.stage == BackStage.Armed, fired = false, ok = true)
+        view.set(
+            travel = g.travel,
+            armPoint = if (g.hasLong) g.armPoint else 1f,
+            stage = g.stage,
+            face = face,
+            fired = null,
+            ok = true,
+        )
         val params = hudParams(g.anchorY)
         if (!hudUp) {
             runCatching { wm.addView(view, params) }.onSuccess { hudUp = true }
@@ -245,13 +286,20 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
     }
 
     /** The confirmation: the same box, filled, for long enough to see and no longer. */
-    private fun flashHud(ok: Boolean) {
+    private fun flashHud(fired: EdgeLength, ok: Boolean) {
         val view = hud
         if (!indicator || view == null || !hudUp) {
             detachHud()
             return
         }
-        view.set(1f, armed = true, fired = true, ok = ok)
+        view.set(
+            travel = 1f,
+            armPoint = 1f,
+            stage = if (fired == EdgeLength.Long) BackStage.ArmedLong else BackStage.Armed,
+            face = face,
+            fired = fired,
+            ok = ok,
+        )
         handler.removeCallbacks(hideHud)
         handler.postDelayed(hideHud, FLASH_MS)
     }
@@ -290,16 +338,15 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
     /**
      * The small thing on screen that says what the thumb is doing.
      *
-     * Three states, and the difference between them has to read at arm's length on a matte
-     * greyscale panel: dim outline while the stroke has not travelled far enough, white and
-     * labelled once lifting would act, inverted for the moment after it did. No animation, no
-     * rounded corners, no tint — LightOS's whole visual vocabulary is a rectangle and two shades.
+     * Four states, and the difference between them has to read at arm's length on a matte greyscale
+     * panel: a dim outline while the stroke has not travelled far enough, white and labelled once
+     * lifting would act, the other label once the stroke has passed the long threshold, and
+     * inverted for the moment after it fired. No animation, no rounded corners, no tint — LightOS's
+     * whole visual vocabulary is a rectangle and two shades.
      *
-     * On the left the glyph is a chevron pointing left, the direction of travel of the screen you
-     * are going back to, which is the way every phone has drawn it for fifteen years. The finger
-     * goes the other way. On the right it is two overlapping outlines, because the right edge does
-     * not go anywhere in particular — it produces a list of apps, and an arrow would promise a
-     * direction the gesture does not have.
+     * **The tick is the part that makes a long swipe usable.** Without a mark for where the short
+     * binding stops and the long one starts, the only way to find the second stage is to drag until
+     * the word changes, which is a gesture you learn by overshooting the one you wanted.
      */
     private class HudView(context: Context, private val side: EdgeSide) : View(context) {
 
@@ -324,6 +371,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             strokeCap = Paint.Cap.SQUARE
             isAntiAlias = true
         }
+        private val fill = Paint().apply { isAntiAlias = false }
         private val label = Paint().apply {
             isAntiAlias = true
             textSize = 11f * density
@@ -332,13 +380,24 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         }
 
         private var travel = 0f
-        private var armed = false
-        private var fired = false
+        private var armPoint = 1f
+        private var stage = BackStage.Watching
+        private var face = EdgeFace("", EdgeGlyph.Mark, null, EdgeGlyph.Mark)
+        private var fired: EdgeLength? = null
         private var ok = true
 
-        fun set(travel: Float, armed: Boolean, fired: Boolean, ok: Boolean) {
+        fun set(
+            travel: Float,
+            armPoint: Float,
+            stage: BackStage,
+            face: EdgeFace,
+            fired: EdgeLength?,
+            ok: Boolean,
+        ) {
             this.travel = travel.coerceIn(0f, 1f)
-            this.armed = armed
+            this.armPoint = armPoint.coerceIn(0f, 1f)
+            this.stage = stage
+            this.face = face
             this.fired = fired
             this.ok = ok
             invalidate()
@@ -356,7 +415,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             val left = if (side == EdgeSide.Left) 0f else fullW - boxW
             val right = left + boxW
 
-            val filled = fired && ok
+            val filled = fired != null && ok
             canvas.drawRect(left, 0f, right, h, if (filled) invert else ground)
             // An outline, always: on a black app behind a black box there is otherwise nothing to
             // see until the glyph.
@@ -369,6 +428,8 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
                 outline,
             )
 
+            val long = stage == BackStage.ArmedLong
+            val armed = long || stage == BackStage.Armed
             val ink = when {
                 filled -> Color.BLACK
                 armed -> Color.WHITE
@@ -377,23 +438,23 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             }
             stroke.color = ink
             label.color = ink
+            fill.color = ink
+
+            tick(canvas, h, fullW, filled)
 
             // The glyph, at the leading edge of the box: the end the thumb is dragging toward.
             val cy = h / 2f
             val inset = 15f * density
             val cx = if (side == EdgeSide.Left) right - inset else left + inset
-            if (side == EdgeSide.Left) {
-                chevron(canvas, cx, cy)
-            } else {
-                cards(canvas, cx, cy, if (filled) invert else ground)
+            when (if (long) face.longGlyph else face.shortGlyph) {
+                EdgeGlyph.Chevron -> chevron(canvas, cx, cy)
+                EdgeGlyph.Cards -> cards(canvas, cx, cy, if (filled) invert else ground)
+                EdgeGlyph.Mark -> mark(canvas, cx, cy)
             }
 
             if (!armed) return
-            val text = when {
-                fired && !ok -> if (side == EdgeSide.Left) "NO BACK" else "NO APPS"
-                side == EdgeSide.Left -> "BACK"
-                else -> "APPS"
-            }
+            val word = if (long) face.longLabel ?: face.shortLabel else face.shortLabel
+            val text = if (fired != null && !ok) "NO $word" else word
             val tw = label.measureText(text)
             val gap = 13f * density
             // The label sits on the far side of the glyph from the edge, so it is always inside the
@@ -403,6 +464,26 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             if (inside) {
                 canvas.drawText(text, tx, cy - (label.ascent() + label.descent()) / 2f, label)
             }
+        }
+
+        /**
+         * The mark for where the short binding stops and the long one starts.
+         *
+         * Drawn at its place on the *full* width rather than on the box, so it stands still while
+         * the box grows past it — a mark that moved with the thing being measured would measure
+         * nothing. Absent when the edge has no long swipe, and absent once the gesture has fired,
+         * where the box is a confirmation rather than a scale.
+         */
+        private fun tick(canvas: Canvas, h: Float, fullW: Float, filled: Boolean) {
+            if (armPoint >= 1f || filled) return
+            val minW = 26f * density
+            val at = minW + (fullW - minW) * armPoint
+            val x = if (side == EdgeSide.Left) at else fullW - at
+            // Only once the box has reached it. Before that it would be a line floating outside the
+            // box, which reads as a second window rather than as a scale.
+            if (travel < armPoint) return
+            outline.color = if (filled) Color.BLACK else Color.parseColor("#4A4A4A")
+            canvas.drawLine(x, h * 0.22f, x, h * 0.78f, outline)
         }
 
         /** Pointing left: where the screen you are going back to comes from. */
@@ -417,9 +498,9 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
          *
          * The front card is filled with the box's own ground before it is stroked, so it occludes
          * the back card's lines. Without that the two outlines cross and the glyph reads as a
-         * lattice rather than as one card in front of another, which at 9 dp on a matte panel is
-         * the difference between a symbol and a smudge. [ground] is passed in rather than assumed
-         * black, because the box inverts for the moment after the gesture fires.
+         * lattice rather than as one card in front of another, which at 9 dp on a matte panel is the
+         * difference between a symbol and a smudge. [ground] is passed in rather than assumed black,
+         * because the box inverts for the moment after the gesture fires.
          */
         private fun cards(canvas: Canvas, cx: Float, cy: Float, ground: Paint) {
             val r = 4.5f * density
@@ -432,6 +513,12 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             canvas.drawRect(fl, ft, fr, fb, ground)
             canvas.drawRect(fl, ft, fr, fb, stroke)
         }
+
+        /** A filled square, for every action with no shape of its own. The word says which. */
+        private fun mark(canvas: Canvas, cx: Float, cy: Float) {
+            val r = 3.5f * density
+            canvas.drawRect(cx - r, cy - r, cx + r, cy + r, fill)
+        }
     }
 
     private companion object {
@@ -441,5 +528,13 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         /** A third of the screen at most: the box is a measure, not a panel. */
         const val HUD_WIDTH_DP = 116f
         const val HUD_HEIGHT_DP = 34f
+
+        /**
+         * How far across the screen a long threshold may sit.
+         *
+         * A threshold past the edge is a gesture nobody can complete, and a threshold *at* the edge
+         * needs a thumb to reach the far side of the panel exactly. 0.8 leaves room to overshoot.
+         */
+        const val LONG_REACH = 0.8f
     }
 }

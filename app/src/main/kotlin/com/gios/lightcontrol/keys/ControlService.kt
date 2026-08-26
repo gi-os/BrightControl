@@ -27,6 +27,8 @@ import android.view.accessibility.AccessibilityEvent
 import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Behavior
 import com.gios.lightcontrol.Button
+import com.gios.lightcontrol.EdgeLength
+import com.gios.lightcontrol.EdgeSide
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
@@ -175,17 +177,19 @@ class ControlService : AccessibilityService() {
     private lateinit var switcher: SwitcherOverlay
 
     /**
-     * The strip down the left edge, which goes back. Off unless [Prefs.backSwipe] is on, and never
-     * up over a hands-off app or a locked phone. See [refreshEdges].
+     * The strip down the left edge. Off unless [Prefs.leftEdgeOn] is on, and never up over a
+     * hands-off app or a locked phone. See [refreshEdges].
+     *
+     * What it *does* is two bindings rather than one behaviour — a short swipe and a long one, both
+     * chosen from the same list the buttons use. Defaults in [Action.defaultEdge].
      */
-    private lateinit var backStrip: EdgeSwipe
+    private lateinit var leftStrip: EdgeSwipe
 
     /**
-     * The strip down the right edge, which opens the switcher. Its own instance rather than a mode
-     * of the one above: two windows on two edges, and nothing about one is conditional on the
-     * other. [Prefs.switcherSwipe].
+     * The strip down the right edge. Its own instance rather than a mode of the one above: two
+     * windows on two edges, and nothing about one is conditional on the other. [Prefs.rightEdgeOn].
      */
-    private lateinit var switcherStrip: EdgeSwipe
+    private lateinit var rightStrip: EdgeSwipe
 
     /** Whether the phone is ringing or on a call, and how to answer. See [LockCall]. */
     private lateinit var lockCall: LockCall
@@ -284,16 +288,15 @@ class ControlService : AccessibilityService() {
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
         switcher = SwitcherOverlay(this)
-        // The back gesture. The strip reports the stroke; the service performs the action, so this
-        // goes through the same one log line every other dispatch in this app does.
-        backStrip = EdgeSwipe(this, EdgeSide.Left)
-        backStrip.onFire = { performBack() }
-        backStrip.onCancelled = { log("swipe back · stroke was a scroll, dropped") }
-        switcherStrip = EdgeSwipe(this, EdgeSide.Right)
-        // The same window the double press of home puts up, from the same one place. A gesture that
-        // built its own list would be a second answer to "which apps" and a second way to fail.
-        switcherStrip.onFire = { runCatching { openSwitcher() }.getOrDefault(false) }
-        switcherStrip.onCancelled = { log("swipe apps · stroke was a scroll, dropped") }
+        // The edge gestures. A strip reports which of its two swipes the stroke was; the service
+        // performs the binding, so this goes through the same one dispatch and the same one log
+        // line every button press in this app does.
+        leftStrip = EdgeSwipe(this, EdgeSide.Left)
+        leftStrip.onFire = { length -> fireEdge(EdgeSide.Left, length) }
+        leftStrip.onCancelled = { log("left edge · stroke was a scroll, dropped") }
+        rightStrip = EdgeSwipe(this, EdgeSide.Right)
+        rightStrip.onFire = { length -> fireEdge(EdgeSide.Right, length) }
+        rightStrip.onCancelled = { log("right edge · stroke was a scroll, dropped") }
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
         switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
@@ -734,21 +737,73 @@ class ControlService : AccessibilityService() {
             val width = prefs.edgeWidthDp
             val trigger = prefs.edgeTriggerDp
             val indicator = prefs.edgeIndicator
-            backStrip.set(
-                wanted = allowed && prefs.backSwipe,
-                widthDp = width,
-                triggerDp = trigger,
-                slopDp = EDGE_SLOP_DP,
-                showIndicator = indicator,
-            )
-            switcherStrip.set(
-                wanted = allowed && prefs.switcherSwipe,
-                widthDp = width,
-                triggerDp = trigger,
-                slopDp = EDGE_SLOP_DP,
-                showIndicator = indicator,
-            )
+            val long = prefs.edgeLongDp
+            for ((side, strip) in listOf(EdgeSide.Left to leftStrip, EdgeSide.Right to rightStrip)) {
+                strip.set(
+                    wanted = allowed && prefs.edgeOn(side),
+                    widthDp = width,
+                    triggerDp = trigger,
+                    // Zero when nothing is bound to the long swipe, which is what turns the second
+                    // stage off: an edge with an unbound long binding is an edge with one gesture,
+                    // and the indicator should measure the short one rather than leaving a tick
+                    // two thirds of the way across for something that will not happen.
+                    longDp = if (prefs.edgeAction(side, EdgeLength.Long).acts) long else 0,
+                    slopDp = EDGE_SLOP_DP,
+                    showIndicator = indicator,
+                    face = edgeFace(side),
+                )
+            }
         }
+    }
+
+    /**
+     * What one edge's indicator says about its two swipes.
+     *
+     * Built here rather than in [EdgeSwipe] because a binding's word can be an *app name*, and
+     * turning a package id into one needs a `PackageManager` — which an overlay window has no
+     * business holding. [Action.edgeLabel] answers for everything else.
+     *
+     * Names are cut to [EDGE_LABEL_CHARS]: this is a word read at arm's length in a box a thumb's
+     * width from the edge of a 3.9" panel, and a label that does not fit is simply not drawn.
+     */
+    private fun edgeFace(side: EdgeSide): EdgeFace {
+        val short = prefs.edgeAction(side, EdgeLength.Short)
+        val long = prefs.edgeAction(side, EdgeLength.Long)
+        return EdgeFace(
+            shortLabel = edgeLabel(short) ?: "",
+            shortGlyph = short.glyph,
+            longLabel = if (long.acts) edgeLabel(long) else null,
+            longGlyph = long.glyph,
+        )
+    }
+
+    private fun edgeLabel(action: Action): String? {
+        action.edgeLabel?.let { return it }
+        val pkg = (action as? Action.Launch)?.pkg ?: return null
+        val name = runCatching { appName(this, pkg) }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: pkg.substringAfterLast('.')
+        return name.uppercase().take(EDGE_LABEL_CHARS)
+    }
+
+    /**
+     * A stroke that reached one of an edge's two thresholds, dispatched.
+     *
+     * Straight through [perform], which is what every button press goes through: the same dedupe,
+     * the same activity-start throttle, the same lock-face stand-down, the same log line. An edge
+     * that dispatched its own would be a second set of guards to keep in step with the first.
+     */
+    private fun fireEdge(side: EdgeSide, length: EdgeLength): Boolean {
+        val action = prefs.edgeAction(side, length)
+        if (!action.acts) {
+            log("${side.name.lowercase()} edge ${length.name.lowercase()} · nothing bound")
+            return false
+        }
+        val ok = runCatching { perform(action) }.getOrDefault(false)
+        log(
+            "${side.name.lowercase()} edge ${length.name.lowercase()} · ${action.store()}" +
+                if (ok) "" else " REFUSED",
+        )
+        return ok
     }
 
     /**
@@ -785,14 +840,11 @@ class ControlService : AccessibilityService() {
      * global action is the one route an accessibility service has. Note what its return value
      * means, which is less than it looks -- true says the action was dispatched, not that anything
      * went back. An app on its first screen will accept a back and do nothing with it, and that is
-     * indistinguishable from here. So the log line says dispatched, and the indicator only reports
-     * "NO BACK" for the case the platform actually refused.
+     * indistinguishable from here. So the caller's log line says dispatched, and the indicator only
+     * reports a failure for the case the platform actually refused.
      */
-    private fun performBack(): Boolean {
-        val ok = runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
-        log("swipe back" + if (ok) "" else " · refused")
-        return ok
-    }
+    private fun performBack(): Boolean =
+        runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
 
     /**
      * Screen off, screen on, and the unlock.
@@ -1795,8 +1847,8 @@ class ControlService : AccessibilityService() {
         runCatching { switcher.hide() }
         // And both strips, which would be worse than a black screen: invisible columns down the
         // edges of every app, swallowing touches, with no service left to answer them.
-        runCatching { backStrip.dismiss() }
-        runCatching { switcherStrip.dismiss() }
+        runCatching { leftStrip.dismiss() }
+        runCatching { rightStrip.dismiss() }
         keyguardListener?.let { listener ->
             keyguardListener = null
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1994,6 +2046,11 @@ class ControlService : AccessibilityService() {
         // what hands it the home button while you're there. See [visitHome].
         Action.LightOsHome -> goLightOsHome().also { if (it) visitingLightOs = true }
         Action.Resume -> resume()
+        Action.Back -> performBack()
+        // The same window a double press of home opens, and false when there was nothing to show.
+        // A gesture that swallows its input and then produces no window is the failure this whole
+        // file is written around.
+        Action.Switcher -> openSwitcher()
         Action.None, Action.PassThrough -> true
     }
 
@@ -2550,6 +2607,15 @@ class ControlService : AccessibilityService() {
          * this number, and every value that works is close to this one.
          */
         const val EDGE_SLOP_DP = 34
+
+        /**
+         * How much of an app's name the edge indicator will show.
+         *
+         * The box is a thumb's width from the edge of a 3.9" panel and the word inside it is read
+         * mid-gesture. Eight characters is a glance; more is a label that does not fit, and a label
+         * that does not fit is not drawn at all.
+         */
+        const val EDGE_LABEL_CHARS = 8
 
         /** Gap allowed between the two taps of a double tap. */
         const val DOUBLE_TAP_MS = 320L

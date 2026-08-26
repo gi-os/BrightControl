@@ -25,7 +25,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | | |
 |---|---|
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
-| **Edge gestures** | Swipe in from the left to go back, or from the right for the app switcher. A phone with no navigation bar. Each edge is off until you switch it on |
+| **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. A phone with no navigation bar. Each edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without |
@@ -47,8 +47,8 @@ Out of the box:
 | Tap the home button | Home, whichever launcher is default |
 | Press the home button twice | The app switcher: the apps you have been in, newest first |
 | Hold the home button | The LightOS dashboard, by name. Rebind it to anything |
-| Drag in from the left edge | Nothing, until you switch it on. Then the app goes back |
-| Drag in from the right edge | Nothing, until you switch it on. Then the app switcher opens |
+| Drag in from the left edge | Nothing, until you switch it on. Then back, or the app switcher on a long drag |
+| Drag in from the right edge | Nothing, until you switch it on. Then the app switcher, or back on a long drag |
 | Wake the phone | The stock lock screen. Or a Light face over it, once you turn it on |
 | Volume keys, tap or hold | Passed through, but bindable. The level appears on screen |
 
@@ -318,21 +318,40 @@ Light's own tools. An app you sideloaded gets nothing from it. An app that pushe
 no arrow of its own is therefore a dead end until you press home, and the recents list is reachable
 only by a double press of a physical button.
 
-Two strips, 14dp wide, one down each edge of the screen:
+Two strips, 14dp wide, one down each edge of the screen. Each edge carries **two bindings**: one for
+a short drag inwards and one for a long one. All four are ordinary actions, picked from the same
+screen the wheel click and the camera button use, so an edge can open an app, go home, reach Light's
+dashboard or do nothing at all.
 
-| Edge | Drag | Does |
+Out of the box the two edges mirror each other, which needs no opinion about which edge is which:
+
+| Edge | Short drag | Long drag |
 |---|---|---|
-| Left | to the right | `GLOBAL_ACTION_BACK` |
-| Right | to the left | The app switcher, the same window a double press of home opens |
+| Left | Back | The app switcher |
+| Right | The app switcher | Back |
 
-Crossing the trigger distance arms the gesture. The release commits it. A drag that comes back under
-the trigger disarms, so you can always change your mind about a stroke you have started.
+**Crossing a threshold arms the gesture. The lift commits it.** A drag that comes back under a
+threshold drops to the stage below, so you can always change your mind about a stroke you have
+started. That property is what makes a second stage work at all: passing the short threshold on the
+way to the long one is unavoidable, so a gesture that fired on crossing would perform the short
+binding every time and then perform the long one as well.
+
+`Go back` and `App switcher` are actions now rather than behaviour these strips own privately, so the
+buttons can be bound to them too. Back is the only action on this phone with no hardware to reach it.
 
 A small box follows your thumb while the drag runs. It is an outline while the stroke is short, and it
-turns white and says BACK or APPS when a release would act. The box is not decoration. An armed state
-that nothing on screen reports is a gesture you cannot aim. On the left the glyph is a chevron. On
-the right it is two overlapping cards, because an arrow would promise a direction that the right edge
-does not have.
+turns white and names whichever binding a release would perform. The box is not decoration. An armed
+state that nothing on screen reports is a gesture you cannot aim.
+
+**The tick in the box is what makes a long swipe usable.** The box measures the whole gesture, and a
+mark shows where the long binding takes over. Without one the only way to find the second stage is to
+drag until the word changes, which is a gesture you learn by overshooting the one you wanted. An edge
+whose long binding is set to nothing has one gesture, and its box measures the short one.
+
+The glyph is a chevron for back, two overlapping cards for the switcher, and a plain filled square
+for everything else. Three, and no more: the two gestures anybody will actually bind to an edge have
+a shape people already know, and an icon that guessed wrong would be worse than a neutral one on a
+screen read at arm's length mid-drag.
 
 **These are the only features here that take a touch, and that must be described exactly.** No API
 lets an app watch a touch without receiving it. Gesture detection through the accessibility API
@@ -347,6 +366,8 @@ is never focusable, so this can never cost a key. Because the cost is real:
 - Each edge is **off until you switch it on**, for the same reason the lock face is.
 - The **width is a setting**: 10, 14, 20 or 28dp. That number is the whole cost. It is one number for
   both edges, because nobody wants their left edge to be a different size from their right.
+- **A long swipe costs nothing more than a short one.** The strip is the same width either way. Only
+  how far the finger travels afterwards differs, and by then the touch is already ours.
 - **Any app can be left out.** One list for both edges: an app that puts its own controls at the
   screen edge usually does it at both.
 - **Light's own software never gets a strip.** It has these gestures already, on the same edges.
@@ -361,6 +382,11 @@ long flick that drifts sideways at the end is exactly the stroke this rule exist
 Distance along the screen is measured in the stroke's own direction, so one class serves both edges.
 A left-edge stroke that travels left is exactly as meaningless as a right-edge stroke that travels
 right. Without that sign, both strips would arm on a stroke heading off the screen they live on.
+
+Two guards on the long threshold, and neither is a setting anybody should be able to produce. A
+threshold past four fifths of the screen is pulled back, because one you cannot reach is a gesture
+nobody can complete. One at or below the short threshold is pushed above it, because that makes the
+short binding unreachable: every stroke that armed it would already have armed the long one.
 
 `GLOBAL_ACTION_BACK` is a request rather than a result. What an app does with a back belongs to the
 app. Many apps on their first screen accept the action and do nothing with it, and from outside the
@@ -759,7 +785,7 @@ keys/ControlService.kt     the filter service: gesture split, consume rules, for
 keys/Brightness.kt         system brightness with a derived scale
 keys/ColorMode.kt          per-app color, written as state and never as a transition
 keys/WheelSwipe.kt         the synthetic finger: one continued stroke, tracked and relifted
-keys/BackGesture.kt        one edge stroke, decided with no Android types in it
+keys/BackGesture.kt        one edge stroke and its two thresholds, with no Android types in it
 keys/EdgeSwipe.kt          an edge strip and its indicator, as two windows; one class per side
 keys/Readout.kt            the brightness level, as one reused overlay window
 keys/VolumeHud.kt          the volume level, reported and never adjusted
@@ -847,6 +873,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.60 | **Every edge has two swipes, and both are bound like a button.** A short drag inwards does one thing and a long one does another, and all four are ordinary actions picked from the same screen the buttons use. `Go back` and `App switcher` are actions now rather than behaviour the strips owned privately, so the camera button can go back too. The indicator grew a tick for where the long binding takes over — without one the only way to find the second stage is to drag until the word changes, which is a gesture you learn by overshooting the one you wanted |
 | v3.58 | **The right edge opens the switcher, and the home flicker is found.** A second strip, on the other edge, for the recents list. The flicker between a home screen and the toolbox was shadow mode adding a second destination: LightOS does not read a home press as "start the home activity", so a shadowed press produced LightOS's answer and a `CATEGORY_HOME` intent, racing. It only showed right after an unlock because that is the window where LightOS is still the front app. A plain Home tap is no longer fired in shadow while LightOS is in front. And pointing the tap at LightOS no longer costs the app switcher: succeeding starts a *visit*, and the visit was claiming the double press for its own exit before the switcher was asked |
 | v3.56 | **A back gesture, and a lock face that stops repeating itself.** A strip on the left edge goes back, with a small box at the thumb that says when a release would commit it. Off by default, because it is the one feature here that receives a touch, and a received touch cannot be handed back. On the lock face, `FLAG_NO_CLEAR` now counts as permanent, which is what LightOS puts on its own always-running notice: that notice passed every check the filter had and could not be swiped off, because the platform refuses to cancel an un-clearable notification by not removing it. Permanent notifications are a switch now, and any app can be hidden from the face by name |
 | v3.55 | **A running command says what it is doing.** The request screen collected the output of a command until the stream closed, so the most talkative helper there is, the one that answers a Bluetooth pairing request, said nothing for forty-five seconds and then everything at once. Whole lines arrive as they happen, the last forty are kept, and a request with several commands says which one it is on |

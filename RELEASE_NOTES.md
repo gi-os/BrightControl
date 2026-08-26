@@ -1,34 +1,59 @@
-## BrightControl v3.59 — the pairing reader was looking at the wrong window
+## BrightControl v3.60 — every edge has two swipes, and both are bound like a button
 
-Two reports came in carrying the text the reader had actually read, which is exactly why that was
-added — and it was not the pairing dialog:
+The edges did one fixed thing each: left went back, right opened the switcher. Now each edge has a
+**short swipe and a long one**, and all four are ordinary bindings picked from the same screen the
+wheel click and the camera button use.
 
-```
-Wireless debugging · Navigate up · Use wireless debugging · Device name
-Light Phone III · IP address & Port · 192.168.10.220:43139
-Pair device with QR code · Pair device with pairing code …
-```
+| Edge | Short | Long |
+|---|---|---|
+| Left | Back | App switcher |
+| Right | App switcher | Back |
 
-That is the Wireless debugging **list**. There has never been a code on it. A dialog is its own
-window, and `rootInActiveWindow` was handing back the activity behind it — so the one window that
-has ever held the six digits was the one window never being looked at, and the failure was reported
-against the wrong screen entirely.
+Those are the defaults, and they need no opinion about which edge is which: the two edges mirror each
+other. Change any of the four to anything a button can do — an app, home, LightOS's dashboard, Back
+to where you were, the flashlight, the camera, nothing at all.
 
-**Every window is read now**, each on its own rather than joined together: the strongest signal is a
-line that is *exactly* six digits, and concatenating the dialog with the list behind it surrounds
-those digits with a screenful of other numbers.
+**Two new actions, and they are available to the buttons too.** `Go back` and `App switcher` used to
+be behaviours the edge strips owned privately. They are now `Action`s like any other, which means the
+camera button can go back and a hold on the wheel can open the switcher. Back is the only action on
+this phone with no hardware to reach it, so having it bindable anywhere is the point.
 
-**And the list has stopped passing for the dialog.** It matched every test — it says "pair", it says
-"code" (in the row labelled *Pair device with pairing code*), and it shows the `ip:port`. Two phrases
-belong only to the list, and either settles it. That false positive is also why a "could not read the
-code" report arrived while the dialog had not even been opened.
+### The long swipe
 
-**This is why GRANT ALL cannot connect either.** A code was never read, so no pairing was ever made,
-so there is nothing on disk for the connection to use. "Already paired" and "the pairing succeeded"
-are different claims, and only the second one gets you a shell.
+Carry the drag past **150 dp** — a third of the panel, adjustable to 110, 200, 260, or off — and the
+long binding replaces the short one.
 
-**A STOP button, everywhere a command runs.** A command can be waiting three quarters of a minute on
-a phone whose owner has changed their mind, and a screen whose only affordance is waiting is a
-screen that gets force-quit — which loses the transcript, the run, and any idea of what happened.
-Stopping closes the socket, because that is the only thing that ends a read blocked with no timeout:
-the flag tells the loop not to start the next command, and the reset ends the one already going.
+**Crossing a threshold only arms it; the lift is what commits.** That was already true and it is what
+makes a second stage work at all: passing the short threshold on the way to the long one is
+unavoidable, so a gesture that fired on crossing would perform the short binding every single time
+and then perform the long one as well. Drag back under a threshold and it drops to the stage below,
+so a stroke can always be changed your mind about.
+
+**The indicator grew a tick.** The box now measures the whole gesture rather than just the short one,
+with a mark at the point where the long swipe takes over. Without it a long swipe is a guess: the box
+grows, the word changes at some point, and there is nothing to say how much further the second stage
+is. The word itself is whichever binding a release would perform — BACK, APPS, HOME, LIGHTOS, or an
+app's own name — with a chevron for back, two cards for the switcher, and a plain filled square for
+everything else. An icon that guessed wrong would be worse than a neutral one on a screen read at
+arm's length mid-drag.
+
+A long threshold past four fifths of the screen is pulled back, because a threshold you cannot reach
+is a gesture nobody can complete. One under the short threshold is pushed above it, because two
+thresholds in the wrong order make the short binding unreachable — every stroke that armed it would
+already have armed the long one. Neither is a setting anybody should be able to produce, and a
+settings screen cannot be trusted never to try.
+
+### Also
+
+- **A long swipe costs nothing more than a short one.** The strip is the same width either way. Only
+  how far the finger travels afterwards differs, and by then the touch is already ours. The whole
+  cost of these gestures is still one number: the strip width.
+- One picker for both kinds of binding, addressed by a `BindSlot`. A second picker for the edges
+  would have been a second list of actions to keep in step with the first, which is how a phone ends
+  up able to bind an app to a button and not to a gesture for no reason anybody chose.
+- An edge whose long binding is set to nothing has one gesture, and its indicator measures the short
+  one — no tick two thirds of the way across for something that will not happen.
+- Eight more JVM tests, twenty-one in all: through the short stage on the way to the long one, back
+  out of it again, travel measured against the right threshold, the tick's position, a long stroke's
+  vertical drift still reading as horizontal, and both stages on the right edge as well.
+- Stored settings keys are unchanged, so nothing you had configured moves.

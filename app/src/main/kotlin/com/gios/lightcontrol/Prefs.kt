@@ -134,6 +134,21 @@ class Prefs(context: Context) {
         sp.edit().putString(bindKey(button, gesture), action.store()).apply()
     }
 
+    /**
+     * The same two calls addressed by [BindSlot], so the picker does not have to know which kind of
+     * thing it is binding. The button and edge stores stay separate underneath; only the caller is
+     * shared.
+     */
+    fun action(slot: BindSlot): Action = when (slot) {
+        is BindSlot.Key -> action(slot.button, slot.gesture)
+        is BindSlot.Edge -> edgeAction(slot.side, slot.length)
+    }
+
+    fun setAction(slot: BindSlot, action: Action) = when (slot) {
+        is BindSlot.Key -> setAction(slot.button, slot.gesture, action)
+        is BindSlot.Edge -> setEdgeAction(slot.side, slot.length, action)
+    }
+
     /** True if this binding is still whatever the app shipped with. */
     fun isDefault(button: Button, gesture: Gesture): Boolean =
         sp.getString(bindKey(button, gesture), null) == null
@@ -793,7 +808,7 @@ class Prefs(context: Context) {
      *
      * See [com.gios.lightcontrol.keys.EdgeSwipe] for what it costs precisely.
      */
-    var backSwipe: Boolean
+    var leftEdgeOn: Boolean
         get() = sp.getBoolean("back_swipe", false)
         set(v) = sp.edit().putBoolean("back_swipe", v).apply()
 
@@ -805,9 +820,49 @@ class Prefs(context: Context) {
      * button does, which is not LightOS's own screens while a visit is in progress, and it costs a
      * press of a physical button on a phone that has four of them.
      */
-    var switcherSwipe: Boolean
+    var rightEdgeOn: Boolean
         get() = sp.getBoolean("switcher_swipe", false)
         set(v) = sp.edit().putBoolean("switcher_swipe", v).apply()
+
+    fun edgeOn(side: EdgeSide): Boolean =
+        if (side == EdgeSide.Left) leftEdgeOn else rightEdgeOn
+
+    /**
+     * What one edge's short or long swipe does.
+     *
+     * Stored exactly like a button binding and read from the same [Action] vocabulary, so anything
+     * a button can be bound to an edge can be bound to as well -- including opening an app.
+     */
+    fun edgeAction(side: EdgeSide, length: EdgeLength): Action =
+        Action.parse(sp.getString(edgeKey(side, length), null))
+            ?: Action.defaultEdge(side, length)
+
+    fun setEdgeAction(side: EdgeSide, length: EdgeLength, action: Action) {
+        sp.edit().putString(edgeKey(side, length), action.store()).apply()
+    }
+
+    /** True if this edge binding is still whatever the app shipped with. */
+    fun isEdgeDefault(side: EdgeSide, length: EdgeLength): Boolean =
+        sp.getString(edgeKey(side, length), null) == null
+
+    private fun edgeKey(side: EdgeSide, length: EdgeLength) = "edge:${side.name}:${length.name}"
+
+    /**
+     * How far across a long swipe has to reach, in dp, or 0 for an edge with no long swipe.
+     *
+     * 150 dp -- roughly a third of this panel, which is far enough that no ordinary short swipe
+     * reaches it by accident and near enough that a thumb can still get there in one motion. One
+     * number for both edges, like the others here.
+     *
+     * The ceiling is applied where the screen width is known, in
+     * [com.gios.lightcontrol.keys.EdgeSwipe]: a threshold past the edge of the panel is a gesture
+     * nobody can complete, and this screen offers distances without knowing how wide the panel is.
+     * The floor is applied in the gesture, which will not let the long threshold sit at or below the
+     * short one -- that would make the short binding unreachable.
+     */
+    var edgeLongDp: Int
+        get() = sp.getInt("edge_long", 150).coerceIn(0, 400)
+        set(v) = sp.edit().putInt("edge_long", v.coerceIn(0, 400)).apply()
 
     /**
      * How wide a strip is, in dp. The entire cost of these gestures is this number.

@@ -41,6 +41,85 @@ enum class Gesture {
     val label: String get() = if (this == Tap) "Tap" else "Hold"
 }
 
+/** Which edge of the screen a swipe starts from. */
+enum class EdgeSide {
+    Left,
+    Right,
+    ;
+
+    /**
+     * The sign of a useful stroke along x, so one gesture class serves both edges. A left-edge
+     * stroke travels right and a right-edge stroke travels left; measuring distance in the stroke's
+     * own direction is what makes every rule read the same for both.
+     */
+    val dirX: Int get() = if (this == Left) 1 else -1
+
+    val label: String get() = if (this == Left) "Left edge" else "Right edge"
+}
+
+/**
+ * The mark the edge indicator draws.
+ *
+ * Three, and no more: the two gestures anybody will actually bind to an edge have a shape people
+ * already know, and everything else gets a mark that says only "this will happen". A wrong-looking
+ * icon is worse than a neutral one on a screen read at arm's length mid-drag.
+ */
+enum class EdgeGlyph {
+    /** Pointing the way the screen you are going back to comes from. */
+    Chevron,
+
+    /** Two overlapping outlines: a list of apps, with no direction implied. */
+    Cards,
+
+    /** A filled square. Something will happen; the word beside it says what. */
+    Mark,
+}
+
+/**
+ * A short swipe versus a long one.
+ *
+ * The edge equivalent of [Gesture], and deliberately the same shape: two bindings per edge, each
+ * one a full [Action], picked from the same screen the buttons use. A long swipe is the only second
+ * gesture an edge has — there is nowhere to hold, because a finger resting on a strip is
+ * indistinguishable from a finger that has not started yet.
+ */
+enum class EdgeLength {
+    Short,
+    Long,
+    ;
+
+    val label: String get() = if (this == Short) "Short swipe" else "Long swipe"
+}
+
+/**
+ * One thing an [Action] can be bound to: a press of a button, or a swipe from an edge.
+ *
+ * Introduced so the picker is one screen rather than two. The buttons had it first and the edges
+ * arrived second, and a second picker would have been a second list of actions to keep in step with
+ * the first — which is exactly how a phone ends up able to bind an app to a button and not to a
+ * gesture for no reason anybody chose.
+ */
+sealed interface BindSlot {
+
+    data class Key(val button: Button, val gesture: Gesture) : BindSlot
+
+    data class Edge(val side: EdgeSide, val length: EdgeLength) : BindSlot
+
+    /** The heading on the picker. */
+    val title: String
+        get() = when (this) {
+            is Key -> button.label
+            is Edge -> side.label
+        }
+
+    /** The line under it. */
+    val sub: String
+        get() = when (this) {
+            is Key -> gesture.label.lowercase()
+            is Edge -> length.label.lowercase()
+        }
+}
+
 /**
  * What a press does.
  *
@@ -104,6 +183,27 @@ sealed interface Action {
      */
     data object LightOsHome : Action
 
+    /**
+     * Go back — `GLOBAL_ACTION_BACK`.
+     *
+     * Bindable anywhere now rather than being the left edge's private behaviour. It is the one
+     * action on this phone with no hardware to reach it: LightOS removed the navigation bar, so a
+     * sideloaded app that pushes a screen has no way out of it at all.
+     *
+     * Note what the global action's return value means, which is less than it looks: true says the
+     * action was dispatched, not that anything went back. An app on its first screen accepts a back
+     * and does nothing with it, and from out here that is indistinguishable from working.
+     */
+    data object Back : Action
+
+    /**
+     * Open the app switcher — this app's own list, the same window a double press of home puts up.
+     *
+     * One window, one list, one place it is built. A gesture that assembled its own would be a
+     * second answer to "which apps" and a second way to fail.
+     */
+    data object Switcher : Action
+
     /** True if this action means the service should swallow the key. */
     val consumes: Boolean get() = this != PassThrough
 
@@ -149,7 +249,37 @@ sealed interface Action {
         DefaultHome -> "home"
         LightOsHome -> "lightoshome"
         Resume -> "resume"
+        Back -> "back"
+        Switcher -> "switcher"
     }
+
+    /**
+     * A word for the edge indicator, in the caps this phone's type is set in.
+     *
+     * Short because it has to fit in a box a thumb's width from the edge of a 3.9" panel, and
+     * because it is read at arm's length mid-gesture rather than studied. [Launch] answers null:
+     * only the service can turn a package id into an app name, so the caller substitutes one.
+     */
+    val edgeLabel: String?
+        get() = when (this) {
+            PassThrough, None -> "OFF"
+            Torch -> "TORCH"
+            OpenCamera -> "CAMERA"
+            DefaultHome -> "HOME"
+            LightOsHome -> "LIGHTOS"
+            Resume -> "RESUME"
+            Back -> "BACK"
+            Switcher -> "APPS"
+            is Launch -> null
+        }
+
+    /** Which mark the indicator draws for this action. */
+    val glyph: EdgeGlyph
+        get() = when (this) {
+            Back -> EdgeGlyph.Chevron
+            Switcher -> EdgeGlyph.Cards
+            else -> EdgeGlyph.Mark
+        }
 
     companion object {
         fun parse(raw: String?): Action? = when {
@@ -161,8 +291,29 @@ sealed interface Action {
             raw == "home" -> DefaultHome
             raw == "lightoshome" -> LightOsHome
             raw == "resume" -> Resume
+            raw == "back" -> Back
+            raw == "switcher" -> Switcher
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
             else -> null
+        }
+
+        /**
+         * What an edge swipe does out of the box.
+         *
+         * The two edges mirror each other, which needs no opinion about which is which: a short
+         * swipe from the left goes back and a long one opens the switcher, and the right edge is
+         * the same pair the other way round. Every one of the four is bindable to anything the
+         * buttons can be bound to.
+         *
+         * Note that this only decides what a *live* edge does. Both edges are off until switched
+         * on -- see [Prefs.leftEdgeOn] -- because they are the only features in this app that take
+         * a touch away from the app in front.
+         */
+        fun defaultEdge(side: EdgeSide, length: EdgeLength): Action = when {
+            side == EdgeSide.Left && length == EdgeLength.Short -> Back
+            side == EdgeSide.Left -> Switcher
+            length == EdgeLength.Short -> Switcher
+            else -> Back
         }
 
         /**
