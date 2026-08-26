@@ -189,4 +189,31 @@ class AdbPairCodeTest {
         )
     }
 
+
+    // ---- the connect port, which needs no discovery -------------------------
+
+    @Test
+    fun `the connect port is read off the list screen`() {
+        // light-reports#122: the pairing was accepted and mDNS then found nothing to connect to.
+        // The port was never a mystery — that screen prints it.
+        assertEquals("192.168.10.220" to 43139, AdbPairCode.connectAddress(theList))
+    }
+
+    @Test
+    fun `the dialog's port is never taken for the connect port`() {
+        // Both screens show an ip:port and they are different ports: the dialog's is the pairing
+        // port, thrown away when the box closes. Connecting to it looks exactly like the failure
+        // this exists to fix.
+        assertNull(
+            AdbPairCode.connectAddress(
+                "Pair with device\n123456\nIP address & Port\n192.168.1.10:37103",
+            ),
+        )
+    }
+
+    @Test
+    fun `a screen with no address yields nothing`() {
+        assertNull(AdbPairCode.connectAddress("Use wireless debugging\nPair device with QR code"))
+    }
+
 }

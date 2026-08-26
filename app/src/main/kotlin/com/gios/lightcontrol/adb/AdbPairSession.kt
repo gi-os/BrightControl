@@ -170,6 +170,21 @@ object AdbPairSession {
      */
     fun offerScreen(context: Context, text: String): Boolean {
         if (!armed) return false
+        // **Take the connect port while it is on screen.** mDNS is how the daemon is normally
+        // found, and light-reports#122 is mDNS finding nothing seconds after a pairing the daemon
+        // accepted. The Wireless debugging screen prints the port in the same window this is
+        // reading for a code, so there is no reason to depend on discovery at all. Only from the
+        // list — the dialog's port is the pairing port and it dies with the box.
+        AdbPairCode.connectAddress(text)?.let { (host, port) ->
+            runCatching {
+                val prefs = com.gios.lightcontrol.Prefs(context)
+                if (prefs.adbPort != port.toString()) {
+                    prefs.notePairStep("read the connect port off the screen: $port")
+                }
+                prefs.adbHost = host
+                prefs.adbPort = port.toString()
+            }
+        }
         // Cheap and bounded: the heading of each distinct window, which is enough to say whether
         // the dialog was ever among them.
         text.lineSequence().firstOrNull { it.isNotBlank() }?.let { heading ->
@@ -233,7 +248,15 @@ object AdbPairSession {
             return
         }
 
-        val connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
+        var connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
+        if (!connected) {
+            // The port the reader took off the screen, which needs no discovery to be true.
+            val port = prefs.adbPort.toIntOrNull()
+            if (port != null) {
+                prefs.notePairStep("mDNS found nothing — trying the port from the screen: $port")
+                connected = runCatching { adb.connectPort(context, port) }.getOrDefault(false)
+            }
+        }
         prefs.notePairStep(if (connected) "connected" else "connect FAILED after pairing")
         if (!connected) {
             main.post {

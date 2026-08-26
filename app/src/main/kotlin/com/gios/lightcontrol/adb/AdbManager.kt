@@ -309,7 +309,18 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             // The twelve seconds live in here. There is no interrupting mDNS discovery once it has
             // started, so the check goes immediately in front of it and the worst a stop can cost
             // is the one lookup already running.
-            val up = runCatching { fresh.connectAuto(context, timeoutMs) }.getOrDefault(false)
+            var up = runCatching { fresh.connectAuto(context, timeoutMs) }.getOrDefault(false)
+            if (!up && !aborting) {
+                // **Discovery is not the only way to know a port.** The Wireless debugging screen
+                // prints it, and the pairing reader now takes it while it is up — so a phone whose
+                // mDNS answers nothing is still connectable. See [AdbPairCode.connectAddress].
+                val saved = runCatching {
+                    com.gios.lightcontrol.Prefs(context).adbPort.toIntOrNull()
+                }.getOrNull()
+                if (saved != null) {
+                    up = runCatching { fresh.connectPort(context, saved) }.getOrDefault(false)
+                }
+            }
             if (!up) return false
             // **Probe more than once, because the first command on a new socket dies.**
             //

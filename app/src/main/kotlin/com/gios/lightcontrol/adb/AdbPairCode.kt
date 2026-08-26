@@ -157,6 +157,42 @@ object AdbPairCode {
      */
     private val FORBIDDEN = charArrayOf(':', '.', '/')
 
+    /**
+     * The connect address off the Wireless debugging screen, when this is that screen.
+     *
+     * ### Why this is worth reading
+     *
+     * mDNS is how the app finds the daemon, and light-reports#122 is mDNS finding nothing on a phone
+     * that had just accepted a pairing: *"the pairing was accepted and mDNS then found nothing to
+     * connect to"*. The port was never a mystery — the Wireless debugging screen prints it, in the
+     * same window the reader is already flattening to look for a code:
+     *
+     * ```
+     * IP address & Port
+     * 192.168.10.220:38675
+     * ```
+     *
+     * ### Why only from the list
+     *
+     * Both screens show an `ip:port` and they are **different ports**. The dialog shows the
+     * *pairing* port, which is thrown away the moment the box closes; the list shows the *connect*
+     * port, which is the one to connect to and stays put while wireless debugging is on. Taking the
+     * wrong one produces a connection attempt against a port nothing is listening on any more,
+     * which is indistinguishable from the failure this is meant to fix.
+     *
+     * So: only when [looksLikeTheList] agrees, which is exactly the test written to keep the list
+     * from being mistaken for the dialog.
+     */
+    fun connectAddress(text: String): Pair<String, Int>? {
+        if (!looksLikeTheList(text)) return null
+        val match = ADDRESS.find(text) ?: return null
+        val parts = match.value.split(':')
+        if (parts.size != 2) return null
+        val port = parts[1].toIntOrNull() ?: return null
+        if (port !in 1..65535) return null
+        return parts[0] to port
+    }
+
     private val ADDRESS = Regex("""\d+\.\d+\.\d+\.\d+:\d{4,5}""")
     private val LOOSE = Regex("""(?<!\d)\d{6}(?!\d)""")
 }
