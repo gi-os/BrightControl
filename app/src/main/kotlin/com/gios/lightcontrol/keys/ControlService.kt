@@ -1639,10 +1639,16 @@ class ControlService : AccessibilityService() {
                 if (up) {
                     val started = switcherDownAt
                     switcherDownAt = 0L
-                    val held = started != 0L && SystemClock.uptimeMillis() - started >= HOLD_MS
-                    val pkg = switcher.selected
-                    if (held && pkg != null) runCatching { openAppInfo(pkg) }
-                    else runCatching { switcher.choose() }
+                    // The press started before the switcher was showing — the hold that opened
+                    // it fired at the threshold (see onButton), and this release belongs to that
+                    // hold, not to a selection. Skip it: choose() would close the list the
+                    // moment it appears. light-reports#81.
+                    if (started != 0L) {
+                        val held = SystemClock.uptimeMillis() - started >= HOLD_MS
+                        val pkg = switcher.selected
+                        if (held && pkg != null) runCatching { openAppInfo(pkg) }
+                        else runCatching { switcher.choose() }
+                    }
                 }
                 true
             }

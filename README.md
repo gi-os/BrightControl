@@ -18,7 +18,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v3.14.** See [Version history](#version-history).
+**Current version: v3.77.** See [Version history](#version-history).
 
 ## What it does
 
@@ -878,6 +878,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.77 | **The switcher stays after a wheel hold, and ADB commands are readable.** The switcher opened by a wheel hold no longer closes on release — the release key event was reaching `onSwitcherKey` after the hold-threshold change in v3.68 opened it mid-press. Tapping to show a grant's adb command now gives it six lines instead of two, so nothing is cut off with \"...\" |
 | v3.63 | **The left edge goes back out of the box.** It shipped off, on the reasoning that this is the one feature here that takes a touch rather than a key. That was right about the cost and wrong about the conclusion: a phone with no back button is broken in a way that a phone with a 14 dp strip down one edge is not, and a default nobody discovers is a feature nobody has. The right edge stays off, because the recents list is already a double press of home — an absence is worth filling, convenience is worth opting into. Turning it off writes a real false, so no existing choice is overridden |
 | v3.62 | **STOP gives the buttons back immediately.** Stopping a run in flight no longer waits to be noticed: the buttons come back the moment you press it |
 | v3.61 | **Every edge has two swipes, and both are bound like a button.** A short drag inwards does one thing and a long one does another, and all four are ordinary actions picked from the same screen the buttons use. `Go back` and `App switcher` are actions now rather than behaviour the strips owned privately, so the camera button can go back too. The indicator grew a tick for where the long binding takes over — without one the only way to find the second stage is to drag until the word changes, which is a gesture you learn by overshooting the one you wanted |

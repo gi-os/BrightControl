@@ -101,6 +101,7 @@ fun MenuRow(
     sub: String? = null,
     dim: Boolean = false,
     onClick: (() -> Unit)? = null,
+    subMaxLines: Int = 2,
 ) {
     // The wheel's highlight, when the wheel is driving this screen. Drawn as a bar and a shade
     // rather than as a border or a padding change: anything that alters the row's size makes the
@@ -134,7 +135,7 @@ fun MenuRow(
                     sub,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Dim,
-                    maxLines = 2,
+                    maxLines = subMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -231,6 +232,7 @@ fun GrantRow(label: String, ok: Boolean, fix: String, sub: String? = null) {
         },
         dim = !ok,
         onClick = { showing = !showing },
+        subMaxLines = if (showing) 6 else 2,
     )
 }
 
