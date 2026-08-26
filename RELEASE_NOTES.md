@@ -1,34 +1,22 @@
-## BrightControl v3.49 — no adb command can hang the app any more
+## BrightControl v3.50 — the screen stays on while adb is working
 
-**1/9, 2/9, and then nothing.** The third grant never printed because it never returned, and it never
-returned because of this:
+The adb work here is slow by design: a reconnect looks for the daemon for twelve seconds, a pairing
+confirmation waits three quarters of a minute for the platform to raise its request, and a batch of
+nine grants is all of that in a row. Long enough for a phone with a short timeout to go dark in the
+middle — and going dark is not just a result nobody sees:
 
-```kotlin
-stream.openInputStream().use { input ->
-    while (true) { val read = input.read(buffer); if (read < 0) break … }
-}
-```
+- **The pairing dialog this app reads its code from belongs to Settings**, and Settings *pausing* is
+  what tears the pairing session down. A screen that sleeps while you are still finding Wireless
+  debugging has already killed the pairing you were trying to make.
+- **Which branch a Bluetooth pairing request takes is decided by whether the phone is interactive.**
+  A screen that changes state mid-attempt changes the answer — that is the whole reason a bond can
+  be made with the screen off and not with it on.
+- **A run whose result nobody saw gets pressed again**, and for a bond that means starting over with
+  an address that has rotated since.
 
-`runCommand` reads until EOF. A stream that **stalls** rather than closing never reaches EOF, so the
-read blocks forever — the coroutine never finishes, the buttons stay greyed, and nothing more is
-printed, because a step's line is written *after* its command comes back. From the outside it is
-indistinguishable from a button that quietly gave up, which is exactly how it was reported.
+So the ADB screen holds the screen on for the whole of setup — not only while a command is in
+flight, but while the pairing session is waiting, pairing or granting — and the request screen holds
+it for the length of a run.
 
-Every adb call in the app had that hole. The first two grants are `appops set`; the third is
-`pm grant`, and it is only where the hole was first fallen into.
-
-**Every command now has a deadline.** A read that ignores interruption cannot be cancelled, so it is
-not cancelled: the command runs on a thread the app walks away from, and closing the socket is what
-actually ends the read and lets that thread die. Twenty seconds for anything ordinary, forty-five for
-the one command that is *supposed* to sit there — a pairing confirmation, which has to wait for a
-request the platform raises several seconds after the bond starts. A check gets eight, because a
-read-back that has to be waited on is one that is not going to answer.
-
-Bounded now, not just in the grant batch: the app-op read-back, the hotspot's `svc wifi` calls, NFC,
-Shizuku, the command box, and the grant button on the pairing overlay — which also reports
-`granting… 4/9` as it goes and stops when the connection goes away, instead of saying "granting…"
-forever with a dead button behind it.
-
-**What you should see now.** A stalled command prints `no answer in 20s — the connection was closed`
-against the step that stalled, the batch stops there, and the buttons come back. That is a worse
-outcome than a grant working and a much better one than a screen you have to kill the app to leave.
+It is a per-view attribute rather than a window flag, which means it lifts itself when the screen
+goes away and cannot be left switched on by something that navigated off mid-run.

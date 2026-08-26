@@ -42,6 +42,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGray
@@ -273,3 +275,34 @@ fun SectionScaffold(
 
 /** The ground under the highlighted row. Barely lighter than black, which is all it takes. */
 private val SelectedGround = Color(0xFF161616)
+
+
+/**
+ * Hold the screen on while something is running that would be ruined by it going off.
+ *
+ * ### Why this is not a nicety
+ *
+ * The adb work here is slow on purpose — a reconnect looks for a daemon for twelve seconds, a
+ * pairing confirmation sits waiting for a request for the better part of a minute, and a batch of
+ * nine grants is all of that in a row. Long enough, in other words, for a phone with a short screen
+ * timeout to go dark in the middle. What happens then is not merely that nobody sees the result:
+ *
+ *  - The pairing dialog this app reads its code from is a **Settings** dialog, and Settings pausing
+ *    is what tears the pairing session down. A screen that sleeps mid-pair kills the pairing.
+ *  - Answering a Bluetooth pairing request depends on which branch the platform takes, and that is
+ *    decided by whether the phone is interactive. A screen that changes state mid-attempt changes
+ *    the answer.
+ *  - And a run whose result nobody saw gets pressed again, which for a bond means starting over
+ *    with an address that has since rotated.
+ *
+ * The window flag is not used: this is a per-view attribute, so it lifts itself when the composable
+ * leaves and cannot be left switched on by a screen that navigated away mid-run.
+ */
+@Composable
+fun KeepAwake(active: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(active) {
+        view.keepScreenOn = active
+        onDispose { view.keepScreenOn = false }
+    }
+}

@@ -107,6 +107,12 @@ fun GrantRequestScreen(
         }
     }
 
+    // A pairing confirmation waits three quarters of a minute for the platform to raise its
+    // request, and whether that request becomes a dialog or a notification is decided by whether
+    // the phone is interactive. A screen going dark mid-run does not just hide the answer, it
+    // changes it.
+    KeepAwake(busy)
+
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 

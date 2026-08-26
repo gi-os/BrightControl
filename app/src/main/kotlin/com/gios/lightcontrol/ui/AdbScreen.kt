@@ -187,6 +187,19 @@ fun AdbScreen(
         goToHeld()
     }
 
+    // The screen stays on for the whole of setup, not just while a command is in flight: the
+    // pairing dialog this reads its code from belongs to Settings, and Settings pausing is what
+    // tears a pairing session down — so a screen that sleeps while somebody is finding Wireless
+    // debugging has already lost. Lifted when the screen goes.
+    KeepAwake(
+        busy ||
+            AdbPairSession.phase in setOf(
+                AdbPairSession.Phase.Waiting,
+                AdbPairSession.Phase.Pairing,
+                AdbPairSession.Phase.Granting,
+            ),
+    )
+
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
