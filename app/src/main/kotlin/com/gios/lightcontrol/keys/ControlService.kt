@@ -1976,7 +1976,10 @@ class ControlService : AccessibilityService() {
         // service lands the old instance's unbind after the new one's create — clearing it
         // unconditionally there kills banners for good, with nothing on the phone to say why.
         if (Banners.onShow === bannerShow) Banners.onShow = null
-        runCatching { banner.dismiss() }
+        // Unanimated: the window has to be gone when this returns, not a fifth of a
+        // second later, by which time this object is on its way out and nothing is left
+        // to finish taking it down.
+        runCatching { banner.dismiss(animated = false) }
         volume.stop()
         swipe.cancel()
         pendingTap = null
