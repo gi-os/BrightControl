@@ -88,4 +88,68 @@ class AdbPairCodeTest {
         assertFalse(AdbPairCode.looksLikePairingDialog("Pair with device\nCancel"))
         assertFalse(AdbPairCode.looksLikePairingDialog("192.168.1.24:37419"))
     }
+
+    // ---- light-reports#61: the box was found and the digits were not -------------
+
+    @Test
+    fun `a grouped code is read`() {
+        // The report said "pairing box present but numbers within not detected", which can only
+        // mean the digits were on that screen in a shape the old single pass did not admit.
+        assertEquals(
+            "123456",
+            AdbPairCode.extract("Wi-Fi pairing code\n123 456\n192.168.1.10:37103"),
+        )
+        assertEquals(
+            "123456",
+            AdbPairCode.extract("Wi-Fi pairing code\n123\u00a0456\n192.168.1.10:37103"),
+        )
+        assertEquals(
+            "123456",
+            AdbPairCode.extract("Pair device with pairing code\n123-456\n192.168.1.10:37103"),
+        )
+    }
+
+    @Test
+    fun `a code split one digit per view is read`() {
+        assertEquals(
+            "123456",
+            AdbPairCode.extract("Pair with device\ncode\n1\n2\n3\n4\n5\n6\n192.168.1.10:37103"),
+        )
+    }
+
+    @Test
+    fun `a code beside its label is read, grouped or not`() {
+        assertEquals(
+            "987654",
+            AdbPairCode.extract("Pair device\nWi-Fi pairing code: 987654\n192.168.1.10:37103"),
+        )
+        assertEquals(
+            "987654",
+            AdbPairCode.extract("Pairing code 98 76 54\n192.168.1.10:37103"),
+        )
+    }
+
+    @Test
+    fun `the dialog is recognised without an address in the same window`() {
+        // A reskin that puts the address in a different view would have left the old test
+        // returning false about the very screen it exists to recognise.
+        assertTrue(AdbPairCode.looksLikePairingDialog("Pair device with pairing code"))
+        assertEquals("123456", AdbPairCode.extract("Pair device with pairing code\n123 456"))
+    }
+
+    @Test
+    fun `an address is never read as a code`() {
+        // The character-wise version of the labelled pass read `192168` out of the address on the
+        // line below the label, which then fails against the daemon for a reason nothing on the
+        // screen could explain.
+        assertNull(AdbPairCode.extract("Pair device with pairing code\n192.168.1.10:37103"))
+        assertNull(AdbPairCode.extract("Wireless debugging\nIP address & Port\n192.168.68.59:5555"))
+    }
+
+    @Test
+    fun `a code is six digits, not five and not seven`() {
+        assertNull(AdbPairCode.extract("Pair device with pairing code\n12345\n192.168.1.10:37103"))
+        assertNull(AdbPairCode.extract("Pair device with pairing code\n1234567\n192.168.1.10:37103"))
+    }
+
 }

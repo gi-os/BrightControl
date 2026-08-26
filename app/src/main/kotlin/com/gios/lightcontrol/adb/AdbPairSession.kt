@@ -146,6 +146,16 @@ object AdbPairSession {
             // through several Settings screens on the way there.
             if (AdbPairCode.looksLikePairingDialog(text)) {
                 main.post { unreadable = text.take(600) }
+                // **And file it.** light-reports#61 is this failure, reported by hand — "pairing
+                // box present but numbers within not detected" — with no trace of the text that
+                // was actually on screen, because nothing carried it into the report. The one
+                // thing needed to fix a reader that cannot read is what it read. Through [Trouble],
+                // so it raises the report chip and lands in the issue verbatim, throttled to once
+                // an hour so walking past the dialog twice does not ask twice.
+                com.gios.lightcontrol.report.Trouble.record(
+                    "read the pairing code off the dialog",
+                    text.take(600),
+                )
             }
             return false
         }
