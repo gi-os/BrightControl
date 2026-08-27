@@ -13,6 +13,7 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.keys.VolumeSignals
 import com.gios.lightcontrol.report.CrashLog
 
 /** What a bare turn does, per-app overrides, and swipe distance. */
@@ -235,6 +236,19 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onBack: () -> Unit) {
             sub = "call audio does not pass through this phone's app mixer, so no app can add a " +
                 "decibel past the top of the scale",
             dim = true,
+        )
+        MenuRow(
+            label = "Where the strip's news comes from",
+            detail = if (VolumeSignals.broadcastSilent()) "KEYS ONLY" else "BOTH",
+            sub = if (VolumeSignals.broadcastSilent()) {
+                "this build sends no volume broadcast, so reading the level back after a key is " +
+                    "the only thing keeping the strip alive. " + VolumeSignals.summary()
+            } else {
+                "the system's volume broadcast and a read-back after each key. " +
+                    VolumeSignals.summary()
+            },
+            dim = true,
+            subMaxLines = 4,
         )
         MenuRow(
             label = "Not over LightOS",

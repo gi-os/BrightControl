@@ -73,6 +73,9 @@ class VolumeWatcher(
                     VOLUME_CHANGED -> {
                         val stream = intent.getIntExtra(EXTRA_STREAM_TYPE, -1)
                         if (stream < 0) return
+                        // Counted before anything can drop it: the question this answers is whether
+                        // this build sends the broadcast at all. See [VolumeSignals].
+                        VolumeSignals.broadcasts++
                         val value = intent.getIntExtra(EXTRA_STREAM_VALUE, -1)
                         val prev = intent.getIntExtra(EXTRA_PREV_STREAM_VALUE, Int.MIN_VALUE)
                         // Streams the user is not adjusting also move: a notification volume
@@ -132,22 +135,21 @@ class VolumeWatcher(
      */
     fun onVolumeKey(up: Boolean, ours: Boolean = false) {
         if (!wanted()) return
+        VolumeSignals.keys++
         runCatching {
             val now = SystemClock.uptimeMillis()
             if (ours) {
                 // This app moved the volume itself, from a bound button, and the move has already
                 // happened by the time we are called. There is nothing to compare against and
-                // nothing to be suspicious of: no baseline, and a stream number no real stream can
-                // equal, so the guard in [readAndShow] cannot fire.
-                beforeStream = -1
-                beforeLevel = -1
-                beforeMax = 0
+                // nothing to be suspicious of: no baseline, so the guard in [readAndShow] cannot
+                // fire.
+                beforeStream = NO_BASELINE
             } else if (now - lastKeyAt > BURST_MS) {
                 // One baseline per burst of presses. A repeat is the same press continuing, and
                 // re-reading here after the first notch has already landed would compare the level
                 // against itself and conclude nothing had happened.
                 pressedUp = up
-                handler.post(baseline)
+                takeBaseline()
             }
             lastKeyAt = now
             handler.removeCallbacks(firstRead)
@@ -158,20 +160,35 @@ class VolumeWatcher(
     }
 
     /**
-     * Where the level stood before this burst.
+     * Where the level stands right now, read **synchronously, inside the key callback**.
      *
-     * Posted rather than read inline: [activeStream] asks `AudioManager` for its active playback
-     * configurations, and this is called from `onKeyEvent`, on the thread the input dispatcher is
-     * waiting on. Posting it at zero delay still runs it before the system has applied the press —
-     * the reads below are delayed by 90ms for exactly that reason — and it costs one such call per
-     * burst where the two reads used to cost one each.
+     * v3.90 posted this at zero delay instead, to keep three binder calls off the thread the input
+     * dispatcher is waiting on. That turned the whole HUD off. A posted runnable does not run until
+     * the current message finishes, and by then the system has applied the press — volume keys are
+     * handled upstream of accessibility filtering — so the "before" reading was the level *after*
+     * the change. Every press then looked like a press that moved nothing, and every press was
+     * suppressed. The strip stopped appearing at all.
+     *
+     * Reading here is correct because at the DOWN the press has not landed yet. That is not an
+     * assumption: it is why [firstRead] is delayed 90ms in the first place, and the comment at the
+     * top of this file has said so since the HUD was written.
+     *
+     * The cost is three binder calls once per burst of presses, where before this feature existed
+     * the two reads made one [activeStream] call *each*, per press. It is less work than the
+     * version that had no guard.
+     *
+     * [beforeStream] is cleared first, so a read that fails half way cannot leave a stale baseline
+     * behind — a stale one suppresses, and everything here fails towards showing the strip.
      */
-    private val baseline = Runnable {
+    private fun takeBaseline() {
+        beforeStream = NO_BASELINE
         runCatching {
-            val audio = context.getSystemService(AudioManager::class.java) ?: return@Runnable
-            beforeStream = activeStream(audio)
-            beforeLevel = runCatching { audio.getStreamVolume(beforeStream) }.getOrNull() ?: -1
-            beforeMax = runCatching { audio.getStreamMaxVolume(beforeStream) }.getOrDefault(0)
+            val audio = context.getSystemService(AudioManager::class.java) ?: return
+            val stream = activeStream(audio)
+            val level = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return
+            beforeLevel = level
+            beforeMax = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
+            beforeStream = stream
         }
     }
 
@@ -202,6 +219,14 @@ class VolumeWatcher(
             val audio = context.getSystemService(AudioManager::class.java) ?: return
             val stream = activeStream(audio)
             val level = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return
+            // A baseline is only evidence while it is fresh. Anything older than the burst it was
+            // taken in is not a comparison, and an unanswered volume key is a worse failure than a
+            // strip shown once too often — so the doubt resolves towards showing.
+            val fresh = SystemClock.uptimeMillis() - lastKeyAt < BURST_MS
+            if (!fresh) {
+                present(stream, null, level)
+                return
+            }
             if (!VolumeNews.worthShowing(
                     stream = stream,
                     level = level,
@@ -437,6 +462,9 @@ class VolumeWatcher(
          * past [SECOND_READ_MS], so a burst's own reads can never be mistaken for a new press.
          */
         const val BURST_MS = 900L
+
+        /** No usable "before" reading. Every stream constant is >= 0, so nothing can equal it. */
+        const val NO_BASELINE = -1
 
         /** How long a tapped stream keeps the keys. Refreshed by every press that uses it. */
         const val PIN_MS = 4_000L
