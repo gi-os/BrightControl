@@ -1,35 +1,15 @@
-## BrightControl v3.87 — a message from Teams reads as a message, and the box sits square
+## BrightControl v3.88 — the volume strip steps aside where LightOS draws its own
 
-**A notification box from Microsoft Teams was blank, and so was one from any other chat app.**
-The banner and the lock face both read `EXTRA_TITLE` and `EXTRA_TEXT` off a notification and
-nothing else. A `MessagingStyle` notification does not fill either of them in. It carries the
-conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at *draw* time, which is
-a step a notification listener never sees. So Teams arrived, the phone woke, the box was drawn on
-time, and it said the app's name over two empty rows.
+**A volume readout was appearing on top of LightOS's own volume readout, on SDK apps.**
+LightOS v572 added its volume overlay to the apps built on the light-sdk — the `com.thelightphone.`
+namespace — while still leaving it off for the plain sideloaded APKs this HUD exists for. BrightControl
+only knew to stand down over LightOS's *own* screens (`com.lightos`), so on an SDK app both drew:
+LightOS's overlay and this strip, one on top of the other, saying the same number twice.
 
-This is the same fault the incoming-call card had with `CallStyle` in v3.34, and it is fixed the
-same way. A new `NoteText` reads eight places an app may have written its words, in the order they
-should be believed: the conversation first, then the big title and big text, then the base fields,
-then the inbox lines, the summary, and last the ticker. The *reading* of the bundle stays in the
-listener, where the phone is. The *choosing* is a plain object with eleven tests on it, because a
-`Bundle` cannot be built in a unit test and a decision about which of eight fields wins should not
-need a phone to check.
+The HUD's front-app gate now treats the light-sdk namespace the same way it treats LightOS itself:
+when the app in front is one the platform already draws a volume overlay for, the strip does not
+show. Nothing else changes — the ringer and alarm levels this strip is the only way to reach are
+still unreachable through LightOS's overlay, and the strip still appears everywhere LightOS's does
+not, which is every plain sideloaded app.
 
-Two things fall out of it. A group chat now names the room in the title and puts the sender in
-front of the line, because the title can only carry one of them. And a title with a newline in it
-is flattened to one line, so the ellipsis lands where the words stop rather than at the first
-break.
-
-**A work-profile app was called "teams".** The app's name came from one package-manager lookup,
-and a work-profile app is not installed for the user this service runs as, so that lookup throws
-and the box fell back to the tail of the package name. It now asks three sources in turn: the
-substitute name an app may set for itself, the package manager, and `LauncherApps` against the
-notification's own user. A managed Teams or Outlook is exactly the case, and it is the case most
-likely to be posting during a working day.
-
-**The box sat too low.** It rested three grid units from the top of the screen against one unit in
-from each side, on the argument that it should clear the status bar. It should not: three against
-one reads as a rectangle that has fallen down the screen, and the strip it was politely leaving
-alone holds a clock the box covers for four seconds and then gives back, which is what a heads-up
-notification does on every phone. One unit on all three sides now, and no number in that file the
-sides do not also use.
+Fixes [light-reports#132] — the volume strip doubled up on LightOS's own overlay in SDK apps.

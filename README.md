@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v3.77.** See [Version history](#version-history).
+**Current version: v3.88.** See [Version history](#version-history).
 
 ## What it does
 
@@ -954,6 +954,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.88 | **The volume strip steps aside where LightOS draws its own.** LightOS v572 added its own volume overlay to the light-sdk apps (`com.thelightphone.`), so the strip no longer draws over one — the HUD's front-app gate now treats that namespace the way it treats LightOS itself, and stays down where the platform already shows a readout |
 | v3.87 | **A message from Teams reads as a message, and the box sits square in the corner.** The banner and the lock face read `EXTRA_TITLE` and `EXTRA_TEXT` and nothing else, and a `MessagingStyle` notification fills in neither: it carries the conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at draw time, a step a listener never sees. Teams, WhatsApp and Signal all drew an app name over two blank rows. `NoteText` now reads eight places an app may have written its words, names the room and the sender separately in a group chat, and flattens a newline out of a title. A work-profile app was called "teams", because one package-manager lookup cannot see another user; three sources are asked now. And the box rested three grid units down against one unit in from each side, which reads as having fallen down the screen — one unit on all three sides |
 | v3.86 | **Every button does everything, and a camera keeps its own shutter.** A double tap is a binding on all five buttons, and the picker offers every action to every button rather than a short list per key |
 | v3.85 | **An app can ask for colour instead of holding the grant.** Five apps carried `WRITE_SECURE_SETTINGS` to fight over the same two settings, which is five grants to lose on the next reinstall and five writers taking turns on one screen. A new exported service takes a request from another app, identified by the calling uid and honoured only while that app is in front, and an app with one opinion can declare it in a manifest tag instead and write no code at all. `PASS` stays for apps that have not migrated. **Color → Apps asking now** says who is asking |

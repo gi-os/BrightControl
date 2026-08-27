@@ -156,7 +156,7 @@ class VolumeWatcher(
         // too quiet was a phone where the keys moved a number nothing on the screen would show —
         // which reads as the keys doing nothing at all.
         val callUp = inCall(audio)
-        if (app != null && app.startsWith(LIGHTOS) && !callUp) {
+        if (app != null && (app.startsWith(LIGHTOS) || app.startsWith(LIGHT_SDK)) && !callUp) {
             // And a pin cannot outlive the screen it was made on, or the keys would still be being
             // taken over on a screen showing LightOS's own slider.
             clearPin()
@@ -314,6 +314,12 @@ class VolumeWatcher(
 
         /** LightOS's own screens, which have their own volume control. */
         const val LIGHTOS = "com.lightos"
+
+        /**
+         * The light-sdk namespace. From LightOS v572 these draw their own volume overlay too —
+         * LightOS added its volume UI to SDK apps — so a HUD over the top of one is two overlays.
+         */
+        const val LIGHT_SDK = "com.thelightphone."
 
         /**
          * The streams a tap walks through. Media, then the two you cannot otherwise reach from the
