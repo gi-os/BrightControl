@@ -7,20 +7,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.gios.lightcontrol.Button
+import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.report.CrashLog
 
-/** What a bare turn does, per-app overrides, swipe distance, and the double-tap mode switch. */
+/** What a bare turn does, per-app overrides, and swipe distance. */
 @Composable
 fun WheelScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
     var turn by remember { mutableStateOf(prefs.unknownAppTurn) }
-    var doubleTap by remember { mutableStateOf(prefs.doubleTapSwitchesTurn) }
     val cursor = LocalCursor.current
     var cursorOn by remember { mutableStateOf(prefs.wheelCursor) }
     var swipeDp by remember { mutableIntStateOf(prefs.swipeDp) }
@@ -88,13 +89,10 @@ fun WheelScreen(onPerApp: () -> Unit, onBack: () -> Unit) {
         )
         MenuRow(
             label = "Double tap to switch",
-            detail = if (doubleTap) "ON" else "OFF",
-            sub = "flips turning between brightness and scrolling, and says which. Replaces " +
-                "hold-and-turn, which needed two motions at once.",
-            onClick = {
-                doubleTap = !doubleTap
-                prefs.doubleTapSwitchesTurn = doubleTap
-            },
+            detail = shortLabel(prefs.action(Button.WheelClick, Gesture.DoubleTap)),
+            sub = "flips turning between brightness and scrolling, and says which. It is an " +
+                "ordinary binding now — change it, or point it somewhere else, under Buttons.",
+            dim = true,
         )
         Rule()
 

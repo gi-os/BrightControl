@@ -27,6 +27,7 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Behavior
+import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.EdgeLength
 import com.gios.lightcontrol.EdgeSide
@@ -34,6 +35,7 @@ import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.color.ColorRequests
+import com.gios.lightcontrol.hotspot.SoftAp
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockCall
@@ -127,7 +129,7 @@ class ControlService : AccessibilityService() {
     private var visitDownAt = 0L
 
     /** A wheel tap waiting to see whether a second one follows. */
-    private var pendingTap: Runnable? = null
+    private val pendingTaps = mutableMapOf<Button, Runnable>()
 
     /** One press in progress per button. */
     private val presses = mutableMapOf<Button, Press>()
@@ -238,8 +240,13 @@ class ControlService : AccessibilityService() {
      */
     private lateinit var recents: Recents
 
-    /** When the last short home press was released, for the double press. See [homeDouble]. */
-    private var homeTapAt = 0L
+    /**
+     * When each button was last released, for the double taps that do not wait.
+     *
+     * One map rather than home's single field, because a double tap is a binding on every button
+     * now. See [doubleAfterTap].
+     */
+    private val lastTapAt = mutableMapOf<Button, Long>()
 
     /** What the face is being held up over, while an unlock's launch lands. See [onUserPresent]. */
     private var coverTarget: String? = null
@@ -547,7 +554,7 @@ class ControlService : AccessibilityService() {
         // A wake is a landing, not a visit: after the screen has been off, one press escapes.
         visitingLightOs = false
         armedHomeConsuming = false
-        homeTapAt = 0L
+        lastTapAt.clear()
         // A switcher that survives the screen going off is a black window an unlock lands on.
         runCatching { switcher.hide() }
         handler.removeCallbacks(lockWatch)
@@ -1196,7 +1203,7 @@ class ControlService : AccessibilityService() {
         runCatching { swipe.cancel() }
         runCatching { switcher.hide() }
         presses.clear()
-        pendingTap = null
+        pendingTaps.clear()
         handler.removeCallbacksAndMessages(null)
     }
 
@@ -1308,6 +1315,11 @@ class ControlService : AccessibilityService() {
         }
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
+        // And so does any app the button is only there to open. See [boundToFront].
+        if (boundToFront(button, front)) {
+            if (fresh) log("${button.name} · already in ${front?.substringAfterLast('.')}")
+            return false
+        }
         return onButton(button, behavior, event)
     }
 
@@ -1456,7 +1468,9 @@ class ControlService : AccessibilityService() {
                     // The switcher instead of the tap, when this release is the second of two.
                     // LightOS still saw the press — nothing is consumed here — so it has gone
                     // home underneath, and the list is drawn over the top of that.
-                    if (homeDouble()) return false
+                    if (doubleAfterTap(Button.Home, prefs.action(Button.Home, Gesture.DoubleTap))) {
+                        return false
+                    }
                     // The one action that must not be added on top of a press LightOS already has.
                     // See the second half of this method's own documentation.
                     if (tap == Action.DefaultHome && front != null && front.startsWith(LIGHTOS)) {
@@ -1511,7 +1525,8 @@ class ControlService : AccessibilityService() {
                     // Now the double press opens the list and the visit ends either way: a window
                     // at layer 31 is in front, so there is nothing left to visit. The tap is the
                     // fallback for a list that could not be shown, which is what it was before.
-                    if (prefs.homeDoubleSwitcher && openSwitcher()) return false
+                    val dbl = prefs.action(Button.Home, Gesture.DoubleTap)
+                    if (dbl.acts && perform(dbl)) return false
                     if (tap.acts) perform(tap) else goHome()
                 } else {
                     visitTapAt = now
@@ -1525,31 +1540,32 @@ class ControlService : AccessibilityService() {
     // ------------------------------------------------------------------ the app switcher
 
     /**
-     * Was this home release the second of two? If so, the switcher is now up.
+     * Was this release the second of two, on a button whose tap is *not* held back?
      *
-     * **The first press is never held back.** Reading a double press the usual way means waiting
-     * out the window before acting on the first one, and on this key that is a third of a second
-     * added to the gesture a phone is used with most. So home fires the instant it is released,
-     * every time, and a second release inside [HOME_DOUBLE_MS] opens the switcher over whatever
-     * the first press landed on. What it costs is a glimpse of home on the way to the list. What
-     * it buys is a home button that still feels like a button.
+     * **The first press has already gone.** Reading a double press the other way means waiting
+     * out the window before acting on the first one, and on the home button that is a third of a
+     * second added to the gesture a phone is used with most. So home fires the instant it is
+     * released, every time, and a second release inside [HOME_DOUBLE_MS] puts the double action
+     * over whatever the first press landed on. What it costs is a glimpse of home on the way to
+     * the switcher. What it buys is a home button that still feels like a button. Every other
+     * button defaults the other way and never reaches here — see [Prefs.tapWaitsForDouble].
      *
-     * Returns false — meaning "this was an ordinary tap" — whenever the switcher could not be
-     * shown, including when there is nothing to show. A gesture that swallows the press and then
-     * produces no window is the failure this whole file is written around.
+     * Returns false — meaning "this was an ordinary tap" — whenever the double action itself
+     * declined, including a switcher with nothing to show. A gesture that swallows the press and
+     * then produces nothing is the failure this whole file is written around.
      */
-    private fun homeDouble(): Boolean {
-        if (!prefs.homeDoubleSwitcher) return false
+    private fun doubleAfterTap(button: Button, dbl: Action): Boolean {
+        if (!dbl.acts) return false
         val now = SystemClock.uptimeMillis()
-        val first = homeTapAt
-        homeTapAt = now
+        val first = lastTapAt[button] ?: 0L
+        lastTapAt[button] = now
         if (first == 0L || now - first >= HOME_DOUBLE_MS) return false
-        homeTapAt = 0L
-        // Logged with the gap. A double press that does not open the list has three possible
-        // causes — the second press fell outside the window, the phone was not awake, or the
-        // window failed to be added — and from the phone they are indistinguishable without this.
-        log("HOME double · ${now - first}ms")
-        return openSwitcher()
+        lastTapAt[button] = 0L
+        // Logged with the gap. A double press that does nothing has three possible causes — the
+        // second press fell outside the window, the phone was not awake, or the action itself
+        // declined — and from the phone they are indistinguishable without this.
+        log("${button.name} double · ${now - first}ms")
+        return perform(dbl)
     }
 
     /**
@@ -1888,13 +1904,45 @@ class ControlService : AccessibilityService() {
         if (pkg == packageName) return false
         cameraPackages[pkg]?.let { return it }
         val declared = runCatching {
-            packageManager.queryIntentActivities(
+            listOf(
                 Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
-                0,
-            ).any { it.activityInfo?.packageName == pkg }
+                Intent(MediaStore.INTENT_ACTION_VIDEO_CAMERA),
+                Intent(MediaStore.ACTION_IMAGE_CAPTURE),
+            ).any { intent ->
+                packageManager.queryIntentActivities(intent, 0)
+                    .any { it.activityInfo?.packageName == pkg }
+            }
         }.getOrDefault(false)
         cameraPackages[pkg] = declared
         return declared
+    }
+
+    /**
+     * Whether every acting binding on this button just says "open the app that is already in
+     * front" — in which case the button belongs to that app, not to us.
+     *
+     * The case this is for: the camera button, bound to open a third-party camera. Once it is
+     * bound, the service swallows the key *everywhere*, including inside the app the binding
+     * exists to reach — so the button opened the camera and then could not take the photograph.
+     * [ownsCameraKey] covers a camera that says it is one, and the reported one does not:
+     * `com.vandam.zero` declares only MAIN/LAUNCHER, while handling `KEYCODE_CAMERA` and
+     * `KEYCODE_FOCUS` itself. Nothing about it is wrong; there is simply no way to tell it is a
+     * camera by asking the package manager.
+     *
+     * So this asks a question that needs no list and no declaration: launching an app from inside
+     * itself does nothing, so a key spent on that is a key wasted, and the app in front is a
+     * better owner of it than we are.
+     *
+     * **Every** acting binding has to point there, which is what keeps this honest. A hold bound
+     * to the switcher is a real second gesture, and it can only work if the DOWN is consumed —
+     * so a button carrying one stays claimed, and the answer is to rebind rather than to have
+     * half a button. The home button never reaches here at all; it has its own door, and a home
+     * key that stops working inside one app is not a trade this codebase makes.
+     */
+    private fun boundToFront(button: Button, front: String?): Boolean {
+        if (front == null || front == packageName) return false
+        val bound = Gesture.entries.map { prefs.action(button, it) }.filter { it.acts }
+        return bound.isNotEmpty() && bound.all { it is Action.Launch && it.pkg == front }
     }
 
     // ------------------------------------------------------------------- color, held
@@ -2025,7 +2073,7 @@ class ControlService : AccessibilityService() {
         runCatching { banner.dismiss(animated = false) }
         volume.stop()
         swipe.cancel()
-        pendingTap = null
+        pendingTaps.clear()
         presses.clear()
         cameraPackages.clear()
         frontDoors.clear()
@@ -2076,8 +2124,11 @@ class ControlService : AccessibilityService() {
 
         // Nothing bound. Don't touch the key at all — on the volume keys that would be
         // taking away volume control to add nothing.
-        val switcher = button == Button.WheelClick && prefs.doubleTapSwitchesTurn
-        if (!tap.acts && !hold.acts && !switcher) return false
+        val dbl = prefs.action(button, Gesture.DoubleTap)
+        // Waiting is what the wheel always did and what home never did, and now it is a setting
+        // on every button rather than two different pieces of code. See [Prefs.tapWaitsForDouble].
+        val waits = dbl.acts && prefs.tapWaitsForDouble(button)
+        if (!tap.acts && !hold.acts && !dbl.acts) return false
 
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
@@ -2127,38 +2178,38 @@ class ControlService : AccessibilityService() {
                 if (press == null && button == Button.Home) return false
                 val held = press != null &&
                     SystemClock.uptimeMillis() - press.downAt >= HOLD_MS
-                if (switcher && !held) {
-                    // Second tap inside the window: the first one never happened, and turning
-                    // the wheel means the other thing now.
-                    val waiting = pendingTap
+                if (waits && !held) {
+                    // Second release inside the window: the first tap never happened, and this
+                    // press means the double.
+                    val waiting = pendingTaps.remove(button)
                     if (waiting != null) {
                         handler.removeCallbacks(waiting)
-                        pendingTap = null
-                        switchTurn()
+                        act(button, dbl)
                         return true
                     }
                     // Hold the tap back until the window closes, so a double tap doesn't also
-                    // fire the flashlight on its way past.
-                    if (tap.acts) {
-                        val fire = Runnable {
-                            pendingTap = null
-                            perform(tap)
-                        }
-                        pendingTap = fire
-                        handler.postDelayed(fire, DOUBLE_TAP_MS)
+                    // fire the tap binding on its way past — on the wheel, the flashlight. The
+                    // timer is posted even with no tap bound, because it is also the only record
+                    // that the window is open.
+                    val fire = Runnable {
+                        pendingTaps -= button
+                        if (tap.acts) perform(tap)
                     }
+                    pendingTaps[button] = fire
+                    handler.postDelayed(fire, DOUBLE_TAP_MS)
                     return true
                 }
-                // Home, twice, quickly — the switcher, and nothing else this release. The first
-                // press already went home; repeating it under the list would only fight it.
-                if (!held && button == Button.Home && homeDouble()) return true
+                // Not waiting: the tap has already gone on the first release, and a second one
+                // inside the window puts the double on top of it. On home that is the switcher
+                // drawn over the home screen the first press landed on — see [doubleAfterTap].
+                if (!held && doubleAfterTap(button, dbl)) return true
                 val action = if (held) hold else tap
                 if (action.acts) act(button, action)
             }
         }
         // The camera button's first stage is swallowed alongside the second, so the app never
         // sees half a press.
-        return tap.consumes || hold.consumes
+        return tap.consumes || hold.consumes || dbl.consumes
     }
 
     /**
@@ -2251,7 +2302,130 @@ class ControlService : AccessibilityService() {
         // A gesture that swallows its input and then produces no window is the failure this whole
         // file is written around.
         Action.Switcher -> openSwitcher()
+        Action.OpenSettings -> openSettings()
+        Action.Shade -> global(GLOBAL_ACTION_NOTIFICATIONS)
+        Action.QuickSettings -> global(GLOBAL_ACTION_QUICK_SETTINGS)
+        // Guarded rather than assumed: the screenshot action arrived in Android 11 and this app
+        // installs from 10. Locking arrived in 9, which is below the floor, so it needs no check.
+        Action.Screenshot ->
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && global(GLOBAL_ACTION_TAKE_SCREENSHOT)
+        Action.LockNow -> global(GLOBAL_ACTION_LOCK_SCREEN)
+        Action.PowerMenu -> global(GLOBAL_ACTION_POWER_DIALOG)
+        Action.ColorFlip -> flipColor()
+        Action.SwitchTurn -> {
+            switchTurn()
+            true
+        }
+        Action.ShowLock -> {
+            showLockFace()
+            lockFace.showing
+        }
+        Action.Hotspot -> toggleHotspot()
+        Action.VolumeUp -> stepVolume(up = true)
+        Action.VolumeDown -> stepVolume(up = false)
+        Action.BrightnessUp -> stepBrightness(1)
+        Action.BrightnessDown -> stepBrightness(-1)
         Action.None, Action.PassThrough -> true
+    }
+
+    /** One `performGlobalAction`, with its answer taken at face value and its throw swallowed. */
+    private fun global(action: Int): Boolean =
+        runCatching { performGlobalAction(action) }.getOrDefault(false)
+
+    /**
+     * The system settings, which LightOS ships no way into.
+     *
+     * `ACTION_SETTINGS` is resolved rather than named, so it lands wherever this build puts the
+     * activity. Nothing checks the overlay appop here — [Action.needsActivityStart] already
+     * declares this one, so the guards that matter have run before we arrive.
+     */
+    private fun openSettings(): Boolean = runCatching {
+        startActivity(
+            Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        true
+    }.getOrDefault(false)
+
+    /**
+     * Flip the front app between colour and monochrome, and remember which.
+     *
+     * Written as the app's *rule*, not as a write to the daltonizer, and then re-asserted through
+     * the one path that ever states those two settings. A second writer is precisely the failure
+     * [ColorMode] is built to be immune to, and reaching around it here would put one back.
+     *
+     * Refuses with nothing in front, which happens for a moment after the service rebinds: a flip
+     * that has no app to flip would otherwise write a rule for null or, worse, guess.
+     */
+    private fun flipColor(): Boolean {
+        val pkg = foreground ?: return false
+        if (pkg == packageName || pkg.startsWith(LIGHTOS)) return false
+        val now = prefs.colorRuleFor(pkg)
+        val next = if (now == ColorRule.Color) ColorRule.Mono else ColorRule.Color
+        prefs.setColorRule(pkg, next)
+        runCatching { colorMode.applyFor(pkg, realScreen = lastWindowWasActivity) }
+        if (prefs.showReadout) readout.show(if (next == ColorRule.Color) "COLOUR" else "MONO")
+        log("colour · ${pkg.substringAfterLast('.')} ${next.name.uppercase()}")
+        return true
+    }
+
+    /**
+     * Raise or drop the hotspot with the network name already saved.
+     *
+     * On a worker thread without exception, because every call in [SoftAp] is a shell round trip
+     * and this one is reached from the input dispatcher's thread — the thread the accessibility
+     * filter has to answer on. Answering true is therefore a claim that the attempt started, not
+     * that the access point came up; the readout says what actually happened when it knows.
+     */
+    private fun toggleHotspot(): Boolean {
+        val ssid = prefs.hotspotSsid
+        if (ssid.isBlank()) {
+            if (prefs.showReadout) readout.show("NO HOTSPOT NAME")
+            return false
+        }
+        Thread {
+            runCatching {
+                val ap = SoftAp(this)
+                val was = ap.apEnabled()
+                val outcome = if (was) ap.stop() else ap.start(ssid, prefs.hotspotPassword)
+                val word = when {
+                    !outcome.ok -> "HOTSPOT FAILED"
+                    was -> "HOTSPOT OFF"
+                    else -> "HOTSPOT ON"
+                }
+                handler.post {
+                    if (prefs.showReadout) readout.show(word)
+                    log("hotspot · $word")
+                }
+            }
+        }.start()
+        return true
+    }
+
+    /**
+     * One step of whatever stream the volume keys would have moved.
+     *
+     * `adjustSuggestedStreamVolume` with `USE_DEFAULT_STREAM_TYPE` is the same question the
+     * framework asks itself for a real volume key, so this follows a call, an alarm or a track
+     * without having to know which is happening. Flag 0: no system beep and no system UI — there
+     * is none on this phone, which is why [VolumeHud] exists — and the strip is asked to read the
+     * level back the same way it does for a real press.
+     */
+    private fun stepVolume(up: Boolean): Boolean = runCatching {
+        val audio = getSystemService(AudioManager::class.java) ?: return false
+        audio.adjustSuggestedStreamVolume(
+            if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+            AudioManager.USE_DEFAULT_STREAM_TYPE,
+            0,
+        )
+        volume.onVolumeKey()
+        true
+    }.getOrDefault(false)
+
+    /** One notch of brightness, through exactly the path a wheel turn takes. */
+    private fun stepBrightness(notches: Int): Boolean {
+        val percent = brightness.step(notches, prefs.brightnessSteps) ?: return false
+        if (prefs.showReadout) readout.show("BRIGHTNESS $percent%")
+        return true
     }
 
     // --------------------------------------------------------------------- the wheel

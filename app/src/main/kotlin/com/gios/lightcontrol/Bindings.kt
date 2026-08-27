@@ -32,13 +32,27 @@ enum class Button {
         }
 }
 
-/** Short press versus long press. */
+/**
+ * Short press, long press, or two quick presses.
+ *
+ * Three gestures on every button, each one a full [Action] chosen from the same picker. The
+ * double tap was two hard-wired special cases before this — the wheel's, which switched what a
+ * turn meant, and home's, which opened the switcher — and neither was bindable, listed, or
+ * available on the other three buttons. They are ordinary bindings now, and they are still what
+ * those two buttons ship with.
+ */
 enum class Gesture {
     Tap,
     Hold,
+    DoubleTap,
     ;
 
-    val label: String get() = if (this == Tap) "Tap" else "Hold"
+    val label: String
+        get() = when (this) {
+            Tap -> "Tap"
+            Hold -> "Hold"
+            DoubleTap -> "Double tap"
+        }
 }
 
 /** Which edge of the screen a swipe starts from. */
@@ -204,6 +218,65 @@ sealed interface Action {
      */
     data object Switcher : Action
 
+    /**
+     * The system's own settings, which LightOS ships no way to reach.
+     *
+     * `ACTION_SETTINGS`, resolved rather than named, so it lands wherever this build puts it.
+     * The one action here that starts an activity, which is why it is in [needsActivityStart]
+     * and [picksDestination] alongside [Launch].
+     */
+    data object OpenSettings : Action
+
+    /** The notification shade — `GLOBAL_ACTION_NOTIFICATIONS`. */
+    data object Shade : Action
+
+    /** The quick settings panel — `GLOBAL_ACTION_QUICK_SETTINGS`. */
+    data object QuickSettings : Action
+
+    /** A screenshot, saved wherever the system saves them. Android 11 and up. */
+    data object Screenshot : Action
+
+    /** Lock the phone now, as the power button would. Android 9 and up. */
+    data object LockNow : Action
+
+    /** The power menu — `GLOBAL_ACTION_POWER_DIALOG`. */
+    data object PowerMenu : Action
+
+    /**
+     * Flip the app in front between colour and monochrome, and remember it.
+     *
+     * Not a live override of the daltonizer: this writes the front app's colour rule and lets
+     * the rule engine assert it, because the engine re-states the screen on every window change
+     * and a second writer is exactly the bug this codebase already paid for once. So the flip
+     * sticks — go back to the app tomorrow and it is still the way you left it.
+     */
+    data object ColorFlip : Action
+
+    /** Flip what turning the wheel does, between brightness and scrolling. */
+    data object SwitchTurn : Action
+
+    /** Put this app's lock face up over whatever is on screen. */
+    data object ShowLock : Action
+
+    /** Raise or drop the hotspot, using the network name and password already saved. */
+    data object Hotspot : Action
+
+    /**
+     * Volume, one step, with the strip shown.
+     *
+     * `adjustSuggestedStreamVolume` rather than an injected key — injection is signature-only —
+     * so this moves whatever stream the keys would have moved. Which means it does the right
+     * thing during a call without knowing there is one.
+     */
+    data object VolumeUp : Action
+
+    data object VolumeDown : Action
+
+    /** Brightness, one notch, exactly as a wheel turn would move it. */
+    data object BrightnessUp : Action
+
+    data object BrightnessDown : Action
+
     /** True if this action means the service should swallow the key. */
     val consumes: Boolean get() = this != PassThrough
 
@@ -222,7 +295,8 @@ sealed interface Action {
      * `performGlobalAction`, which needs no grant and answers honestly.
      */
     val needsActivityStart: Boolean
-        get() = this is Launch || this == LightOsHome || this == OpenCamera || this == Resume
+        get() = this is Launch || this == LightOsHome || this == OpenCamera || this == Resume ||
+            this == OpenSettings
 
     /**
      * True if this action names a destination of its own — somewhere that is *not* wherever a
@@ -238,7 +312,7 @@ sealed interface Action {
      * [DefaultHome] is absent on purpose: it agrees with what LightOS was going to do anyway.
      */
     val picksDestination: Boolean
-        get() = this is Launch || this == Resume || this == LightOsHome
+        get() = this is Launch || this == Resume || this == LightOsHome || this == OpenSettings
 
     fun store(): String = when (this) {
         PassThrough -> "pass"
@@ -251,6 +325,20 @@ sealed interface Action {
         Resume -> "resume"
         Back -> "back"
         Switcher -> "switcher"
+        OpenSettings -> "settings"
+        Shade -> "shade"
+        QuickSettings -> "quicksettings"
+        Screenshot -> "screenshot"
+        LockNow -> "locknow"
+        PowerMenu -> "powermenu"
+        ColorFlip -> "colorflip"
+        SwitchTurn -> "switchturn"
+        ShowLock -> "showlock"
+        Hotspot -> "hotspot"
+        VolumeUp -> "volup"
+        VolumeDown -> "voldown"
+        BrightnessUp -> "brightup"
+        BrightnessDown -> "brightdown"
     }
 
     /**
@@ -270,6 +358,20 @@ sealed interface Action {
             Resume -> "RESUME"
             Back -> "BACK"
             Switcher -> "APPS"
+            OpenSettings -> "SETTINGS"
+            Shade -> "SHADE"
+            QuickSettings -> "QUICK"
+            Screenshot -> "SHOT"
+            LockNow -> "LOCK"
+            PowerMenu -> "POWER"
+            ColorFlip -> "COLOUR"
+            SwitchTurn -> "TURN"
+            ShowLock -> "FACE"
+            Hotspot -> "HOTSPOT"
+            VolumeUp -> "VOL +"
+            VolumeDown -> "VOL -"
+            BrightnessUp -> "BRIGHT +"
+            BrightnessDown -> "BRIGHT -"
             is Launch -> null
         }
 
@@ -293,6 +395,20 @@ sealed interface Action {
             raw == "resume" -> Resume
             raw == "back" -> Back
             raw == "switcher" -> Switcher
+            raw == "settings" -> OpenSettings
+            raw == "shade" -> Shade
+            raw == "quicksettings" -> QuickSettings
+            raw == "screenshot" -> Screenshot
+            raw == "locknow" -> LockNow
+            raw == "powermenu" -> PowerMenu
+            raw == "colorflip" -> ColorFlip
+            raw == "switchturn" -> SwitchTurn
+            raw == "showlock" -> ShowLock
+            raw == "hotspot" -> Hotspot
+            raw == "volup" -> VolumeUp
+            raw == "voldown" -> VolumeDown
+            raw == "brightup" -> BrightnessUp
+            raw == "brightdown" -> BrightnessDown
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
             else -> null
         }
@@ -326,6 +442,15 @@ sealed interface Action {
          * consuming them by default would be taking away a function to add one.
          */
         fun default(button: Button, gesture: Gesture): Action = when {
+            // The two double taps this phone already had, now written as bindings like anything
+            // else. Every other button ships without one, which is what keeps its tap immediate:
+            // a button with no double bound never waits to see whether a second press is coming.
+            gesture == Gesture.DoubleTap -> when (button) {
+                Button.WheelClick -> SwitchTurn
+                Button.Home -> Switcher
+                Button.VolumeUp, Button.VolumeDown -> PassThrough
+                else -> None
+            }
             // Tap goes home; holding reaches LightOS's dashboard by name, which is the one
             // thing a sideloaded phone loses — install a launcher that can see your APKs and
             // Light's own home screen becomes unreachable. Binding the hold is what makes the

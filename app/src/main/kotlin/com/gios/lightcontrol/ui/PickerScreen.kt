@@ -30,6 +30,9 @@ import com.gios.lightcontrol.ui.theme.Dim
 
 private data class Choice(val action: Action, val label: String, val sub: String?)
 
+/** A run of choices under one heading, so a list this long can be read rather than scanned. */
+private data class Group(val title: String?, val choices: List<Choice>)
+
 /**
  * What one gesture should do — a press of a button, or a swipe from an edge.
  *
@@ -53,16 +56,78 @@ fun PickerScreen(
     val prefs = remember { Prefs(context) }
     val current = remember { prefs.action(slot) }
 
-    val fixed = listOf(
-        Choice(Action.PassThrough, "Pass through", "the app in front gets the key"),
-        Choice(Action.None, "Nothing", "swallowed, does nothing"),
-        Choice(Action.Torch, "Flashlight", "on or off"),
-        Choice(Action.OpenCamera, "Camera", "opens the Light camera"),
-        Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
-        Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
-        Choice(Action.Resume, "Back to where you were", "a chosen app if the screen slept in it"),
-        Choice(Action.Back, "Go back", "the back this phone has no button for"),
-        Choice(Action.Switcher, "App switcher", "the list of apps you have been in"),
+    // One list, every slot. Grouped only to be readable — nothing here is filtered by which
+    // button or edge you arrived from, which is the whole point: a phone that can bind an app to
+    // one gesture and not to another does it for no reason anybody chose.
+    val groups = listOf(
+        Group(
+            null,
+            listOf(
+                Choice(Action.PassThrough, "Pass through", "the app in front gets the key"),
+                Choice(Action.None, "Nothing", "swallowed, does nothing"),
+            ),
+        ),
+        Group(
+            "GETTING AROUND",
+            listOf(
+                Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
+                Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
+                Choice(Action.Back, "Go back", "the back this phone has no button for"),
+                Choice(Action.Switcher, "App switcher", "the list of apps you have been in"),
+                Choice(
+                    Action.Resume,
+                    "Back to where you were",
+                    "a chosen app if the screen slept in it",
+                ),
+            ),
+        ),
+        Group(
+            "THE PHONE",
+            listOf(
+                Choice(Action.Torch, "Flashlight", "on or off"),
+                Choice(Action.OpenCamera, "Camera", "opens the Light camera"),
+                Choice(
+                    Action.OpenSettings,
+                    "System settings",
+                    "the settings LightOS ships no way into",
+                ),
+                Choice(Action.Shade, "Notification shade", "pulls the shade down"),
+                Choice(Action.QuickSettings, "Quick settings", "the panel behind the shade"),
+                Choice(Action.Screenshot, "Screenshot", "saved wherever the system saves them"),
+                Choice(Action.LockNow, "Lock the phone", "as the power button would"),
+                Choice(Action.PowerMenu, "Power menu", "restart, power off"),
+            ),
+        ),
+        Group(
+            "VOLUME AND BRIGHTNESS",
+            listOf(
+                Choice(
+                    Action.VolumeUp,
+                    "Volume up",
+                    "one step, on whatever the volume keys would move",
+                ),
+                Choice(Action.VolumeDown, "Volume down", "one step down, the same way"),
+                Choice(Action.BrightnessUp, "Brighter", "one notch, as a wheel turn would"),
+                Choice(Action.BrightnessDown, "Dimmer", "one notch the other way"),
+            ),
+        ),
+        Group(
+            "THIS APP",
+            listOf(
+                Choice(
+                    Action.ColorFlip,
+                    "Colour or mono",
+                    "flips the app in front, and remembers which",
+                ),
+                Choice(
+                    Action.SwitchTurn,
+                    "Switch what a turn does",
+                    "between brightness and scrolling, and says which",
+                ),
+                Choice(Action.ShowLock, "Lock face", "put it up over whatever is on screen"),
+                Choice(Action.Hotspot, "Hotspot", "up or down, with the name already saved"),
+            ),
+        ),
     )
 
     // Guarded: this is one binder call carrying every launchable activity on the phone, and on a
@@ -107,20 +172,23 @@ fun PickerScreen(
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), state = listState) {
-            items(fixed) { choice ->
-                MenuRow(
-                    label = choice.label,
-                    detail = if (choice.action == current) "•" else null,
-                    sub = choice.sub,
-                    onClick = {
-                        prefs.setAction(slot, choice.action)
-                        // Picking Resume and landing back on a screen that says RESUME, with
-                        // nothing chosen to resume to, is a setting that reads as finished and
-                        // isn't. The list is the second half of this choice, not a follow-up.
-                        if (choice.action == Action.Resume) onChooseResumeApps() else onDone()
-                    },
-                )
-                Rule()
+            groups.forEach { group ->
+                group.title?.let { item { SectionLabel(it) } }
+                items(group.choices, key = { it.action.store() }) { choice ->
+                    MenuRow(
+                        label = choice.label,
+                        detail = if (choice.action == current) "•" else null,
+                        sub = choice.sub,
+                        onClick = {
+                            prefs.setAction(slot, choice.action)
+                            // Picking Resume and landing back on a screen that says RESUME, with
+                            // nothing chosen to resume to, is a setting that reads as finished and
+                            // isn't. The list is the second half of this choice, not a follow-up.
+                            if (choice.action == Action.Resume) onChooseResumeApps() else onDone()
+                        },
+                    )
+                    Rule()
+                }
             }
             item {
                 SectionLabel(

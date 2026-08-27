@@ -125,6 +125,10 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences =
         context.getSharedPreferences("lightcontrol", Context.MODE_PRIVATE)
 
+    init {
+        runCatching { migrateDoubleTaps() }
+    }
+
     // ---------------------------------------------------------------- button bindings
 
     fun action(button: Button, gesture: Gesture): Action =
@@ -155,6 +159,62 @@ class Prefs(context: Context) {
         sp.getString(bindKey(button, gesture), null) == null
 
     private fun bindKey(button: Button, gesture: Gesture) = "bind:${button.name}:${gesture.name}"
+
+    /**
+     * Whether the tap waits to see if a second press is coming, on a button that has a double
+     * tap bound.
+     *
+     * The one place the three gestures cannot be made identical, because the two ways of reading
+     * a double press cost different things and both costs are real:
+     *
+     *  - **Waiting** is correct. The tap is held back for [ControlService.DOUBLE_TAP_MS] and
+     *    fires only once the window closes with no partner, so a double tap never also fires the
+     *    tap on its way past. It costs a third of a second on every single press.
+     *  - **Not waiting** is fast. The tap fires the instant the button is released, and a second
+     *    release inside the window fires the double *on top of* whatever the first one did.
+     *
+     * Home defaults to not waiting and everything else defaults to waiting, which is exactly what
+     * each of them did before any of this was a setting. Home is the key a phone cannot do
+     * without and a third of a second on it is felt every time; the glimpse of home on the way to
+     * the switcher is the cheaper of the two prices. On the wheel there is no such argument, and
+     * a flashlight that comes on every time you meant to switch the turn mode is the report this
+     * whole distinction came from.
+     *
+     * Only consulted when a double tap actually acts. A button with none bound never waits.
+     */
+    fun tapWaitsForDouble(button: Button): Boolean =
+        sp.getBoolean(waitKey(button), button != Button.Home)
+
+    fun setTapWaitsForDouble(button: Button, waits: Boolean) {
+        sp.edit().putBoolean(waitKey(button), waits).apply()
+    }
+
+    private fun waitKey(button: Button) = "doublewait:${button.name}"
+
+    /**
+     * The two hard-wired double taps, carried into the bindings that replaced them.
+     *
+     * Both were booleans defaulting to on, so the overwhelmingly common case — never touched —
+     * needs nothing written: the binding defaults say the same thing. Only a deliberate *off*
+     * has to survive, and it survives as [Action.None]. Written once and stamped, because this
+     * class is constructed per screen and re-deciding it on every composition is a write per
+     * frame in a settings list.
+     */
+    private fun migrateDoubleTaps() {
+        if (sp.getBoolean(DOUBLE_MIGRATED, false)) return
+        val edit = sp.edit()
+        val legacy = listOf(
+            Triple("double_tap", Button.WheelClick, true),
+            Triple("home_double_switcher", Button.Home, true),
+        )
+        legacy.forEach { (key, button, on) ->
+            val slot = bindKey(button, Gesture.DoubleTap)
+            if (sp.contains(key) && !sp.getBoolean(key, on) && !sp.contains(slot)) {
+                edit.putString(slot, Action.None.store())
+            }
+        }
+        edit.putBoolean(DOUBLE_MIGRATED, true).apply()
+    }
 
     // --------------------------------------------------------------------- the hotspot
 
@@ -262,18 +322,6 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("lightos_brightness", v).apply()
 
     /**
-     * Whether a double tap of the wheel switches what turning it does.
-     *
-     * This replaced hold-and-turn. Holding the wheel in while turning it read as a deliberate
-     * gesture on paper and as a wrestling match in the hand — it needs two motions at once on a
-     * control the size of a fingernail, and every accidental version of it changed the screen
-     * brightness. Two taps is one motion, repeated, and it tells you what it did.
-     */
-    var doubleTapSwitchesTurn: Boolean
-        get() = sp.getBoolean("double_tap", true)
-        set(v) = sp.edit().putBoolean("double_tap", v).apply()
-
-    /**
      * Whether the wheel selects rows in this app's own screens instead of scrolling them.
      *
      * The switcher's controls, applied to the settings: a turn moves a highlight from row to row,
@@ -288,22 +336,6 @@ class Prefs(context: Context) {
     var wheelCursor: Boolean
         get() = sp.getBoolean("wheel_cursor", true)
         set(v) = sp.edit().putBoolean("wheel_cursor", v).apply()
-
-    /**
-     * Whether pressing home twice, quickly, opens the app switcher.
-     *
-     * Note what this does *not* do: it does not delay the home button. The usual way to read a
-     * double press is to hold the first one back until its partner could have arrived, and on
-     * the one key a phone cannot do without that would mean paying a third of a second on every
-     * press for a gesture used a dozen times a day. So the first press goes home immediately,
-     * exactly as it always did, and the second one — inside [ControlService.HOME_DOUBLE_MS] —
-     * opens the switcher over the top of wherever the first one landed. The cost is a glimpse of
-     * home on the way to the list, which is the correct thing to spend, because the alternative
-     * is a home button that feels slow.
-     */
-    var homeDoubleSwitcher: Boolean
-        get() = sp.getBoolean("home_double_switcher", true)
-        set(v) = sp.edit().putBoolean("home_double_switcher", v).apply()
 
     /**
      * Whether the switcher calls Luma "Home" and draws it as a house.
@@ -1251,6 +1283,9 @@ class Prefs(context: Context) {
         const val HOTSPOT_AUTO = "hotspotAuto"
         const val HOTSPOT_TRIGGERS = "hotspotTriggers"
         const val HOTSPOT_TRUSTED = "hotspotTrustedSsids"
+        /** Stamped once the two legacy double-tap booleans have been read. */
+        const val DOUBLE_MIGRATED = "double_taps_migrated"
+
         const val HOTSPOT_SSID = "hotspotSsid"
         const val HOTSPOT_PASSWORD = "hotspotPassword"
 
