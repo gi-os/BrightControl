@@ -86,8 +86,18 @@ class NoteBanner(private val context: Context) {
      */
     private var params: WindowManager.LayoutParams? = null
 
-    /** Where the box sits once it has arrived: clear of the status bar. */
-    private val restY: Int get() = type.gridPx(3f)
+    /**
+     * Where the box sits once it has arrived: one grid unit down, which is the same inset the
+     * frame below puts on the left and the right.
+     *
+     * It was three -- the SDK's top-bar height, borrowed on the argument that the box should clear
+     * the status bar. It should not. Three units down against one unit in from each side is a
+     * rectangle that reads as having fallen down the screen, and the top strip it was politely
+     * leaving alone belongs to a clock this box covers for four seconds and then gives back. Every
+     * heads-up notification on every phone covers it. Even on all three sides, and no number here
+     * that the sides do not also use.
+     */
+    private val restY: Int get() = type.gridPx(1f)
 
     private var slide: ValueAnimator? = null
 
@@ -366,9 +376,9 @@ class NoteBanner(private val context: Context) {
             android.graphics.PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP
-            // Clear of the status bar. Measured from the true top of the screen, which is what
-            // FLAG_LAYOUT_NO_LIMITS buys -- without it this would be an offset from an inset that
-            // has already been applied, and the box would sit three units too low.
+            // One unit down, matching the sides. Measured from the true top of the screen, which
+            // is what FLAG_LAYOUT_NO_LIMITS buys -- without it this would be an offset from an
+            // inset that has already been applied, and the box would sit a status bar too low.
             //
             // Qualified, because `LayoutParams` has a `y` and a `type` of its own -- the window
             // type is set two lines above -- and this is the class's resting position, which the

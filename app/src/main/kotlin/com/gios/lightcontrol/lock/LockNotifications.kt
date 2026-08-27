@@ -6,6 +6,8 @@ import android.app.PendingIntent
 import android.app.Person
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -15,6 +17,7 @@ import android.service.notification.StatusBarNotification
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.notify.AlertHandoff
 import com.gios.lightcontrol.notify.Banners
+import com.gios.lightcontrol.notify.NoteText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -319,13 +322,16 @@ class LockNotifications : NotificationListenerService() {
             .sortedByDescending { it.postTime }
 
         val notes = kept.map { sbn ->
-            val extras = sbn.notification.extras
+            // Not EXTRA_TITLE and EXTRA_TEXT. A MessagingStyle notification leaves both empty and
+            // lets SystemUI build them at draw time from EXTRA_MESSAGES, which is every chat app
+            // on the phone -- Teams, WhatsApp, Signal. See [NoteText].
+            val said = words(sbn.notification)
             LockNote(
                 key = sbn.key,
                 pkg = sbn.packageName,
-                app = label(pm, sbn.packageName),
-                title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
-                text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+                app = label(pm, sbn),
+                title = said.title,
+                text = said.text,
                 postedAt = sbn.postTime,
             )
         }
@@ -345,13 +351,13 @@ class LockNotifications : NotificationListenerService() {
                 !NoteFilter.isPersistent(it.notification.flags, it.notification.category)
             }
                 ?.let { sbn ->
-                    val extras = sbn.notification.extras
+                    val said = words(sbn.notification)
                     Banners.Note(
                         key = sbn.key,
                         pkg = sbn.packageName,
-                        app = label(pm, sbn.packageName),
-                        title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty(),
-                        text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+                        app = label(pm, sbn),
+                        title = said.title,
+                        text = said.text,
                         postedAt = sbn.postTime,
                         open = sbn.notification.contentIntent,
                     )
@@ -364,10 +370,101 @@ class LockNotifications : NotificationListenerService() {
         )
     }
 
-    /** The app's name as the user knows it, or the tail of its package when it has none. */
-    private fun label(pm: android.content.pm.PackageManager, pkg: String): String = runCatching {
-        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
-    }.getOrNull() ?: pkg.substringAfterLast('.')
+    /**
+     * The app's name as the user knows it.
+     *
+     * Three sources, because the obvious one is not enough for the app most likely to be posting.
+     *
+     *  1. `EXTRA_SUBSTITUTE_APP_NAME`, which is an app asking to be called something else and is
+     *     what the platform itself draws when it is set.
+     *  2. The package manager, which is the ordinary answer.
+     *  3. `LauncherApps` against the notification's **own user**. A work-profile app is not
+     *     installed for the user this service runs as, so step 2 throws `NameNotFound` for it --
+     *     and a work profile is exactly where a managed Teams or Outlook lives. The box said
+     *     "teams".
+     *
+     * The tail of the package is the last resort, with its first letter raised: an app name is a
+     * name, and "teams" in the corner of a box reads as a bug even when everything else worked.
+     */
+    private fun label(pm: PackageManager, sbn: StatusBarNotification): String {
+        val extras = sbn.notification?.extras
+        val substitute = runCatching {
+            extras?.getCharSequence(Notification.EXTRA_SUBSTITUTE_APP_NAME)?.toString()
+        }.getOrNull()
+        if (!substitute.isNullOrBlank()) return substitute.trim()
+
+        runCatching { pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString() }
+            .getOrNull()
+            ?.let { if (it.isNotBlank()) return it.trim() }
+
+        // May be refused outright for a profile this app cannot see, which is a getOrNull and not
+        // a crash. Nothing here is worth taking the listener down for.
+        runCatching {
+            val apps = getSystemService(LauncherApps::class.java)
+            apps?.getApplicationInfo(sbn.packageName, 0, sbn.user)
+                ?.let { pm.getApplicationLabel(it).toString() }
+        }.getOrNull()?.let { if (it.isNotBlank()) return it.trim() }
+
+        return sbn.packageName.substringAfterLast('.')
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+    /**
+     * The two lines this notification is trying to say, wherever the app wrote them.
+     *
+     * The `Bundle` reading is here and the choosing is in [NoteText], for the reason
+     * [CallWho] gives: a `Bundle` cannot be built in a unit test and a decision about which of
+     * eight fields wins should not need a phone to check.
+     */
+    private fun words(n: Notification?): NoteText.Content {
+        val extras = n?.extras ?: return NoteText.Content("", "")
+        return NoteText.of(
+            contentTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+            bigTitle = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString(),
+            conversationTitle =
+                extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(),
+            contentText = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+            bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+            lines = runCatching {
+                extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+                    ?.filterNotNull()
+                    ?.map { it.toString() }
+                    .orEmpty()
+            }.getOrDefault(emptyList()),
+            messages = messages(extras),
+            summary = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString(),
+            ticker = n.tickerText?.toString(),
+        )
+    }
+
+    /**
+     * A `MessagingStyle` conversation, oldest first, or nothing for a notification without one.
+     *
+     * `getMessagesFromBundleArray` is the platform's own parser and the only thing that knows the
+     * key names inside those bundles, which are not public. Sorted by timestamp rather than
+     * trusted in array order: the contract is that the newest is announced, and an app that
+     * appends is common but not guaranteed.
+     */
+    @Suppress("DEPRECATION")
+    private fun messages(extras: Bundle): List<NoteText.Message> {
+        return runCatching {
+            val raw = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            if (raw == null) {
+                emptyList()
+            } else {
+                Notification.MessagingStyle.Message.getMessagesFromBundleArray(raw)
+                    .filterNotNull()
+                    .sortedBy { it.timestamp }
+                    .map { message ->
+                        NoteText.Message(
+                            sender = message.senderPerson?.name?.toString()
+                                ?: message.sender?.toString(),
+                            text = message.text?.toString(),
+                        )
+                    }
+            }
+        }.getOrDefault(emptyList())
+    }
 
     /**
      * Whether this notification is the phone ringing.
