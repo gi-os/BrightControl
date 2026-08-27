@@ -1347,6 +1347,38 @@ object Policy {
     )
 
     /**
+     * Who the **edge strips** are refused in front of. Its own list, and the reason it is not
+     * [handsOffPrefixes] is the whole of this fix: that list answers "whose keys are not ours to
+     * reinterpret", and a package prefix is a poor guess at ownership in the first place.
+     *
+     * What is here, and why each one already has a way back:
+     *
+     *  - `com.lightos` -- LightOS itself, which has a gesture-navigation switch in its own
+     *    settings. A strip over the top would be two gestures on one edge and ours is the weaker.
+     *  - `com.thelightphone.` -- the light-sdk namespace. An SDK tool subclasses `LightScreen` and
+     *    navigates with `navigateTo`, so **the SDK draws its own back button and the Android back
+     *    stack is not what it moves through**. `GLOBAL_ACTION_BACK` there would cost an edge and
+     *    do nothing.
+     *  - The keyboard, SystemUI, the AOSP launcher and camera, unchanged.
+     *
+     * **`com.lightphone.` is deliberately absent, and that was the bug.** No software of Light's
+     * ships under it -- Light's tools are all inside `com.lightos` and its keyboard is
+     * `app.lightphonekeyboard`. Every package known under it is an ordinary sideloaded APK, which
+     * is the exact population this gesture exists for: BrightMusic (`com.lightphone.spotify`, the
+     * phono fork, already excepted by hand in [scrollAwarePrefixes] for the same reason), and
+     * fenleon's Audiobooks, Chats and Passes. All four were silently refused a back gesture on the
+     * strength of a Light-looking id.
+     */
+    private val edgeRefusedPrefixes = listOf(
+        "com.lightos",
+        "com.thelightphone.",
+        "app.lightphonekeyboard",
+        "com.android.systemui",
+        "com.android.launcher3",
+        "com.android.camera2",
+    )
+
+    /**
      * Apps that handle wheel turns themselves — the ones carrying the `hw/` module. They
      * scroll per notch, which nothing outside the app can do, so their turns pass through.
      *
@@ -1531,10 +1563,11 @@ object Policy {
      *
      * Three refusals, and they are all about a gesture that already exists:
      *
-     *  - **Light's own software**, on the same prefixes as the wheel's hands-off list. LightOS has
-     *    a gesture-navigation switch in its own settings and it reaches these; a second strip over
-     *    the top would be two gestures on one edge, and the one this app can offer is the weaker
-     *    of them.
+     *  - **Light's own software and the SDK tools**, on [edgeRefusedPrefixes] -- which is *not*
+     *    the wheel's hands-off list, because that list refuses a Light-looking package id and a
+     *    Light-looking package id is not Light's software. Both of those already have a back
+     *    button: LightOS has a gesture-navigation switch in its own settings, and an SDK tool has
+     *    one drawn for it.
      *  - **The keyboard**, and anything else drawing over an app rather than replacing it, is
      *    never the front package by the time this is asked -- see [isTransientWindow] -- so the
      *    strip stays as the app underneath left it. Stated here because it is the reason no test
@@ -1560,7 +1593,7 @@ object Policy {
      * [edgeSwipeAllowed] so the row keeps telling the truth if the table changes.
      */
     fun edgeSwipeRefusedByTable(pkg: String): Boolean =
-        handsOffPrefixes.any { pkg.startsWith(it) }
+        edgeRefusedPrefixes.any { pkg.startsWith(it) }
 
     fun behaviorFor(prefs: Prefs, pkg: String?): Behavior {
         // LightOS's lock screen and dashboard are one activity, so they are one decision.

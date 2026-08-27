@@ -1,5 +1,6 @@
 package com.gios.lightcontrol
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,9 +18,17 @@ class EdgeSwipeTableTest {
     fun `Light's own software is refused`() {
         assertTrue(Policy.edgeSwipeRefusedByTable("com.lightos"))
         assertTrue(Policy.edgeSwipeRefusedByTable("com.lightos.launcher"))
-        assertTrue(Policy.edgeSwipeRefusedByTable("com.thelightphone.notes"))
         assertTrue(Policy.edgeSwipeRefusedByTable("app.lightphonekeyboard"))
         assertTrue(Policy.edgeSwipeRefusedByTable("com.android.systemui"))
+    }
+
+    @Test
+    fun `an SDK tool is refused, because the SDK draws it a back button`() {
+        // `com.thelightphone.` is the light-sdk namespace, not a list of Light's apps. A tool
+        // there navigates with `navigateTo` rather than the Android back stack, so a strip would
+        // cost an edge and GLOBAL_ACTION_BACK would do nothing with it.
+        assertTrue(Policy.edgeSwipeRefusedByTable("com.thelightphone.sdk"))
+        assertTrue(Policy.edgeSwipeRefusedByTable("com.thelightphone.lightnycsubway"))
     }
 
     @Test
@@ -27,6 +36,27 @@ class EdgeSwipeTableTest {
         assertFalse(Policy.edgeSwipeRefusedByTable("app.luma"))
         assertFalse(Policy.edgeSwipeRefusedByTable("com.gios.lightnotebook"))
         assertFalse(Policy.edgeSwipeRefusedByTable("com.lightfastread"))
+    }
+
+    @Test
+    fun `a Light-looking id is not Light's software`() {
+        // The bug this test exists for. These four are ordinary sideloaded APKs that happen to
+        // sit under `com.lightphone.`, a prefix no software of Light's uses -- Light's tools are
+        // all inside `com.lightos`. Borrowing the wheel's hands-off list refused every one of
+        // them a back gesture and said nothing about it.
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightphone.spotify"))
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightphone.audiobooks"))
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightphone.chats"))
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightphone.passes"))
+    }
+
+    @Test
+    fun `the wheel still keeps its hands off a Light-looking id`() {
+        // The two tables are separate now, so this is the half that must not have moved: the
+        // wheel's answer for those packages is unchanged.
+        assertEquals(AppRule.ScrollThrough, Policy.builtInRuleFor("com.lightphone.spotify"))
+        assertEquals(AppRule.Off, Policy.builtInRuleFor("com.lightphone.audiobooks"))
+        assertEquals(AppRule.Off, Policy.builtInRuleFor("com.thelightphone.radio"))
     }
 
     @Test

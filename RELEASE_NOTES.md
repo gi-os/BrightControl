@@ -1,3 +1,35 @@
+## BrightControl v3.84 — the edge strips reach the apps that were quietly refused them
+
+**Edge swipes never worked in BrightMusic, and the reason was its name.** The strips ask one
+question before they go up: is this app one of Light's? That question was answered by the wheel's
+hands-off list, a list of package prefixes, and two of those prefixes are `com.thelightphone.` and
+`com.lightphone.`. BrightMusic ships as `com.lightphone.spotify`, an id it inherited from the phono
+fork and cannot change without stranding every installed copy. So the strip was refused in front of
+it, silently, for looking like Light software.
+
+No software of Light's ships under `com.lightphone.` at all. Light keeps its tools inside
+`com.lightos` and its keyboard is `app.lightphonekeyboard`. Every package known under that prefix is
+an ordinary sideloaded app: BrightMusic, and Audiobooks, Chats and Passes. Four apps with no back
+button, refused the one gesture that gives them one, on the strength of a name.
+
+**The edge strips have their own table now.** The wheel's list answers a different question, which
+is whose keys are not ours to reinterpret, and it was already carrying a hand-written exception for
+BrightMusic for the same reason. Sharing it a second time repeated the same mistake in a subsystem
+that had no exception.
+
+What the new table still refuses, and why each one already has a way back:
+
+- **LightOS.** It has a gesture-navigation switch in its own settings, on the same edges. A strip
+  over the top would be two gestures on one edge and ours is the weaker of them.
+- **The light-sdk tools**, `com.thelightphone.*`. This one is a real refusal rather than an
+  inherited one. An SDK tool subclasses `LightScreen` and navigates with `navigateTo`, so the SDK
+  draws it a back button and the Android back stack is not what it moves through. A strip there
+  would take an edge and hand back nothing.
+- The keyboard, SystemUI, and the AOSP launcher and camera, unchanged.
+
+Nothing about the wheel moved. A test now pins both halves, because the two tables agreeing was the
+only thing holding them together.
+
 ## BrightControl v3.83 — a call from a number the phone cannot name, the charging bolt, and a panel that lights for a notification
 
 **A call from an unknown or withheld number never reached the lock face.** Three things can tell

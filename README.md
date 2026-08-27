@@ -403,7 +403,13 @@ is never focusable, so this can never cost a key. Because the cost is real:
   how far the finger travels afterwards differs, and by then the touch is already ours.
 - **Any app can be left out.** One list for both edges: an app that puts its own controls at the
   screen edge usually does it at both.
-- **Light's own software never gets a strip.** It has these gestures already, on the same edges.
+- **Light's own software never gets a strip.** LightOS has these gestures already, on the same
+  edges. An SDK tool does not get one either. The SDK draws it a back button and moves through
+  its own screens instead of the Android back stack, so a strip there costs an edge and returns
+  nothing.
+- **A Light-looking package id is not Light's software.** Light keeps its tools inside
+  `com.lightos`. An app under `com.lightphone.` is an ordinary sideloaded app and it gets a
+  strip like any other.
 - **The lock face and the app switcher never get one either.** Both are full-screen windows above a
   strip, and both use the edges for their own swipes. That the switcher is one of them is also what
   stops the right edge re-opening a list that is already up.
@@ -906,6 +912,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.84 | **The edge strips reach the apps that were quietly refused them.** The strips asked the wheel's hands-off list whether an app was Light's, and that list refuses the prefix `com.lightphone.` — which no software of Light's uses. BrightMusic ships as `com.lightphone.spotify`, an id it inherited and cannot change, so the strip was never put up in front of it. Audiobooks, Chats and Passes were refused the same way. The strips have their own table now: LightOS is still refused, and so are the light-sdk tools, because the SDK draws them a back button and `navigateTo` is not the Android back stack. The wheel is unchanged, and a test pins both halves |
 | v3.83 | **A call from an unknown number gets a card, the battery shows a bolt, and a notification lights the panel.** Telephony's RINGING was being dropped whenever no number came with it, which is exactly what a withheld caller looks like — the state and the number are two facts now, and a ring nothing else confirms expires after two minutes so a card cannot stick. The charging mark asked `BatteryManager.isCharging`, which is battery *stats* and lags a cable by minutes; it reads the sticky battery broadcast instead. And Wake the screen no longer lives under Banners: with banners off it wakes the phone and the lock face comes up with the note on it |
 | v3.82 | **The edge strips leave the top of the screen alone, and the tick is gone.** Nearly every screen puts a back arrow in the top-left corner, which is the corner the left strip ran through — reaching for the arrow with a thumb that slid inwards was a swipe rather than a tap, and on the right edge or a screen with no arrow the same slip fired a gesture nobody asked for. The top 92 dp of both edges now belong to the app, adjustable under **Leave the top alone**, with 0 the old behaviour. It had to be a hole in the window rather than a rule in the touch listener: an overlay that receives a touch has taken it, so a strip that merely ignored the corner would have left the arrow unreachable instead of reachable. The indicator's tick is removed as well — a short grey line inside an outlined box read as a smudge, and the word and glyph already change at the long threshold |
 | v3.78 | **Luma is Home in the switcher, not an app.** The launcher is listed as Home behind a drawn house instead of its own name and icon — every other row is somewhere you were, and the one row that is how you *leave* was dressed as one more app. A thin outline among solid squares is the whole distinction. Matched by package rather than by the HOME role, which on this phone is always LightOS. Off under Buttons → Home button, and the setting stays off the screen entirely when Luma is not installed |
