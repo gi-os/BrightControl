@@ -1323,6 +1323,14 @@ class ControlService : AccessibilityService() {
         }
         // A camera has first claim on the camera button. See [ownsCameraKey].
         if (button == Button.Camera && ownsCameraKey(front)) return false
+        // And an app that implements the wheel's press has first claim on the click — checked
+        // here, *after* the hands-off gate, precisely so a stored per-app rule cannot eat it.
+        // Logged, because this key's disappearance was undiagnosable from the phone once already.
+        // See [Policy.ownsWheelClick].
+        if (button == Button.WheelClick && Policy.ownsWheelClick(front)) {
+            if (fresh) log("WheelClick · ${front?.substringAfterLast('.')} owns the wheel")
+            return false
+        }
         // And so does any app the button is only there to open. See [boundToFront].
         if (boundToFront(button, front)) {
             if (fresh) log("${button.name} · already in ${front?.substringAfterLast('.')}")

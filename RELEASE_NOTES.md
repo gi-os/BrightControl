@@ -1,3 +1,24 @@
+## BrightControl v3.92 — a stored rule could eat a click for ever
+
+**The wheel click of a wheel-owning app now has the same first claim the camera key has always
+had.** Roll and BrightRecorder implement the wheel's press as a control of their own, and the
+built-in table has said so for a while — but an explicit per-app rule stored in this app's settings
+beats the built-in table, and rightly. The trap: a rule of "scroll through" stored *before* those
+apps used their click — stored, back then, as the only way to make their wheel turns work at all —
+kept winning on every build after the fix existed. The turns arrived, the click was spent on this
+service's own binding, and the app told you to click a wheel whose click never came. Roll's dial
+lock was exactly that: "click to unlock", against a torch coming on in your pocket.
+
+The claim is answered from the built-in list alone, after the stored rule has had its say about
+everything else — turns, colour, the camera key all still obey it. And the claim is logged
+("WheelClick · lightcamera owns the wheel"), because this key's disappearance has been
+undiagnosable from the phone once already.
+
+If your wheel click stopped working in Roll and you have a per-app rule set for it here, this is
+why, and you no longer need to clear the rule — but Settings -> per-app rules -> Roll -> Default is
+still the tidier state.
+
+## BrightControl v3.90 — three fixes to v3.89
 ## BrightControl v3.91 — the volume strip is back
 
 **v3.90 turned the HUD off entirely. This puts it back.**

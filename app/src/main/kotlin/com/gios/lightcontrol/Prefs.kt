@@ -1809,6 +1809,27 @@ object Policy {
      * overlapping prefix lists and the order they are consulted in is the whole behavior, which
      * is exactly the kind of thing that looks obviously right and is not.
      */
+    /**
+     * Whether [pkg] implements the wheel's press as a control of its own.
+     *
+     * **Deliberately consulted from the built-in list alone, stored rules ignored — the same
+     * first-claim treatment the camera key gets.** The failure this closes: a per-app rule of
+     * ScrollThrough stored *before* an app started using its click — stored, back then, as the
+     * only way to make its wheel turns work at all — beats the built-in table for ever, because
+     * [ruleFor] prefers explicit rules. Every update after that carries the fix and none of them
+     * apply it: the app tells you to click a wheel whose click this service is quietly spending
+     * on the torch. Roll's dial lock was exactly that — "click to unlock" against a click that
+     * never arrived, undiagnosable from the phone because the torch is silent and invisible in
+     * daylight.
+     *
+     * A stored rule still governs everything else about the app — its turns, its camera key, its
+     * colour. The one thing it can no longer do is eat the press of a wheel the app demonstrably
+     * implements, which is the same one thing a stored rule was never able to do to a camera app's
+     * camera button.
+     */
+    fun ownsWheelClick(pkg: String?): Boolean =
+        pkg != null && ownsWheelPrefixes.any { pkg.startsWith(it) }
+
     fun builtInRuleFor(pkg: String): AppRule {
         // Whole-wheel apps first: they sit inside the scroll-aware prefixes and need the stronger
         // rule, not the weaker one. See [ownsWheelPrefixes].

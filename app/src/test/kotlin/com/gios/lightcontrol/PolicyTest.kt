@@ -1,6 +1,8 @@
 package com.gios.lightcontrol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -23,6 +25,26 @@ class PolicyTest {
         // ScrollThrough the lock could be set and then never cleared: the app told you to click
         // the wheel while the click was being spent on the torch one layer above it.
         assertEquals(AppRule.Off, Policy.builtInRuleFor("com.gios.lightcamera"))
+    }
+
+    /**
+     * The stored-rule bypass, which is the bug this function exists to close.
+     *
+     * `ruleFor` prefers an explicit per-app rule, and rightly — but a ScrollThrough stored before
+     * an app started using its click then eats that click on every build for ever, because the
+     * built-in fix never gets consulted again. The claim in the service therefore asks *this*
+     * question, from the built-in list alone, after the stored rule has had its say about
+     * everything else. First reported as "click to unlock the dial doesn't work": the app said
+     * click, the service spent the click on the torch, and there was nothing on the phone that
+     * could say so.
+     */
+    @Test
+    fun `wheel ownership is answered from the built-in list, whatever anyone stored`() {
+        assertTrue(Policy.ownsWheelClick("com.gios.lightcamera"))
+        assertTrue(Policy.ownsWheelClick("com.gios.brightrecorder"))
+        assertFalse(Policy.ownsWheelClick("com.gios.lightnoise"))
+        assertFalse(Policy.ownsWheelClick("com.example.whatever"))
+        assertFalse(Policy.ownsWheelClick(null))
     }
 
     @Test
