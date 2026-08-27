@@ -375,7 +375,7 @@ class LockNotifications : NotificationListenerService() {
      *
      * Three sources, because the obvious one is not enough for the app most likely to be posting.
      *
-     *  1. `EXTRA_SUBSTITUTE_APP_NAME`, which is an app asking to be called something else and is
+     *  1. `android.substName`, which is an app asking to be called something else and is
      *     what the platform itself draws when it is set.
      *  2. The package manager, which is the ordinary answer.
      *  3. `LauncherApps` against the notification's **own user**. A work-profile app is not
@@ -388,8 +388,10 @@ class LockNotifications : NotificationListenerService() {
      */
     private fun label(pm: PackageManager, sbn: StatusBarNotification): String {
         val extras = sbn.notification?.extras
+        // Named, not `Notification.EXTRA_SUBSTITUTE_APP_NAME`: that constant is a system API and
+        // does not exist in the public SDK, though every app writing the extra writes this key.
         val substitute = runCatching {
-            extras?.getCharSequence(Notification.EXTRA_SUBSTITUTE_APP_NAME)?.toString()
+            extras?.getCharSequence(SUBSTITUTE_APP_NAME)?.toString()
         }.getOrNull()
         if (!substitute.isNullOrBlank()) return substitute.trim()
 
@@ -618,6 +620,10 @@ class LockNotifications : NotificationListenerService() {
         return scratch.importance >= NotificationManager.IMPORTANCE_DEFAULT
     }
 
+    private companion object {
+        /** `Notification.EXTRA_SUBSTITUTE_APP_NAME`, which the public SDK does not expose. */
+        const val SUBSTITUTE_APP_NAME = "android.substName"
+    }
 }
 
 /**
