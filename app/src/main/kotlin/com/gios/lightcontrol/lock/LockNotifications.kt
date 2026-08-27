@@ -356,7 +356,10 @@ class LockNotifications : NotificationListenerService() {
                         open = sbn.notification.contentIntent,
                     )
                 },
-            enabled = prefs.banner,
+            // The box is one reason to run this and the wake is the other. Gated on `banner`
+            // alone, a phone with banners off never armed anything -- so `bannerWake`, which is on
+            // by default, could not wake a phone for a notification however it was set.
+            enabled = prefs.banner || (prefs.bannerWake && prefs.lockScreen),
             dwellMs = prefs.bannerDwellMs,
         )
     }

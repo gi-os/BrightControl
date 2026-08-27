@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.ContactsContract
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
@@ -41,6 +42,35 @@ import android.telephony.TelephonyManager
  */
 class CallerId(private val context: Context) {
 
+    /**
+     * What the line is doing, as telephony last said it.
+     *
+     * The state, kept apart from the number, because they do not arrive together and only one of
+     * them is guaranteed. `ACTION_PHONE_STATE_CHANGED` always says RINGING; the number on it is
+     * empty whenever the caller withheld it, whenever the network sent none, and whenever
+     * `READ_CALL_LOG` is missing. This class used to drop the entire broadcast in that case --
+     * `raw.isNullOrEmpty() -> return` -- so a call from a number the phone could not name told
+     * nothing downstream that a call was happening at all, and the lock face showed the clock
+     * through the whole ring. The number is a detail of the call. That there *is* a call is the
+     * thing the face cannot find out anywhere else on this phone.
+     */
+    enum class Line { Idle, Ringing, Offhook }
+
+    @Volatile
+    var line: Line = Line.Idle
+        private set
+
+    /**
+     * When [line] last changed, on the monotonic clock.
+     *
+     * Read by [LockCall] so a ring that telephony alone is asserting cannot hold the card up for
+     * ever. A missed IDLE broadcast is a lock screen that says the phone is ringing until reboot,
+     * and a stuck lock face is the worst failure this app can produce.
+     */
+    @Volatile
+    var lineAt: Long = 0L
+        private set
+
     /** The name from contacts, or null: no contact, no grant, or nothing to look up yet. */
     @Volatile
     var name: String? = null
@@ -61,19 +91,35 @@ class CallerId(private val context: Context) {
             if (intent?.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
             @Suppress("DEPRECATION")
             val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
-            if (state == TelephonyManager.EXTRA_STATE_IDLE) {
+            val next = when (state) {
+                TelephonyManager.EXTRA_STATE_RINGING -> Line.Ringing
+                TelephonyManager.EXTRA_STATE_OFFHOOK -> Line.Offhook
+                else -> Line.Idle
+            }
+            if (next == Line.Idle) {
+                val had = line != Line.Idle
                 forget()
+                if (had) runCatching { onChange?.invoke() }
                 return
+            }
+            var changed = false
+            if (next != line) {
+                line = next
+                lineAt = SystemClock.elapsedRealtime()
+                changed = true
             }
             @Suppress("DEPRECATION")
             val raw = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)?.trim()
             // Kept, not cleared, when the extra is absent. Only the ringing broadcast carries the
             // number; the off-hook one that follows it does not, and answering a call must not be
-            // what erases the name from the screen.
-            if (raw.isNullOrEmpty()) return
-            number = pretty(raw)
-            name = lookup(raw)
-            runCatching { onChange?.invoke() }
+            // what erases the name from the screen. What is *not* done any more is dropping the
+            // broadcast itself -- see [Line].
+            if (!raw.isNullOrEmpty()) {
+                number = pretty(raw)
+                name = lookup(raw)
+                changed = true
+            }
+            if (changed) runCatching { onChange?.invoke() }
         }
     }
 
@@ -105,7 +151,18 @@ class CallerId(private val context: Context) {
     fun forget() {
         name = null
         number = null
+        line = Line.Idle
+        lineAt = SystemClock.elapsedRealtime()
     }
+
+    /**
+     * A ring with nobody's number on it, on a phone that would have been told one.
+     *
+     * The grants are part of the question. Without them an empty number means "we were not
+     * allowed to know", which is this app's problem and not worth saying on a lock screen; with
+     * them it means the network sent none, which is a fact about the caller and worth drawing.
+     */
+    fun withheld(): Boolean = line == Line.Ringing && number == null && granted()
 
     /** Whether the phone will actually tell us the number, for the diagnostics log. */
     fun granted(): Boolean =
@@ -172,6 +229,7 @@ object CallerText {
      * @param name the contact name telephony and contacts agreed on.
      * @param number the number that is calling.
      * @param ringing whether this is a ring or a call in progress, for the last-resort wording.
+     * @param withheld the phone was told a call was coming and told no number with it.
      *
      * Order: the dialer's own name for the caller, then the contact name, then the number. The
      * notification comes first where it exists because a dialer that bothered to write a name has
@@ -186,9 +244,17 @@ object CallerText {
         name: String?,
         number: String?,
         ringing: Boolean,
+        withheld: Boolean = false,
     ): Lines {
-        val who = CallWho.pick(listOf(noteWho, name, number))
-            .ifBlank { if (ringing) "Incoming call" else "On a call" }
+        // "Incoming call" under a card whose own label already reads INCOMING CALL is the same
+        // words twice and says nothing. Where telephony announced the ring and sent no number
+        // with it, there is something better to say, and it is the truth: nobody's number came.
+        val nothing = when {
+            withheld -> "Unknown number"
+            ringing -> "Incoming call"
+            else -> "On a call"
+        }
+        val who = CallWho.pick(listOf(noteWho, name, number)).ifBlank { nothing }
         val sub = listOf(noteText, number)
             .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
             .firstOrNull { it != who && !CallWho.isPlaceholder(it) }

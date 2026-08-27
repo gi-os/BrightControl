@@ -1391,12 +1391,53 @@ class LockOverlay(private val context: Context) {
         context.getSystemService(BatteryManager::class.java)
             ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             ?.takeIf { it in 0..100 }
-            ?: -1
+            ?: levelFromBroadcast()
     }.getOrDefault(-1)
 
+    /**
+     * Whether the phone is on power.
+     *
+     * **Not `BatteryManager.isCharging`, which this used and which is not the question it looks
+     * like.** That call goes to `IBatteryStats.isCharging`, and battery stats does not mean "a
+     * cable is attached" by charging -- it means the run of charging it has decided to count, and
+     * it applies hysteresis before saying so. Plug a phone in and it stays false for a while; plug
+     * one in at full and it can stay false altogether. Those are the two moments somebody plugs a
+     * phone in to leave it, so the bolt was missing exactly when it was wanted, and LightOS's own
+     * status bar drew one the moment the phone was unlocked -- which reads as ours being broken.
+     *
+     * The sticky `ACTION_BATTERY_CHANGED` is the platform's actual answer and it is immediate:
+     * `EXTRA_PLUGGED` is non-zero the instant a cable is in, and `EXTRA_STATUS` covers a dock or a
+     * pad that reports charging without a plug type. `isCharging` stays underneath as a fallback
+     * for a phone that hands back no sticky intent at all.
+     */
     private fun batteryCharging(): Boolean = runCatching {
-        context.getSystemService(BatteryManager::class.java)?.isCharging == true
+        val battery = batteryBroadcast()
+        val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val onPower = plugged != 0 ||
+            status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+        onPower || context.getSystemService(BatteryManager::class.java)?.isCharging == true
     }.getOrDefault(false)
+
+    /** The level off the same broadcast, for a phone whose `BATTERY_PROPERTY_CAPACITY` is absent. */
+    private fun levelFromBroadcast(): Int = runCatching {
+        val battery = batteryBroadcast() ?: return -1
+        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) -1 else (level * 100 / scale).coerceIn(0, 100)
+    }.getOrDefault(-1)
+
+    /**
+     * The sticky battery broadcast, read rather than subscribed to.
+     *
+     * `registerReceiver(null, ...)` returns the last one the system sent without registering
+     * anything. Asked once per repaint, which is the minute tick and every real battery change --
+     * the same events that were already driving this bar.
+     */
+    private fun batteryBroadcast(): Intent? = runCatching {
+        context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    }.getOrNull()
 
     private fun nextAlarm(): String? = runCatching {
         context.getSystemService(AlarmManager::class.java)?.nextAlarmClock

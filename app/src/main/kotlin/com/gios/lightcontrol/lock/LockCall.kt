@@ -182,6 +182,7 @@ class LockCall(private val context: Context) {
             append(" fsi=").append(if (note?.fullScreen != null) "yes" else "-")
             append(" content=").append(if (note?.content != null) "yes" else "-")
             append(" tel=").append(if (callerId.granted()) "ok" else "NO GRANT")
+            append(" line=").append(callerId.line.name.lowercase())
             append(" name=").append(if (callerId.name != null) "yes" else "-")
             append(" number=").append(if (callerId.number != null) "yes" else "-")
             append(" dialer=").append(dialerPackage()?.substringAfterLast('.') ?: "none")
@@ -237,16 +238,15 @@ class LockCall(private val context: Context) {
         val ringingMode = mode == AudioManager.MODE_RINGTONE
         val activeMode = mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION
 
-        val stage = when {
-            // The mode is the stronger signal for *answered*, and the notification for *ringing*:
-            // a dialer rebuilds its notification a moment after the mode moves, and drawing
-            // ANSWER over a call already in progress is worse than being a second late.
-            activeMode -> LockCallState.Stage.Active
-            ringingMode -> LockCallState.Stage.Ringing
-            note != null && note.incoming -> LockCallState.Stage.Ringing
-            note != null -> LockCallState.Stage.Active
-            else -> null
-        }
+        val telRinging = callerId.line == CallerId.Line.Ringing &&
+            SystemClock.elapsedRealtime() - callerId.lineAt < RING_MAX_MS
+        val stage = CallStage.of(
+            activeMode = activeMode,
+            ringingMode = ringingMode,
+            telRinging = telRinging,
+            telActive = callerId.line == CallerId.Line.Offhook,
+            noteIncoming = note?.incoming,
+        )
 
         if (stage == null) {
             stopPolling()
@@ -262,6 +262,7 @@ class LockCall(private val context: Context) {
             name = callerId.name,
             number = callerId.number,
             ringing = stage == LockCallState.Stage.Ringing,
+            withheld = callerId.withheld(),
         )
         publish(
             LockCallState(
@@ -295,5 +296,58 @@ class LockCall(private val context: Context) {
     private companion object {
         /** Only ever runs during a call. See [tick]. */
         const val POLL_MS = 1_000L
+
+        /**
+         * How long a ring that only telephony is asserting stays believable.
+         *
+         * The IDLE broadcast is what ends a ring, and a broadcast is a thing that can be missed --
+         * a receiver re-registered at the wrong moment, a process killed mid-call. Nothing else in
+         * [CallStage] would then contradict it, and a card saying the phone is ringing sits over
+         * the lock screen until reboot. Two minutes is longer than any phone rings and shorter
+         * than anybody would put up with.
+         */
+        const val RING_MAX_MS = 120_000L
+    }
+}
+
+/**
+ * What stage a call is at, out of everything on this phone that might know.
+ *
+ * Pure and separate, because the sources disagree by design and the order between them is the
+ * whole behaviour. It has been wrong once already in a way no test could have caught, because
+ * there was nothing to test: a call from a **withheld or unknown number** never reached the card
+ * at all. The chain was audio mode, then notification — and on this phone LightOS's dialer posts
+ * no notification, while the audio mode does not always move to `MODE_RINGTONE` for a call the
+ * ringer is not going to play out loud. Telephony's own `ACTION_PHONE_STATE_CHANGED` always says
+ * RINGING, and it says it whether or not there is a number on it. It is the third source here,
+ * and for the case that started this it is the only one.
+ */
+object CallStage {
+
+    /**
+     * @param activeMode the audio mode is `MODE_IN_CALL` or `MODE_IN_COMMUNICATION`.
+     * @param ringingMode the audio mode is `MODE_RINGTONE`.
+     * @param telRinging telephony last said RINGING, recently enough to still believe.
+     * @param telActive telephony last said OFFHOOK.
+     * @param noteIncoming the call notification's own answer, or null where there is none.
+     *
+     * Active beats Ringing at every level, and the audio mode is asked before either of the other
+     * two: a dialer rebuilds its notification a moment after the mode moves, and drawing ANSWER
+     * over a call already in progress is worse than being a second late.
+     */
+    fun of(
+        activeMode: Boolean,
+        ringingMode: Boolean,
+        telRinging: Boolean,
+        telActive: Boolean,
+        noteIncoming: Boolean?,
+    ): LockCallState.Stage? = when {
+        activeMode -> LockCallState.Stage.Active
+        telActive -> LockCallState.Stage.Active
+        ringingMode -> LockCallState.Stage.Ringing
+        telRinging -> LockCallState.Stage.Ringing
+        noteIncoming == true -> LockCallState.Stage.Ringing
+        noteIncoming == false -> LockCallState.Stage.Active
+        else -> null
     }
 }

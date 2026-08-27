@@ -20,7 +20,8 @@ class CallerTextTest {
         name: String? = null,
         number: String? = null,
         ringing: Boolean = true,
-    ) = CallerText.of(noteWho, noteText, name, number, ringing)
+        withheld: Boolean = false,
+    ) = CallerText.of(noteWho, noteText, name, number, ringing, withheld)
 
     @Test
     fun `no notification, a contact name and a number`() {
@@ -78,5 +79,20 @@ class CallerTextTest {
         val l = lines(noteWho = "Private number")
         assertEquals("Private number", l.who)
         assertEquals("", l.sub)
+    }
+
+    @Test
+    fun `a withheld number says so instead of repeating the card's own label`() {
+        // The card draws INCOMING CALL above this line, so "Incoming call" under it is the same
+        // words twice. Telephony announced the ring and sent no number: that is the thing to say.
+        val l = lines(withheld = true)
+        assertEquals("Unknown number", l.who)
+        assertEquals("", l.sub)
+    }
+
+    @Test
+    fun `a number that did arrive beats the withheld wording`() {
+        val l = lines(number = "(555) 123-4567", withheld = true)
+        assertEquals("(555) 123-4567", l.who)
     }
 }

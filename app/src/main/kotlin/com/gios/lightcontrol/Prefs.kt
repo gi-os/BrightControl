@@ -840,10 +840,21 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("banner", v).apply()
 
     /**
-     * Whether a banner on a sleeping phone turns the panel on.
+     * Whether a notification on a sleeping phone turns the panel on.
      *
      * On, because a box nobody is shown is a box that did nothing -- and the whole reason to have
      * one rather than a shade row is being told at the moment it happens.
+     *
+     * **No longer only about banners.** It used to be read only when [banner] was on, which meant
+     * a phone with the Light lock face and no banners never lit up for anything: a message arrived,
+     * the shade took it, and you found out whenever you next pressed the power button. That is not
+     * what a lock face is for. With banners off this now wakes the panel and the face comes up
+     * carrying the notification as a row -- which is the same landing the banner already arranged
+     * for, minus the box over the top of it.
+     *
+     * It does nothing at all unless there is something to land on: with [banner] off *and*
+     * [lockScreen] off, the phone would wake to LightOS's own lock screen, which is exactly what
+     * it would have shown when picked up anyway.
      *
      * The wake is a wake lock and never an activity; see
      * [com.gios.lightcontrol.notify.BannerWake] for the fingerprint sensor that decides it.

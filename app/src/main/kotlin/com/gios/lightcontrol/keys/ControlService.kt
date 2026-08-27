@@ -908,7 +908,13 @@ class ControlService : AccessibilityService() {
      * mean nothing, including drawing over other apps.
      */
     private fun showBanner(note: Banners.Note, dwellMs: Long) {
-        if (!prefs.enabled || !prefs.banner) return
+        if (!prefs.enabled) return
+        // Two features, one arrival. The wake is worth doing with no box at all -- the lock face
+        // carries the notification as a row, and being lit for it is the whole point of a face you
+        // do not have to press a button to read. It needs something to land on, though: with the
+        // box off and the face off, waking the phone shows LightOS's lock screen and says nothing.
+        val wake = prefs.bannerWake && (prefs.banner || prefs.lockScreen)
+        if (!prefs.banner && !wake) return
         // Never during a call, and this is checked before the wake as well as before the box. The
         // face stands aside for a call, so neither test below catches it — which left a layer-31
         // window whose taps launch an app sitting over the dialer's own screen, and, on a phone
@@ -918,9 +924,15 @@ class ControlService : AccessibilityService() {
         // takes the face down for this reason; the banner waits its turn for the same one.
         if (switcher.showing) return
         if (!interactive()) {
-            if (!prefs.bannerWake) return
+            if (!wake) return
             bannerWake.wake(dwellMs)
+            // The face itself goes up on ACTION_SCREEN_ON, a moment after this, and carries the
+            // row. Logged here because from the phone's side this is the event: something arrived
+            // and the panel came on for it.
+            log("wake · " + note.pkg.substringAfterLast('.'))
         }
+        // Nothing more to do for a wake with the box switched off.
+        if (!prefs.banner) return
         // Asked as "will the face be up", not "is it up": with the panel off the face has not been
         // added yet — it goes up on the screen coming on, which is a moment after the wake above.
         // Testing only `showing` drew a box and then had the face land on top of it a beat later.

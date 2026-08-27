@@ -27,6 +27,7 @@ fun NotificationsScreen(onHiddenApps: () -> Unit, onBack: () -> Unit) {
     var banner by remember { mutableStateOf(prefs.banner) }
     var wake by remember { mutableStateOf(prefs.bannerWake) }
     var dwell by remember { mutableStateOf(prefs.bannerDwellMs) }
+    val lockFace = prefs.lockScreen
     var persistent by remember { mutableStateOf(prefs.lockPersistent) }
     val hiddenApps = prefs.lockHiddenApps().size
     val granted = LockNotes.granted(context)
@@ -68,23 +69,36 @@ fun NotificationsScreen(onHiddenApps: () -> Unit, onBack: () -> Unit) {
                 AlertHandoff.announce(context)
             },
         )
+        MenuRow(
+            label = "Wake the screen",
+            detail = when {
+                !wake -> "OFF"
+                banner || lockFace -> "ON"
+                else -> "NOTHING TO SHOW"
+            },
+            dim = wake && !banner && !lockFace,
+            sub = when {
+                !wake ->
+                    "off. Nothing lights the panel, so a phone face-down on a desk stays dark and " +
+                        "you find out when you pick it up."
+                banner ->
+                    "a notification on a sleeping phone turns the panel on. The lock face, if it " +
+                        "is on, is what you land on -- the note is already a row on it, so no box " +
+                        "is drawn over the top of the same thing twice."
+                lockFace ->
+                    "a notification on a sleeping phone turns the panel on and the lock face comes " +
+                        "up with it, carrying the note as a row. No box, because banners are off."
+                else ->
+                    "nothing would be shown. With banners off and the lock face off, waking the " +
+                        "phone shows LightOS's own lock screen, which is what picking it up shows " +
+                        "anyway. Turn on either one above."
+            },
+            onClick = {
+                wake = !wake
+                prefs.bannerWake = wake
+            },
+        )
         if (banner) {
-            MenuRow(
-                label = "Wake the screen",
-                detail = if (wake) "ON" else "OFF",
-                sub = if (wake) {
-                    "a banner on a sleeping phone turns the panel on for as long as the box is up. " +
-                        "The lock face, if it is on, is what you land on -- the note is already a " +
-                        "row on it, so no box is drawn over the top of the same thing twice."
-                } else {
-                    "off. The banner waits for the screen to already be on, so a phone face-down " +
-                        "on a desk stays dark and you find out when you pick it up."
-                },
-                onClick = {
-                    wake = !wake
-                    prefs.bannerWake = wake
-                },
-            )
             MenuRow(
                 label = "How long it stays",
                 detail = "${dwell / 1000f}".removeSuffix(".0") + "s",
