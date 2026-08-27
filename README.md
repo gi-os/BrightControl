@@ -492,6 +492,39 @@ This needs `WRITE_SECURE_SETTINGS`, which the ADB screen can grant. **Color, the
 happened** logs every write and its read-back. A rule that something else overwrote therefore
 names the app that did it.
 
+#### An app can ask for itself
+
+`PASS` solves the fight between two writers by standing down. From v3.84 there is a better answer,
+which is to have one writer. An app states what it wants and BrightControl does the writing, so the
+app needs no privileged permission of its own and loses nothing when it is reinstalled.
+
+Two ways in. **A manifest tag**, for an app with one opinion:
+
+```xml
+<meta-data android:name="com.gios.brightcontrol.color" android:value="color" />
+```
+
+`color` or `mono`. BrightControl reads it off the package manager, so it is true before the app has
+ever been opened. Third-party apps can use it too.
+
+**A request**, for an app that changes its mind screen by screen. The app binds
+`com.gios.lightcontrol.action.COLOR` and calls `want`. In practice it calls `ColourEffect()` from
+[light-common](https://github.com/gi-os/BrightCommon) 1.7.0 and never sees the interface.
+
+Nothing that arrives can name anything. The call carries one of three states, colour, mono or
+nothing, and a binder whose death drops the request. The calling package comes from
+`Binder.getCallingUid`, never from the call. And a request is read only for the app that is in
+front, so the worst a caller can do is repaint a screen it already occupies.
+
+A rule now comes from four places, in this order. What the user set on the per-app list. What the
+app is asking for. What its manifest declares. The built-in table. A request sits above the table on
+purpose: a migrated app still carries the `PASS` preset from when it wrote the settings itself, and
+reading the table first would answer a polite request with the rule that means "ignore this app".
+
+**Color, then Apps asking now** lists every app asking right now. An empty list on a phone with a
+migrated app is the finding, not an empty state: either the app never bound, or its request went
+when its process did.
+
 ### The lock screen
 
 The LightOS lock screen is not a keyguard window. It is a view inside the single LightOS
@@ -839,6 +872,9 @@ adb/AdbPairOverlay.kt      pairing without leaving the Settings dialog
 adb/GrantCheck.kt          whether a grant landed, asked of the phone not of the command
 adb/GrantRequest.kt        another app's grant list, parsed and rebuilt, never executed
 
+color/ColorService.kt      the exported interface an app asks for colour through
+color/ColorRequests.kt     what each app is asking for, keyed by the binder that dies with it
+
 hotspot/TriggerEngine.kt   the raise and lower decision, with no Android in it
 hotspot/SoftAp.kt          the access point, over the shell this app already holds
 portal/PortalActivity.kt   the captive-portal WebView, bound to the captive network
@@ -906,6 +942,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.84 | **An app can ask for colour instead of holding the grant.** Five apps carried `WRITE_SECURE_SETTINGS` to fight over the same two settings, which is five grants to lose on the next reinstall and five writers taking turns on one screen. A new exported service takes a request from another app, identified by the calling uid and honoured only while that app is in front, and an app with one opinion can declare it in a manifest tag instead and write no code at all. `PASS` stays for apps that have not migrated. **Color → Apps asking now** says who is asking |
 | v3.83 | **A call from an unknown number gets a card, the battery shows a bolt, and a notification lights the panel.** Telephony's RINGING was being dropped whenever no number came with it, which is exactly what a withheld caller looks like — the state and the number are two facts now, and a ring nothing else confirms expires after two minutes so a card cannot stick. The charging mark asked `BatteryManager.isCharging`, which is battery *stats* and lags a cable by minutes; it reads the sticky battery broadcast instead. And Wake the screen no longer lives under Banners: with banners off it wakes the phone and the lock face comes up with the note on it |
 | v3.82 | **The edge strips leave the top of the screen alone, and the tick is gone.** Nearly every screen puts a back arrow in the top-left corner, which is the corner the left strip ran through — reaching for the arrow with a thumb that slid inwards was a swipe rather than a tap, and on the right edge or a screen with no arrow the same slip fired a gesture nobody asked for. The top 92 dp of both edges now belong to the app, adjustable under **Leave the top alone**, with 0 the old behaviour. It had to be a hole in the window rather than a rule in the touch listener: an overlay that receives a touch has taken it, so a strip that merely ignored the corner would have left the arrow unreachable instead of reachable. The indicator's tick is removed as well — a short grey line inside an outlined box read as a smudge, and the word and glyph already change at the long threshold |
 | v3.78 | **Luma is Home in the switcher, not an app.** The launcher is listed as Home behind a drawn house instead of its own name and icon — every other row is somewhere you were, and the one row that is how you *leave* was dressed as one more app. A thin outline among solid squares is the whole distinction. Matched by package rather than by the HOME role, which on this phone is always LightOS. Off under Buttons → Home button, and the setting stays off the screen entirely when Luma is not installed |

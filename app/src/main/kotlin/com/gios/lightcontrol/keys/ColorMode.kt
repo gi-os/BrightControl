@@ -6,6 +6,8 @@ import android.os.Looper
 import android.provider.Settings
 import android.text.format.DateFormat
 import com.gios.lightcontrol.ColorRule
+import com.gios.lightcontrol.Policy
+import com.gios.lightcontrol.color.ColorRequests
 import com.gios.lightcontrol.Prefs
 
 /**
@@ -61,7 +63,7 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         // observer cannot tell that from LightOS interfering. Without this it re-asserts into the
         // middle of the nudge, sees a difference, writes, and nudges again — forever.
         if (nudging) return
-        val rule = prefs.colorRuleFor(pkg)
+        val rule = ruleFor(pkg)
         // A floating window from a package with no opinion is not a reason to repaint the screen
         // somebody is looking at. This is the general form of the Edge Gestures bug: an overlay
         // app raises a window-state event, has no rule, and Default means *restore the baseline* —
@@ -94,6 +96,31 @@ class ColorMode(private val context: Context, private val prefs: Prefs) {
         if (!set(enabled, mode)) return
         if (mode == MODE_OFF) nudge()
         verify(pkg, rule, enabled, mode)
+    }
+
+    /**
+     * Where the front app's rule comes from, now that an app can ask for itself.
+     *
+     * Four sources, and the order is [Policy.resolveColorRule] rather than four `?:` written out
+     * here, because the order is the entire behaviour and it is testable there and not here.
+     *
+     * The manifest read is the only one of the four that costs anything — a package manager call
+     * per apply, and apply runs on every window event plus three re-asserts plus every settings
+     * change. So it is cached per package. A manifest cannot change without the app being
+     * reinstalled, and an install kills this process, so the cache cannot go stale while it is
+     * consulted.
+     */
+    private fun ruleFor(pkg: String): ColorRule = Policy.resolveColorRule(
+        stored = prefs.storedColorRule(pkg),
+        asked = ColorRequests.ruleFor(pkg),
+        declared = declared(pkg),
+        preset = Policy.builtInColorRuleFor(pkg),
+    )
+
+    private val declaredCache = mutableMapOf<String, ColorRule?>()
+
+    private fun declared(pkg: String): ColorRule? = declaredCache.getOrPut(pkg) {
+        runCatching { Policy.declaredColorRule(context.packageManager, pkg) }.getOrNull()
     }
 
     /**

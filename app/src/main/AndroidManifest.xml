@@ -258,6 +258,27 @@
           down - an accessibility service that throws often enough is stood down by the system,
           and standing down the key filter to fix a hotspot would be a poor trade.
         -->
+        <!--
+          Another app asking for colour, so it does not need WRITE_SECURE_SETTINGS of its own.
+          Exported on purpose, because the sender is another app.
+
+          Nothing that arrives here can name anything. The call carries a state - colour, mono, or
+          nothing - and a binder whose death drops the request; the calling package comes from
+          Binder.getCallingUid, and the request is only ever read for the app that is in front. So
+          the worst a caller can do is make its own screen colour. See color/ColorService.kt.
+
+          Its own service rather than a method on the accessibility service above: that one is
+          bound by the system and filters every key on this phone, and an interface other apps can
+          reach must not be able to take it down.
+        -->
+        <service
+            android:name=".color.ColorService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.gios.lightcontrol.action.COLOR" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".hotspot.HotspotService"
             android:exported="false"

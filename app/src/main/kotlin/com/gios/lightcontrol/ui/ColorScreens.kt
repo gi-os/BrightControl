@@ -36,6 +36,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.gios.lightcontrol.ColorRule
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.color.ColorRequests
 import com.gios.lightcontrol.keys.ColorMode
 import com.gios.lightcontrol.keys.ColorOutcome
 import com.gios.lightcontrol.keys.Grants
@@ -59,6 +60,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
     var auto by remember { mutableStateOf(prefs.colorAutoSwitch) }
     var live by remember { mutableStateOf(ColorMode(context, prefs).live()) }
     var log by remember { mutableStateOf(prefs.colorLog()) }
+    var asking by remember { mutableStateOf(ColorRequests.asking()) }
     var sent by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -83,6 +85,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             if (event == Lifecycle.Event.ON_RESUME) {
                 live = ColorMode(context, prefs).live()
                 log = prefs.colorLog()
+                asking = ColorRequests.asking()
             }
         }
         lifecycle?.addObserver(observer)
@@ -153,7 +156,28 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             onClick = {
                 live = ColorMode(context, prefs).live()
                 log = prefs.colorLog()
+                asking = ColorRequests.asking()
             },
+        )
+        // Which apps have asked for themselves, over color/ColorService. Worth a row of its own
+        // rather than folding into the per-app list, because it answers a question the list cannot:
+        // an app with no rule set and no preset can still be in colour, and until this was on
+        // screen there was no way to tell that from the feature being broken. An empty list on a
+        // phone with a migrated app is the finding — either it never bound, or its request was
+        // dropped when its process died.
+        MenuRow(
+            label = "Apps asking now",
+            detail = "${asking.size}",
+            sub = if (asking.isEmpty()) {
+                "no app is asking. An app built against light-common 1.7.0 or later asks for " +
+                    "itself; anything older needs a rule below."
+            } else {
+                asking.entries.joinToString(", ") { (pkg, rule) ->
+                    "${pkg.substringAfterLast('.')} ${rule.name.uppercase()}"
+                }
+            },
+            dim = true,
+            onClick = { asking = ColorRequests.asking() },
         )
         MenuRow(
             label = "Per-app rules",
@@ -204,6 +228,7 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
                 // brought this on. The two halves of a report have to describe the same phone.
                 live = ColorMode(context, prefs).live()
                 log = prefs.colorLog()
+                asking = ColorRequests.asking()
                 val report = Reports.compose(
                     context = context,
                     symptom = Symptom.Wrong,

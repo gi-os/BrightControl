@@ -1,44 +1,95 @@
-## BrightControl v3.83 — a call from a number the phone cannot name, the charging bolt, and a panel that lights for a notification
+## BrightControl v3.84 — an app can ask for colour instead of holding the grant
 
-**A call from an unknown or withheld number never reached the lock face.** Three things can tell
-this app the phone is ringing, and for that one call all three said nothing. The dialer posts no
-notification — LightOS's is a system app that raises its own activity — so the shade had nothing.
-The audio mode does not reliably move to `MODE_RINGTONE` for a call the ringer is not going to play
-out loud. And telephony, the one source that always speaks, was being thrown away: the
-`ACTION_PHONE_STATE_CHANGED` receiver read the number off the broadcast and returned early when it
-was empty, which is exactly what an unknown caller looks like. **The whole ring was dropped because
-the caller had no name.**
+**Five apps were carrying a privileged permission to fight over two settings.** Showing a
+photograph on this phone means moving the accessibility daltonizer, moving it needs
+`WRITE_SECURE_SETTINGS`, and that permission is `signature|privileged` — no runtime prompt, no
+LightOS screen, so `pm grant` from a computer and again after every reinstall. Roll, BrightChat,
+BrightNotebook and BrightMusic all held it and all carried their own copy of the writer.
 
-The state and the number are now two separate facts. RINGING is published whether or not a number
-came with it, and the card is drawn on the strength of the ring alone. Where the number really was
-withheld — telephony announced the call, the grants are in place, and no number arrived — the card
-says **Unknown number** rather than "Incoming call" under a heading that already reads INCOMING
-CALL.
+Which is five grants to lose, and worse, five writers. Two writers with different opinions about
+one setting do not average out, they alternate: BrightMusic held colour per album cover and put
+grey back between them, this app answered every restore by re-asserting colour, and the panel
+flickered on every scroll. `ColorRule.Passthrough` exists because of that — this app standing down
+so the other one could win an argument it should not have been in.
 
-A ring that only telephony is asserting expires after two minutes. The IDLE broadcast is what ends
-one, a broadcast can be missed, and nothing else would contradict it: a card stuck on the lock
-screen until reboot is a worse bug than the one being fixed.
+This is the other way round. The app says what it wants, this app writes it, and there is one grant
+on the phone.
 
-The stage decision is its own object now, `CallStage`, with tests. It has been wrong twice and
-neither time was there anything to test.
+**Two ways for an app to say so.** A manifest tag, for an app with one opinion:
 
-**The battery showed no bolt while charging.** It asked `BatteryManager.isCharging`, which is not
-the question it looks like: that call goes to battery *stats*, which means the run of charging it
-has decided to count, and applies hysteresis before saying yes. Plug a phone in and it stays false
-for a while. Plug one in at full and it can stay false altogether. Those are the two moments
-somebody plugs a phone in and leaves it, and LightOS's own status bar drew a bolt the moment the
-phone was unlocked, so ours read as broken. It now reads the sticky `ACTION_BATTERY_CHANGED` —
-`EXTRA_PLUGGED` for a cable, `EXTRA_STATUS` for a dock or a pad — which is immediate and true.
-`isCharging` stays underneath as a fallback. The level falls back to the same broadcast too.
+```xml
+<meta-data android:name="com.gios.brightcontrol.color" android:value="color" />
+```
 
-**The phone now lights up for a notification with banners off.** The wake was gated on banners
-being on, and banners are off by default — so a phone running the Light lock face and no banner
-never lit for anything. A message arrived, the shade took it, and you found out at the next press
-of the power button. That is not what a lock face is for.
+`color` or `mono`, read off the package manager. That is what retires the hand-kept preset table in
+`Prefs.kt`: a new app decides for itself, by whoever knows the answer, and it is true from the
+moment the app is installed rather than from the next release of *this* app. Third-party developers
+can use it, which nothing else here has ever allowed.
 
-Wake the screen has moved out from under Banners in **Notifications** and now covers both: with
-banners on it is what it always was, and with banners off it turns the panel on and the lock face
-comes up carrying the notification as a row, with no box over the top of it. It is on by default
-and does nothing unless there is something to land on — with banners *and* the lock face both off
-the row says so and stays dim, because waking to LightOS's own lock screen is what picking the
-phone up would have shown anyway.
+And a live request, for an app that changes its mind screen by screen — a camera, a chat thread, a
+photo grid. New exported service, `color/ColorService.kt`, one method: `want(state, token)`.
+
+**Why an exported service is safe here.** The same argument as `adb/GrantRequest.kt` one floor down.
+That file holds a shell and refuses to run one character of what it is sent. This one holds the
+grant and accepts two numbers, neither of which can name anything.
+
+- **The caller is identified by the kernel.** `Binder.getCallingUid`, resolved to a package by the
+  package manager. There is no field in which a request could claim to be another app. A uid with
+  more than one package is a shared user id and is refused rather than guessed at.
+- **A request is honoured only while its sender is in front.** Rules are read by
+  `ColorMode.applyFor`, which is only ever called for the foreground package, so the worst a
+  request can do is repaint a screen the caller was already drawing. That gate is the shape of the
+  code rather than a check that could be forgotten: there is deliberately no `front` field in the
+  registry to be kept in step with the service's own by hand.
+- **The vocabulary is three states.** Colour, mono, nothing. Not a setting, not a value, not a
+  package name. A state this build does not recognise is read as wanting nothing, because forcing a
+  colour nobody asked for is the worse guess.
+
+**The token is the release.** A request has to end when the process that made it stops existing, or
+an app that is swiped away leaves the phone repainted with nothing to take it back and no LightOS
+screen to undo it. AIDL gives a server no per-client identity, so the caller passes a plain binder
+and this app links death to it. That also makes two processes of one app behave: each holds its own
+request, and one dying does not drop the other's.
+
+**A rule now comes from four places and the order is the whole behaviour**, so it is one pure
+function with tests rather than four lookups inline. What the user set, then what the app is asking
+for, then what its manifest declares, then the built-in table. The request sits above the table on
+purpose: a migrated app is still carrying the `Passthrough` preset from when it wrote the settings
+itself, and reading the table first would answer a polite request with the rule that means "ignore
+this app" — a release where the screen goes grey and nothing in the log explains it. The other half
+of the same property is that an app which has *not* migrated is still left alone, because it never
+asks.
+
+`Prefs.storedColorRule` is new and is why any of that works: "no choice made" and "chose AUTO"
+stopped being the same answer, and while they were flattened together every app on the phone
+resolved to an explicit AUTO and nothing below the first step was ever consulted.
+
+**Color → Apps asking now** lists who is asking. An empty list on a phone with a migrated app is a
+finding rather than an empty state — either the app never bound, or its request went when its
+process did. Every colour bug so far was diagnosed off that screen and not off a hunch.
+
+Nothing is a hard dependency in either direction. An app that never asks is unaffected. An app that
+asks on a phone where this app is missing, ungranted, or has the colour switch off gets `INERT`
+back and falls through to its own writer, and the request is kept so it takes over the moment that
+changes.
+
+### Under the hood
+
+- New: `color/ColorService.kt`, `color/ColorRequests.kt`, `aidl/com/gios/lightcontrol/IColorProvider.aidl`.
+  `buildFeatures { aidl = true }`, because AGP 8 leaves AIDL off.
+- `Policy.resolveColorRule` and `Policy.declaredColorRule`, with `ColorResolveTest`.
+- `ColorMode.ruleFor` caches the manifest read per package. A manifest cannot change without a
+  reinstall, and a reinstall kills the process, so the cache cannot go stale while it is consulted.
+- The re-apply callback is held in a field and compared on unbind, the same way the banner callback
+  is: a fast toggle of the service lands the old instance's unbind after the new one's create, and
+  clearing it unconditionally would leave every request recorded with nothing acting on any of them.
+
+### Next
+
+The apps migrate one at a time: delete the app's own `ColorMode.kt`, call `ColourEffect()` from
+light-common 1.7.0, then move that app off `PASS` here. In that order — dropping an app's own writer
+before this release is on the phone makes it grey for everybody who has not updated.
+
+Roll is the one to read carefully. It still carries the **edge-based** `ColorMode` that BrightMusic
+and BrightChat had fixed, so the stranded-holder bug is latent in it today. The migration deletes
+the file rather than repairing it.

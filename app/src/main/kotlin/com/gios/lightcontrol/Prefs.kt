@@ -1,6 +1,7 @@
 package com.gios.lightcontrol
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.SharedPreferences
 
 /** What a bare wheel turn does in an app. */
@@ -1085,12 +1086,21 @@ class Prefs(context: Context) {
      * for the apps in [Policy.colorPresets] that is not a default, it is the app not working:
      * Roll's entire output is color and it was framing and shooting through a grey filter.
      */
-    fun colorRuleFor(pkg: String): ColorRule {
-        val stored = runCatching {
-            sp.getString(colorKey(pkg), null)?.let { ColorRule.valueOf(it) }
-        }.getOrNull()
-        return stored ?: Policy.builtInColorRuleFor(pkg)
-    }
+    fun colorRuleFor(pkg: String): ColorRule =
+        storedColorRule(pkg) ?: Policy.builtInColorRuleFor(pkg)
+
+    /**
+     * What the user set for [pkg], and nothing else. Null means they have set nothing.
+     *
+     * Split out from [colorRuleFor] because "no choice made" and "the choice is Default" stopped
+     * being the same answer once an app could ask for itself. [colorRuleFor] flattens the two, so
+     * anything resolving through the request or the manifest has to ask this instead — otherwise
+     * every app on the phone resolves to an explicit AUTO and nothing below the first step is ever
+     * consulted.
+     */
+    fun storedColorRule(pkg: String): ColorRule? = runCatching {
+        sp.getString(colorKey(pkg), null)?.let { ColorRule.valueOf(it) }
+    }.getOrNull()
 
     fun setColorRule(pkg: String, rule: ColorRule) {
         sp.edit().apply {
@@ -1459,6 +1469,80 @@ object Policy {
      */
     fun builtInColorRuleFor(pkg: String): ColorRule =
         colorPresets[pkg] ?: ColorRule.Default
+
+    /**
+     * The rule for the app in front, from the four places one can come from.
+     *
+     * The order *is* the behaviour, which is why it is a function of four arguments and not four
+     * lookups inline at the call site. Every one of these steps was a bug at some point and the
+     * fix each time was where it sits in this list:
+     *
+     *  1. **What the user set.** An explicit choice on the per-app list wins outright. Somebody who
+     *     has told this phone that an app is mono did not mean "unless the app disagrees".
+     *  2. **What the app is asking for**, over [com.gios.lightcontrol.color.ColorService]. Second
+     *     rather than third because it is the only source that knows *which screen* the app is on,
+     *     and above the preset table on purpose: an app that has been migrated onto the request
+     *     path is very likely still carrying a [ColorRule.Passthrough] preset from when it wrote
+     *     the settings itself, and reading the table first would mean a migrated app asks politely
+     *     and is answered with the rule that says "ignore this app". That is a release where the
+     *     screen goes grey and nothing in the log explains it.
+     *  3. **What the app declares in its manifest.** One opinion for the whole app, from a package
+     *     that has never been launched.
+     *  4. **The preset table.** What this app knows about apps that cannot speak for themselves.
+     *
+     * Pure, so the order can be tested. See `ColorResolveTest`.
+     */
+    fun resolveColorRule(
+        stored: ColorRule?,
+        asked: ColorRule?,
+        declared: ColorRule?,
+        preset: ColorRule,
+    ): ColorRule = stored ?: asked ?: declared ?: preset
+
+    /**
+     * What an app says about itself in its own manifest:
+     *
+     * ```xml
+     * <meta-data android:name="com.gios.brightcontrol.color" android:value="color" />
+     * ```
+     *
+     * `color` or `mono`; anything else, including the tag being absent, is null and falls through.
+     *
+     * ### Why read it rather than table it
+     *
+     * [colorPresets] is a list of other people's apps kept by hand in this file, which means every
+     * new app is grey until somebody ships a BrightControl release naming it. A tag moves that
+     * decision into the app, where it is made by whoever knows the answer, and it is true from the
+     * moment the app is installed — before it has ever been opened, which is more than the request
+     * path can promise.
+     *
+     * ### Why it is safe to believe
+     *
+     * A manifest value only ever describes the package that declares it: the package name is the
+     * key this is read under, so there is no field in which an app could claim to be another one.
+     * And what it can claim is one of two words. It is applied under the same foreground gate as
+     * everything else, so the worst it can do is make its own screen colour, which is what
+     * installing it already implied.
+     *
+     * A user override still beats it, which is the answer to "an app declares colour and I do not
+     * want it to" — one tap on the per-app list.
+     */
+    fun declaredColorRule(pm: PackageManager, pkg: String): ColorRule? = runCatching {
+        val meta = pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA).metaData
+        when (meta?.getString(COLOR_META)?.trim()?.lowercase()) {
+            "color", "colour" -> ColorRule.Color
+            "mono", "monochrome" -> ColorRule.Mono
+            else -> null
+        }
+    }.getOrNull()
+
+    /**
+     * The manifest key. Spelled `brightcontrol`, not `lightcontrol`: the package id is still
+     * `com.gios.lightcontrol` for the reason every renamed app keeps its id — changing it is an
+     * uninstall — but a name third-party developers are asked to type should be the name on the
+     * app. Read as a string rather than a boolean so `mono` can exist at all.
+     */
+    const val COLOR_META = "com.gios.brightcontrol.color"
 
     /** The order a tap walks the colour states in, on the per-app list. */
     private fun colorCycleOrder(rule: ColorRule): ColorRule = when (rule) {
