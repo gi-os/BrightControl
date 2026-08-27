@@ -32,7 +32,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "3.84.0"
+        versionName = "3.85.0"
 
         buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
@@ -84,6 +84,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // The colour interface other apps call is AIDL, and AGP 8 leaves AIDL compilation off by
+        // default. The .aidl file is a copy of light-common's, byte for byte: an AIDL descriptor
+        // is its package and name, so the two must not drift.
+        aidl = true
     }
 }
 

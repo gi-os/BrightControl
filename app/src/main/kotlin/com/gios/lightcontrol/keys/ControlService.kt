@@ -33,6 +33,7 @@ import com.gios.lightcontrol.EdgeSide
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.color.ColorRequests
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockCall
@@ -185,6 +186,9 @@ class ControlService : AccessibilityService() {
 
     /** What turns the panel on for one, when it is off. Never an activity; see [BannerWake]. */
     private lateinit var bannerWake: BannerWake
+
+    /** This instance's colour-request callback. Same reason as the banner one below. */
+    private var colorRequestChanged: (() -> Unit)? = null
 
     /** This instance's banner callback, kept only so [onUnbind] can check it is still the live one. */
     private var bannerShow: ((Banners.Note, Long) -> Unit)? = null
@@ -355,6 +359,20 @@ class ControlService : AccessibilityService() {
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
         colorMode = ColorMode(this, prefs)
+        // Another app asking for colour has to take effect now, not at the next window event —
+        // the app doing the asking is the app on screen, and the next event may be minutes away.
+        // Held in a field so [onUnbind] can tell our callback from a newer instance's, the same
+        // way the banner callback is: a fast toggle of the service lands the old instance's
+        // unbind after the new one's create, and clearing this unconditionally there would leave
+        // every request recorded and nothing acting on any of them, with nothing on the phone to
+        // say why.
+        colorRequestChanged = {
+            runCatching {
+                handler.post { colorMode.applyFor(foreground, realScreen = lastWindowWasActivity) }
+            }
+            Unit
+        }
+        ColorRequests.onChanged = colorRequestChanged
         // Our own settings screen, onto the recents list. Nothing else can put it there: window
         // events from this package are transient by policy, because the overlays this service
         // owns raise them too. See [OwnWindow.onResumed].
@@ -1961,6 +1979,9 @@ class ControlService : AccessibilityService() {
         Lock.pending = null
         OwnWindow.onResumed = null
         OwnWindow.onSettingChanged = null
+        // Only if it is still ours; see [colorRequestChanged]. Requests stay recorded either way,
+        // so a rebind picks up whatever is being asked for without any app asking again.
+        if (ColorRequests.onChanged === colorRequestChanged) ColorRequests.onChanged = null
         handler.removeCallbacks(colorReassert)
         handler.removeCallbacks(colorObserverReassert)
         handler.removeCallbacks(lockWatch)
