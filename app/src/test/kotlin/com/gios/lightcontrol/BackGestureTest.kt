@@ -175,7 +175,6 @@ class BackGestureTest {
         g.down(0f, 100f)
         g.move(75f, 100f)
         assertEquals("half of 150, not past the end of 48", 0.5f, g.travel, 0.01f)
-        assertEquals("the tick sits where the short binding arms", 48f / 150f, g.armPoint, 0.01f)
         assertTrue(g.hasLong)
     }
 
@@ -183,7 +182,9 @@ class BackGestureTest {
     fun `an edge with no long swipe measures the short one`() {
         val g = gesture()
         assertFalse(g.hasLong)
-        assertEquals("no tick to draw", 1f, g.armPoint, 0.01f)
+        g.down(0f, 100f)
+        g.move(24f, 100f)
+        assertEquals("half of 48, the only threshold there is", 0.5f, g.travel, 0.01f)
     }
 
     @Test

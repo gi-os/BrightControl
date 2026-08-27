@@ -16,6 +16,37 @@ import com.gios.lightcontrol.EdgeGlyph
 import com.gios.lightcontrol.EdgeLength
 import com.gios.lightcontrol.EdgeSide
 
+/** Where a strip window sits down the screen, and how tall it is. See [stripBounds]. */
+data class StripBounds(val top: Int, val height: Int)
+
+/**
+ * The strip's window, given the screen's height and how much of the top to leave alone.
+ *
+ * **Why the dead zone is a hole in the window and not a rule in the touch listener.** A window is
+ * what decides who receives a touch, and that decision is made before any listener runs — an
+ * overlay that receives a touch has taken it, and returning false from `onTouch` cannot hand the
+ * stroke down to the app underneath. A strip that covered the corner and merely ignored what
+ * happened there would leave the back arrow *unreachable* rather than reachable, which is worse
+ * than the problem it was fixing.
+ *
+ * Two rules, both of which have to hold for a window the WindowManager will accept:
+ *
+ *  - `MATCH_PARENT` when nothing is being left alone, rather than an explicit full height. The two
+ *    are the same number until the screen changes size under a strip already up, and only one of
+ *    them is still right afterwards.
+ *  - Never more than half the screen. The setting is capped in [com.gios.lightcontrol.Prefs] too,
+ *    but a dp cap cannot know how tall this panel is, and a dead zone taller than the screen is a
+ *    window of negative height — which the WindowManager takes as `WRAP_CONTENT` on a view that
+ *    draws nothing, i.e. an edge gesture that silently stopped existing.
+ *
+ * Free of Android types so it can be exercised without one. See `EdgeSwipeBoundsTest`.
+ */
+fun stripBounds(screenPx: Int, topDeadPx: Int): StripBounds {
+    val top = topDeadPx.coerceIn(0, (screenPx / 2).coerceAtLeast(0))
+    if (top <= 0) return StripBounds(0, WindowManager.LayoutParams.MATCH_PARENT)
+    return StripBounds(top, (screenPx - top).coerceAtLeast(1))
+}
+
 /**
  * How one edge is set up: what its two swipes do, and what the indicator says about them.
  *
@@ -116,6 +147,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
     fun set(
         wanted: Boolean,
         widthDp: Int,
+        topDeadDp: Int,
         triggerDp: Int,
         longDp: Int,
         slopDp: Int,
@@ -135,12 +167,12 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         // to any of them needs the strip rebuilt. Rebuilt rather than adjusted in place: a window
         // resized mid-stroke retargets the touch it is holding, and a gesture whose thresholds move
         // under a finger already down cannot be reasoned about at all.
-        val shape = "$widthDp:$triggerDp:$longDp:$slopDp"
+        val shape = "$widthDp:$topDeadDp:$triggerDp:$longDp:$slopDp"
         if (strip != null) {
             if (shape == stripShape) return
             hide()
         }
-        attach(widthDp, triggerDp, longDp, slopDp)
+        attach(widthDp, topDeadDp, triggerDp, longDp, slopDp)
         if (strip != null) stripShape = shape
     }
 
@@ -177,7 +209,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
      */
     private var stripShape = ""
 
-    private fun attach(widthDp: Int, triggerDp: Int, longDp: Int, slopDp: Int) {
+    private fun attach(widthDp: Int, topDeadDp: Int, triggerDp: Int, longDp: Int, slopDp: Int) {
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         val density = context.resources.displayMetrics.density
         // A long threshold past the edge of the screen is a gesture that cannot be completed, and
@@ -195,9 +227,10 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         view.setBackgroundColor(Color.TRANSPARENT)
         view.setOnTouchListener { _, event -> onTouch(g, event) }
 
+        val bounds = stripBounds(screenHeight(wm), (topDeadDp * density).toInt())
         val params = WindowManager.LayoutParams(
             (widthDp * density).toInt().coerceAtLeast(1),
-            WindowManager.LayoutParams.MATCH_PARENT,
+            bounds.height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // Never focusable: an overlay holding key focus would swallow the wheel and the
             // buttons, which is the one thing this app must not do to itself.
@@ -208,6 +241,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = horizontal() or Gravity.TOP
+            y = bounds.top
         }
 
         runCatching { wm.addView(view, params) }
@@ -220,6 +254,23 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
     /** START or END, and never LEFT or RIGHT: the edges of an RTL screen are the other way round. */
     private fun horizontal(): Int =
         if (side == EdgeSide.Left) Gravity.START else Gravity.END
+
+    /**
+     * The whole panel's height in pixels, bars included.
+     *
+     * `FLAG_LAYOUT_IN_SCREEN` puts this window in the screen's own coordinates rather than the
+     * app's, so the number the strip has to be measured against is the one that counts the status
+     * bar. `currentWindowMetrics` says so directly; `displayMetrics` on a service context has been
+     * known to answer with the decorated size, which would leave the strip a status bar short of
+     * the bottom of the screen.
+     */
+    private fun screenHeight(wm: WindowManager): Int = runCatching {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            wm.currentWindowMetrics.bounds.height()
+        } else {
+            context.resources.displayMetrics.heightPixels
+        }
+    }.getOrDefault(context.resources.displayMetrics.heightPixels)
 
     private fun onTouch(g: BackGesture, event: MotionEvent): Boolean = try {
         when (event.actionMasked) {
@@ -271,7 +322,6 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         val view = hud ?: HudView(context, side).also { hud = it }
         view.set(
             travel = g.travel,
-            armPoint = if (g.hasLong) g.armPoint else 1f,
             stage = g.stage,
             face = face,
             fired = null,
@@ -294,7 +344,6 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         }
         view.set(
             travel = 1f,
-            armPoint = 1f,
             stage = if (fired == EdgeLength.Long) BackStage.ArmedLong else BackStage.Armed,
             face = face,
             fired = fired,
@@ -344,9 +393,12 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
      * inverted for the moment after it fired. No animation, no rounded corners, no tint — LightOS's
      * whole visual vocabulary is a rectangle and two shades.
      *
-     * **The tick is the part that makes a long swipe usable.** Without a mark for where the short
-     * binding stops and the long one starts, the only way to find the second stage is to drag until
-     * the word changes, which is a gesture you learn by overshooting the one you wanted.
+     * **There was a tick across the box** marking where the long swipe took over. It is gone: on a
+     * 3.9" matte panel a short grey line inside an outlined box does not read as a scale mark, it
+     * reads as a smudge or as a second box behind the first, and it was the only thing drawn here
+     * that had to be explained before it meant anything. The long threshold still announces itself
+     * — the word changes and so does the glyph — and that is the announcement people were actually
+     * reading.
      */
     private class HudView(context: Context, private val side: EdgeSide) : View(context) {
 
@@ -380,7 +432,6 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         }
 
         private var travel = 0f
-        private var armPoint = 1f
         private var stage = BackStage.Watching
         private var face = EdgeFace("", EdgeGlyph.Mark, null, EdgeGlyph.Mark)
         private var fired: EdgeLength? = null
@@ -388,14 +439,12 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
 
         fun set(
             travel: Float,
-            armPoint: Float,
             stage: BackStage,
             face: EdgeFace,
             fired: EdgeLength?,
             ok: Boolean,
         ) {
             this.travel = travel.coerceIn(0f, 1f)
-            this.armPoint = armPoint.coerceIn(0f, 1f)
             this.stage = stage
             this.face = face
             this.fired = fired
@@ -440,8 +489,6 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             label.color = ink
             fill.color = ink
 
-            tick(canvas, h, fullW, filled)
-
             // The glyph, at the leading edge of the box: the end the thumb is dragging toward.
             val cy = h / 2f
             val inset = 15f * density
@@ -464,26 +511,6 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             if (inside) {
                 canvas.drawText(text, tx, cy - (label.ascent() + label.descent()) / 2f, label)
             }
-        }
-
-        /**
-         * The mark for where the short binding stops and the long one starts.
-         *
-         * Drawn at its place on the *full* width rather than on the box, so it stands still while
-         * the box grows past it — a mark that moved with the thing being measured would measure
-         * nothing. Absent when the edge has no long swipe, and absent once the gesture has fired,
-         * where the box is a confirmation rather than a scale.
-         */
-        private fun tick(canvas: Canvas, h: Float, fullW: Float, filled: Boolean) {
-            if (armPoint >= 1f || filled) return
-            val minW = 26f * density
-            val at = minW + (fullW - minW) * armPoint
-            val x = if (side == EdgeSide.Left) at else fullW - at
-            // Only once the box has reached it. Before that it would be a line floating outside the
-            // box, which reads as a second window rather than as a scale.
-            if (travel < armPoint) return
-            outline.color = if (filled) Color.BLACK else Color.parseColor("#4A4A4A")
-            canvas.drawLine(x, h * 0.22f, x, h * 0.78f, outline)
         }
 
         /** Pointing left: where the screen you are going back to comes from. */

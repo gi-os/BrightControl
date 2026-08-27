@@ -362,10 +362,19 @@ A small box follows your thumb while the drag runs. It is an outline while the s
 turns white and names whichever binding a release would perform. The box is not decoration. An armed
 state that nothing on screen reports is a gesture you cannot aim.
 
-**The tick in the box is what makes a long swipe usable.** The box measures the whole gesture, and a
-mark shows where the long binding takes over. Without one the only way to find the second stage is to
-drag until the word changes, which is a gesture you learn by overshooting the one you wanted. An edge
-whose long binding is set to nothing has one gesture, and its box measures the short one.
+The box measures the whole gesture, so it keeps growing after the short binding arms rather than
+sitting full for the second half of the stroke. There used to be a tick across it marking where the
+long binding took over; it is gone, because a short grey line inside an outlined box at this size
+reads as a smudge rather than as a scale mark. The word and the glyph still change at the long
+threshold, which is the announcement people were reading anyway. An edge whose long binding is set to
+nothing has one gesture, and its box measures the short one.
+
+**The strips stop short of the top of the screen.** Nearly every screen on this phone puts a back
+arrow in the top-left corner — the corner the left strip runs through — so reaching for the arrow put
+a thumb on the strip, and a thumb that slid inwards on its way down was a swipe rather than a tap.
+Both went back, which is why it read as harmless; the same slip on a screen with no arrow, or on the
+right edge, performed a gesture nobody asked for. The top 92 dp of both edges now belong to the app.
+**Leave the top alone** sets it, and 0 is the old behaviour.
 
 The glyph is a chevron for back, two overlapping cards for the switcher, and a plain filled square
 for everything else. Three, and no more: the two gestures anybody will actually bind to an edge have
@@ -897,6 +906,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.82 | **The edge strips leave the top of the screen alone, and the tick is gone.** Nearly every screen puts a back arrow in the top-left corner, which is the corner the left strip ran through — reaching for the arrow with a thumb that slid inwards was a swipe rather than a tap, and on the right edge or a screen with no arrow the same slip fired a gesture nobody asked for. The top 92 dp of both edges now belong to the app, adjustable under **Leave the top alone**, with 0 the old behaviour. It had to be a hole in the window rather than a rule in the touch listener: an overlay that receives a touch has taken it, so a strip that merely ignored the corner would have left the arrow unreachable instead of reachable. The indicator's tick is removed as well — a short grey line inside an outlined box read as a smudge, and the word and glyph already change at the long threshold |
 | v3.78 | **Luma is Home in the switcher, not an app.** The launcher is listed as Home behind a drawn house instead of its own name and icon — every other row is somewhere you were, and the one row that is how you *leave* was dressed as one more app. A thin outline among solid squares is the whole distinction. Matched by package rather than by the HOME role, which on this phone is always LightOS. Off under Buttons → Home button, and the setting stays off the screen entirely when Luma is not installed |
 | v3.77 | **The switcher stays after a wheel hold, and ADB commands are readable.** The switcher opened by a wheel hold no longer closes on release — the release key event was reaching `onSwitcherKey` after the hold-threshold change in v3.68 opened it mid-press. Tapping to show a grant's adb command now gives it six lines instead of two, so nothing is cut off with \"...\" |
 | v3.76 | **The pairing reader looks on a timer, not only when told.** It read on accessibility events, so a dialog that arrived while the app was settling was sometimes never seen at all |

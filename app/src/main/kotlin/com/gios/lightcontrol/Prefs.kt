@@ -975,6 +975,28 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putInt("back_swipe_width", v.coerceIn(6, 40)).apply()
 
     /**
+     * How much of the top of the screen the strips leave alone, in dp.
+     *
+     * **The one place an edge strip and an app want the same pixels.** Almost every screen on this
+     * phone puts a back arrow in the top-left corner, which is the corner the left strip runs
+     * through — so reaching for the arrow puts a thumb on the strip, and a thumb that slides even
+     * slightly inwards on its way down is a swipe rather than a tap. Both go back, so it looked
+     * harmless; it is not. The same slip on a screen with no arrow, or on the *right* edge where
+     * the same corner is a menu, performs a gesture nobody asked for.
+     *
+     * 92 dp by default, which is a status bar and a title bar on this panel. Adjustable because an
+     * app that draws no bar at all wants none of it, and 0 is a real answer -- it is the behaviour
+     * before this setting existed.
+     *
+     * Only the *top*. A dead zone at the bottom would be the same argument and is deliberately not
+     * offered: nothing on this phone puts a control in the bottom corners, and every dp spent here
+     * is a dp of edge the gesture no longer has.
+     */
+    var edgeTopDeadDp: Int
+        get() = sp.getInt("edge_top_dead", 92).coerceIn(0, 200)
+        set(v) = sp.edit().putInt("edge_top_dead", v.coerceIn(0, 200)).apply()
+
+    /**
      * How far across the drag has to go before lifting acts, in dp.
      *
      * 48 dp. Short enough to be one motion of a thumb, long enough that a tap on the edge is not

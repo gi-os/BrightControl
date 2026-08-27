@@ -37,6 +37,7 @@ fun EdgeSwipeScreen(
     var left by remember { mutableStateOf(prefs.leftEdgeOn) }
     var right by remember { mutableStateOf(prefs.rightEdgeOn) }
     var width by remember { mutableIntStateOf(prefs.edgeWidthDp) }
+    var topDead by remember { mutableIntStateOf(prefs.edgeTopDeadDp) }
     var trigger by remember { mutableIntStateOf(prefs.edgeTriggerDp) }
     var long by remember { mutableIntStateOf(prefs.edgeLongDp) }
     var hud by remember { mutableStateOf(prefs.edgeIndicator) }
@@ -141,6 +142,28 @@ fun EdgeSwipeScreen(
             },
         )
         MenuRow(
+            label = "Leave the top alone",
+            detail = if (topDead == 0) "OFF" else "$topDead dp",
+            sub = if (topDead == 0) {
+                "off — the strips run the full height of the screen, corners included. This is " +
+                    "what they did before this setting existed."
+            } else {
+                "the top $topDead dp of both edges belong to the app. Nearly every screen puts a " +
+                    "back arrow in that corner, and reaching for it with a thumb that slides " +
+                    "inwards was a swipe rather than a tap."
+            },
+            onClick = {
+                topDead = when (topDead) {
+                    0 -> 64
+                    64 -> 92
+                    92 -> 120
+                    else -> 0
+                }
+                prefs.edgeTopDeadDp = topDead
+                OwnWindow.settingChanged()
+            },
+        )
+        MenuRow(
             label = "Short swipe",
             detail = "$trigger dp",
             sub = "past this the short binding is armed and letting go performs it. Come back " +
@@ -183,7 +206,7 @@ fun EdgeSwipeScreen(
             detail = if (hud) "ON" else "OFF",
             sub = if (hud) {
                 "a box at your thumb: an outline while the drag is short, then the name of " +
-                    "whichever binding a release would perform. A tick marks where the long " +
+                    "whichever binding a release would perform. The word changes when the long " +
                     "swipe takes over."
             } else {
                 "hidden. The gestures still work, with nothing on screen to say which one is " +

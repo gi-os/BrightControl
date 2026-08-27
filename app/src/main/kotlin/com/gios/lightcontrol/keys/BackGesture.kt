@@ -115,15 +115,6 @@ class BackGesture(
     var travel: Float = 0f
         private set
 
-    /**
-     * Where along that progress the short binding arms, 0 to 1.
-     *
-     * For the tick the indicator draws. Without it a long swipe is a guess: the box grows, the word
-     * changes at some point, and there is nothing to say how much further the second stage is. With
-     * it the mark you have to get past is on screen before you get there.
-     */
-    val armPoint: Float get() = if (span <= 0f) 1f else (triggerPx / span).coerceIn(0f, 1f)
-
     /** Where the indicator sits, in pixels down the screen: where the finger went down. */
     var anchorY: Float = 0f
         private set

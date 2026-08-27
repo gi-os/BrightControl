@@ -755,6 +755,7 @@ class ControlService : AccessibilityService() {
             val front = if (OwnWindow.resumed) packageName else foreground
             val allowed = edgesWanted(front)
             val width = prefs.edgeWidthDp
+            val topDead = prefs.edgeTopDeadDp
             val trigger = prefs.edgeTriggerDp
             val indicator = prefs.edgeIndicator
             val long = prefs.edgeLongDp
@@ -762,11 +763,14 @@ class ControlService : AccessibilityService() {
                 strip.set(
                     wanted = allowed && prefs.edgeOn(side),
                     widthDp = width,
+                    // The top of the screen is where every app puts its back arrow, and the strip
+                    // used to run straight through it. See [Prefs.edgeTopDeadDp].
+                    topDeadDp = topDead,
                     triggerDp = trigger,
                     // Zero when nothing is bound to the long swipe, which is what turns the second
                     // stage off: an edge with an unbound long binding is an edge with one gesture,
-                    // and the indicator should measure the short one rather than leaving a tick
-                    // two thirds of the way across for something that will not happen.
+                    // and the indicator should measure the short one rather than growing toward a
+                    // second stage that will not happen.
                     longDp = if (prefs.edgeAction(side, EdgeLength.Long).acts) long else 0,
                     slopDp = EDGE_SLOP_DP,
                     showIndicator = indicator,
