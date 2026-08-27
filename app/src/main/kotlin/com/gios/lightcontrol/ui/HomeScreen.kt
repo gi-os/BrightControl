@@ -159,8 +159,9 @@ fun HomeScreen(
             )
             MenuRow(
                 label = "Volume",
-                sub = "the level readout LightOS has no screen for",
-                detail = "›",
+                sub = "the level readout LightOS has no screen for, and the ringer set by which " +
+                    "Wi-Fi you are on",
+                detail = if (prefs.wifiRingerOn) "WI-FI" else "›",
                 onClick = onVolume,
             )
             Rule()

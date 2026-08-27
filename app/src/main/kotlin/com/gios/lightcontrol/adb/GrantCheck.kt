@@ -44,6 +44,13 @@ sealed interface GrantCheck {
     data class SecureListHas(val key: String, val component: String) : GrantCheck
 
     /**
+     * Notification policy access — "Do Not Disturb access", the thing that lets an app mute the
+     * phone. Not a permission and not an app op: a list of packages the notification service keeps,
+     * and the framework answers for our own package without a shell.
+     */
+    data class PolicyAccess(val pkg: String) : GrantCheck
+
+    /**
      * Nothing to read back. Starting Shizuku is the only one: it brings up somebody else's
      * service, which then asks the user per app in its own UI, so there is no state here that
      * says whether it worked. Reported honestly as unknown rather than dressed up as success.
@@ -171,6 +178,17 @@ object GrantCheckRunner {
                 // nothing at all. Match the mode word rather than the whole line.
                 out.substringAfter(':', out).contains(check.mode, ignoreCase = true)
             }.getOrNull()
+
+        // Framework-answered, like the two app ops below, and for the same reason: a check that
+        // needs the shell is a check that fails exactly when the grant did.
+        is GrantCheck.PolicyAccess -> if (check.pkg != context.packageName) {
+            null
+        } else {
+            runCatching {
+                context.getSystemService(android.app.NotificationManager::class.java)
+                    ?.isNotificationPolicyAccessGranted
+            }.getOrNull()
+        }
 
         is GrantCheck.SecureListHas -> runCatching {
             val cur = Settings.Secure.getString(context.contentResolver, check.key).orEmpty()

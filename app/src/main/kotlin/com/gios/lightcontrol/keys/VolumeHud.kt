@@ -15,7 +15,6 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
-import kotlin.math.roundToInt
 
 /**
  * The volume level, at the top of the screen, over whatever app is in front.
@@ -49,6 +48,12 @@ class VolumeHud(private val context: Context) {
      */
     var onTap: (() -> Unit)? = null
 
+    /**
+     * A row in the selector was chosen. The stream is the `AudioManager.STREAM_*` constant, and
+     * what happens next is the watcher's business — this only reports the tap.
+     */
+    var onPick: ((Int) -> Unit)? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private val hide = Runnable { detach() }
 
@@ -57,35 +62,155 @@ class VolumeHud(private val context: Context) {
     private var bar: SegmentBar? = null
 
     /**
+     * Whether the window currently holds the selector rather than the one-line strip.
+     *
+     * The watcher asks, because a volume broadcast arriving while the list is open must not
+     * quietly replace it with a strip — that would close the list under a thumb on its way to a
+     * row.
+     */
+    var picking: Boolean = false
+        private set
+
+    /** One row of the selector: a stream, what it is called, and where it currently sits. */
+    data class StreamRow(
+        val stream: Int,
+        val name: String,
+        val level: Int,
+        val max: Int,
+        val note: String? = null,
+        val current: Boolean = false,
+    )
+
+    /**
      * Show [level] of [max] for the stream named [stream].
      *
-     * [note] replaces the percentage when a number is the wrong answer — the ringer set to vibrate
-     * or silent, where the level is not what the state means.
+     * [note] is for the states a level cannot express — the ringer on vibrate or silent, where the
+     * number is not what the setting means.
      *
-     * Segments are the stream's own steps, because that is what a press moves: 15 for media on
-     * this phone, 7 for the ringer. A scale with more notches than a thumb can count is collapsed
-     * to [MAX_SEGMENTS] rather than drawn as hairlines.
+     * No percentage. A number that changes every press reads as the thing to watch, and it is the
+     * wrong thing: what a glance at this strip is for is *roughly how loud*, which the bar already
+     * says, and the label's job is which stream the keys are moving. The percentage was also a lie
+     * about precision — a 7-step ringer cannot be at 43%.
      */
     fun show(stream: String, level: Int, max: Int, note: String? = null, pinned: Boolean = false) {
         if (!allowed()) return
         // A HUD on a screen nobody is looking at is a window added and removed for nothing — and
         // volume can change while the phone is in a pocket, which is much of when it does.
         if (!screenOn()) return
+        // Coming back from the selector: the list's window is not this one.
+        if (picking) detach()
         attach()
         val safeMax = max.coerceAtLeast(1)
-        val pct = (level * 100f / safeMax).roundToInt()
-        title?.text = "$stream · " + (note ?: if (level == 0) "SILENT" else "$pct%") +
+        title?.text = stream +
+            (note?.let { " · $it" } ?: if (level == 0) " · SILENT" else "") +
             if (pinned) " · PIN" else ""
-        val segments = if (safeMax <= MAX_SEGMENTS) safeMax else MAX_SEGMENTS
-        val filled = if (safeMax <= MAX_SEGMENTS) {
-            level
-        } else {
-            (level * segments.toFloat() / safeMax).roundToInt()
-        }
-        bar?.set(segments, filled.coerceIn(0, segments))
+        bar?.set(level, safeMax)
         handler.removeCallbacks(hide)
         // A pin is something you are in the middle of using, so it gets longer to be used in.
         handler.postDelayed(hide, if (pinned) PIN_DWELL_MS else DWELL_MS)
+    }
+
+    /**
+     * Show every stream at once, so one can be chosen.
+     *
+     * This replaced a tap that walked the streams one at a time. Cycling meant the only way to
+     * reach the alarm was to tap past the ringer, inside a strip that disappears — four taps to
+     * arrive somewhere, each one changing which stream the keys would move if you stopped. A list
+     * says what there is, says where each one currently sits, and needs one tap to land on the one
+     * you meant.
+     *
+     * It is still the same window and the same rules: unfocusable, so no key can be swallowed, and
+     * `FLAG_NOT_TOUCH_MODAL`, so every touch outside the list goes to the app underneath.
+     */
+    fun showPicker(rows: List<StreamRow>) {
+        if (!allowed() || !screenOn() || rows.isEmpty()) return
+        detach()
+        val wm = context.getSystemService(WindowManager::class.java) ?: return
+        val density = context.resources.displayMetrics.density
+        val config = context.resources.configuration
+        val unit = config.screenWidthDp / 27f * density
+        val labelSp = 24.5f * config.screenHeightDp / 600f
+        // `caption` on the SDK's scale, for the one line that is not a choice.
+        val headSp = 19f * config.screenHeightDp / 600f
+
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ColorDrawable(Color.BLACK)
+            setPadding(unit.toInt(), (unit * 0.38f).toInt(), unit.toInt(), (unit * 0.5f).toInt())
+            // The list itself is the touch target. The box is clickable so a tap on the padding
+            // between rows closes it rather than falling through to the app — a list that
+            // sometimes swallows a tap and sometimes does not is worse than either.
+            isClickable = true
+            setOnClickListener { dismiss() }
+        }
+        box.addView(
+            TextView(context).apply {
+                text = "WHICH VOLUME"
+                setTextColor(Color.parseColor(DIM))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, headSp)
+                letterSpacing = 0.15f
+                isSingleLine = true
+            },
+        )
+        for (row in rows) {
+            val line = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = (unit * 0.4f).toInt() }
+                isClickable = true
+                setOnClickListener {
+                    // Down before up: the callback shows the strip for the chosen stream, and it
+                    // has to find the window free when it does.
+                    val chosen = row.stream
+                    runCatching { onPick?.invoke(chosen) }
+                }
+            }
+            line.addView(
+                TextView(context).apply {
+                    text = row.name +
+                        (row.note?.let { " · $it" } ?: if (row.level == 0) " · SILENT" else "") +
+                        if (row.current) " ·" else ""
+                    setTextColor(if (row.current) Color.WHITE else Color.parseColor(DIM))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp)
+                    letterSpacing = 0.15f
+                    isSingleLine = true
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                },
+            )
+            line.addView(
+                SegmentBar(context).apply {
+                    set(row.level, row.max.coerceAtLeast(1))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        (unit * 0.28f).toInt().coerceAtLeast((2 * density).toInt()),
+                    ).apply { topMargin = (unit * 0.2f).toInt() }
+                },
+            )
+            box.addView(line)
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP }
+
+        runCatching { wm.addView(box, params) }
+            .onSuccess {
+                root = box
+                title = null
+                bar = null
+                picking = true
+                handler.removeCallbacks(hide)
+                // Long enough to read eight rows and reach for one, and it is closed by the tap
+                // that chooses anyway.
+                handler.postDelayed(hide, PICKER_DWELL_MS)
+            }
     }
 
     fun allowed(): Boolean =
@@ -166,6 +291,7 @@ class VolumeHud(private val context: Context) {
                 root = box
                 title = text
                 bar = segments
+                picking = false
             }
     }
 
@@ -174,6 +300,7 @@ class VolumeHud(private val context: Context) {
         root = null
         title = null
         bar = null
+        picking = false
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         runCatching { wm.removeView(box) }
     }
@@ -185,11 +312,13 @@ class VolumeHud(private val context: Context) {
     }
 
     /**
-     * The level as notches: filled boxes for where you are, outlines for the rest.
+     * The level as one solid bar: white as far as you are, grey the rest of the way.
      *
-     * Discrete rather than a continuous bar because the control is discrete — one press is one
-     * segment, so the bar answers "how many more presses" and not only "roughly how loud". Two
-     * colors, square corners, no animation: the whole of LightOS's visual vocabulary.
+     * It was notches — one box per press, with a gutter between them — on the argument that the
+     * control is discrete, so the bar should answer "how many more presses". On a black strip the
+     * gutters *are* the background, so what the eye actually read was a row of black lines through
+     * the bar, and at fifteen media steps they were most of it. A bar is a bar. The count still
+     * decides where the white ends, so the level is exact; nothing draws the gap.
      */
     private class SegmentBar(context: Context) : View(context) {
 
@@ -199,37 +328,26 @@ class VolumeHud(private val context: Context) {
         }
         private val empty = Paint().apply {
             // contentSecondary, the SDK's third and last color, dimmed for a black background.
-            color = Color.parseColor("#4A4A4A")
+            color = Color.parseColor(DIM)
             isAntiAlias = false
         }
 
-        private var count = 0
-        private var filled = 0
+        private var level = 0
+        private var max = 1
 
-        fun set(count: Int, filled: Int) {
-            this.count = count
-            this.filled = filled
+        fun set(level: Int, max: Int) {
+            this.max = max.coerceAtLeast(1)
+            this.level = level.coerceIn(0, this.max)
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
-            if (count <= 0) return
-            // Narrower gap to go with the shorter bar — at half the height the old 2dp gutters
-            // read as more space than segment.
-            val gap = 1.5f * resources.displayMetrics.density
-            val slot = (width + gap) / count
-            val w = slot - gap
-            if (w <= 0f) return
-            for (i in 0 until count) {
-                val left = i * slot
-                canvas.drawRect(
-                    left,
-                    0f,
-                    left + w,
-                    height.toFloat(),
-                    if (i < filled) fill else empty,
-                )
-            }
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            canvas.drawRect(0f, 0f, w, h, empty)
+            if (level <= 0) return
+            canvas.drawRect(0f, 0f, w * level / max, h, fill)
         }
     }
 
@@ -240,7 +358,10 @@ class VolumeHud(private val context: Context) {
         /** Longer, once a stream is pinned: the presses that use the pin come after the tap. */
         const val PIN_DWELL_MS = 4_000L
 
-        /** Above this many steps the notches stop being countable and become a bar. */
-        const val MAX_SEGMENTS = 20
+        /** The selector is read and then aimed at, which takes longer than a glance. */
+        const val PICKER_DWELL_MS = 8_000L
+
+        /** contentSecondary, dimmed for black. */
+        const val DIM = "#4A4A4A"
     }
 }

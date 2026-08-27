@@ -148,6 +148,10 @@ class VolumeWatcher(
      */
     private fun present(stream: Int, note: String?, valueFromBroadcast: Int, force: Boolean = false) {
         if (!wanted()) return
+        // The selector is open and a thumb is on its way to a row. A volume broadcast arriving now
+        // is not a reason to replace the list with a strip — a notification volume mirroring the
+        // ringer would close the list out from under the tap that was choosing the alarm.
+        if (hud.picking && !force) return
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         val app = front()
         // The one exception to "not over LightOS", and it is the case the rule was never about.
@@ -192,28 +196,69 @@ class VolumeWatcher(
     }
 
     /**
-     * The strip was tapped: move to the next stream and let the keys move *that* one.
+     * The strip was tapped: show every stream, so one can be chosen.
+     *
+     * This used to walk the streams one per tap. Cycling looked cheap and was not: the alarm was
+     * three taps past media, each tap left the keys pointed at whatever it had passed through, and
+     * all of it happened inside a strip that vanishes after a second and a half. A list says what
+     * there is, and one tap lands on it.
+     *
+     * Every stream the phone will report a scale for is offered, not the four the cycle had. The
+     * call stream is the one exception, and it is offered only during a call: out of one, its level
+     * is a number the platform does not necessarily keep, so a row that moved nothing would be a
+     * control that lies.
+     */
+    fun openPicker() {
+        if (!wanted() || !pinningAllowed()) return
+        runCatching {
+            val audio = context.getSystemService(AudioManager::class.java) ?: return
+            val mode = runCatching { audio.ringerMode }.getOrDefault(AudioManager.RINGER_MODE_NORMAL)
+            val chosen = pinnedStream
+            val rows = offered
+                .filter { it != AudioManager.STREAM_VOICE_CALL || inCall(audio) }
+                .mapNotNull { stream ->
+                    val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
+                    if (max <= 0) return@mapNotNull null
+                    val level = runCatching { audio.getStreamVolume(stream) }.getOrNull()
+                        ?: return@mapNotNull null
+                    val ringish = stream == AudioManager.STREAM_RING ||
+                        stream == AudioManager.STREAM_NOTIFICATION
+                    VolumeHud.StreamRow(
+                        stream = stream,
+                        name = name(stream),
+                        level = level,
+                        max = max,
+                        note = when {
+                            ringish && mode == AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
+                            ringish && mode == AudioManager.RINGER_MODE_SILENT -> "SILENT"
+                            else -> null
+                        },
+                        current = stream == (chosen ?: lastStream),
+                    )
+                }
+            hud.showPicker(rows)
+        }
+    }
+
+    /**
+     * A row of the selector was chosen: let the keys move that stream.
      *
      * This is the only thing in this app that adjusts a volume, and it is worth being explicit
      * about why the rule bends here. Android gives the keys one stream at a time — whatever is
      * playing, and media when nothing is — so the ringer and alarm levels are unreachable from the
-     * hardware on a phone with no volume UI to drag. LightOS has no screen for them either. Tapping
-     * the strip is the way to reach them, and reaching them means the service has to take the press
+     * hardware on a phone with no volume UI to drag. LightOS has no screen for them either. The
+     * selector is the way to reach them, and reaching them means the service has to take the press
      * and apply it itself.
      *
      * So the taking is fenced in: it needs an explicit tap first, it applies to *one* named stream,
-     * and it expires with the strip. When [pinnedStream] is null — which is always, until you tap —
-     * volume keys are untouched, exactly as they have always been. And a pin cannot survive a ring:
-     * [takeKey] is only ever called from a path the service does not reach while anything is
-     * ringing or a call is up, so the keys that dismiss an alarm are never in question.
+     * and it expires with the strip. When [pinnedStream] is null — which is always, until you
+     * choose — volume keys are untouched, exactly as they have always been. And a pin cannot
+     * survive a ring: [takeKey] is only ever called from a path the service does not reach while
+     * anything is ringing or a call is up, so the keys that dismiss an alarm are never in question.
      */
-    fun onHudTap() {
+    fun onPick(stream: Int) {
         if (!wanted() || !pinningAllowed()) return
         runCatching {
-            val audio = context.getSystemService(AudioManager::class.java) ?: return
-            val from = pinnedStream ?: lastStream
-            val next = cycle.filter { it != AudioManager.STREAM_VOICE_CALL || inCall(audio) }
-            val stream = next[(next.indexOf(from) + 1).mod(next.size)]
             pinnedStream = stream
             pinnedUntil = SystemClock.uptimeMillis() + PIN_MS
             present(stream, null, -1, force = true)
@@ -322,14 +367,23 @@ class VolumeWatcher(
         const val LIGHT_SDK = "com.thelightphone."
 
         /**
-         * The streams a tap walks through. Media, then the two you cannot otherwise reach from the
-         * hardware at all, then the call stream when there is a call to have one.
+         * The streams the selector offers, in the order they are worth reaching for. Media first
+         * because it is what the keys already move; then the ones the hardware cannot otherwise
+         * reach at all; then the odds and ends, which are rarely wanted and cost a line each.
+         *
+         * A stream the phone reports no scale for is dropped rather than drawn empty — several of
+         * these are aliases of each other on any given build, and a row that cannot move is worse
+         * than a row that is not there.
          */
-        val cycle = listOf(
+        val offered = listOf(
             AudioManager.STREAM_MUSIC,
             AudioManager.STREAM_RING,
+            AudioManager.STREAM_NOTIFICATION,
             AudioManager.STREAM_ALARM,
             AudioManager.STREAM_VOICE_CALL,
+            AudioManager.STREAM_SYSTEM,
+            AudioManager.STREAM_DTMF,
+            AudioManager.STREAM_ACCESSIBILITY,
         )
     }
 }

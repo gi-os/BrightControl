@@ -34,6 +34,7 @@ import com.gios.lightcontrol.EdgeSide
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.audio.WifiRinger
 import com.gios.lightcontrol.color.ColorRequests
 import com.gios.lightcontrol.hotspot.SoftAp
 import com.gios.lightcontrol.TurnAction
@@ -72,6 +73,7 @@ class ControlService : AccessibilityService() {
     private lateinit var readout: Readout
     private lateinit var volumeHud: VolumeHud
     private lateinit var volume: VolumeWatcher
+    private lateinit var wifiRinger: WifiRinger
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -307,8 +309,14 @@ class ControlService : AccessibilityService() {
             wanted = { prefs.enabled && prefs.showVolume },
             pinningAllowed = { prefs.volumePin },
         )
-        volumeHud.onTap = { volume.onHudTap() }
+        volumeHud.onTap = { volume.openPicker() }
+        volumeHud.onPick = { stream -> volume.onPick(stream) }
         volume.start()
+        // Not gated on `prefs.enabled`. The master switch is about keys — "this app touches no
+        // control on this phone" — and the ringer rules are not a control anybody is holding. It
+        // has its own switch, off by default, and it reads it on every event.
+        wifiRinger = WifiRinger(this, prefs)
+        wifiRinger.start()
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
         banner = NoteBanner(this)
@@ -2072,6 +2080,7 @@ class ControlService : AccessibilityService() {
         // to finish taking it down.
         runCatching { banner.dismiss(animated = false) }
         volume.stop()
+        wifiRinger.stop()
         swipe.cancel()
         pendingTaps.clear()
         presses.clear()

@@ -175,7 +175,7 @@ fun BrightnessScreen(onBack: () -> Unit) {
 
 /** The volume readout LightOS has no screen for. */
 @Composable
-fun VolumeScreen(onBack: () -> Unit) {
+fun VolumeScreen(onWifiRinger: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val canOverlay = Grants.canDrawOverlays(context)
@@ -189,7 +189,8 @@ fun VolumeScreen(onBack: () -> Unit) {
         onBack = onBack,
         guide = "LightOS shows nothing when you change the volume — the level moves silently. " +
             "This draws a strip at the top of the screen so you can see it, and optionally lets " +
-            "you pick which stream the keys move.",
+            "you pick which stream the keys move. Both are off until you ask: the strip appears " +
+            "over whatever you are looking at.",
     ) {
         MenuRow(
             label = "Show the level",
@@ -204,7 +205,10 @@ fun VolumeScreen(onBack: () -> Unit) {
         MenuRow(
             label = "Tap to pick a stream",
             detail = if (volumePin) "ON" else "OFF",
-            sub = "tap the strip to cycle media, ring, alarm — then the keys move that one",
+            sub = "tap the strip for a list of every volume this phone has — media, ring, " +
+                "notifications, alarm — and the keys move the one you choose. The only setting " +
+                "here that lets a volume key be consumed, which is why it is off by default.",
+            subMaxLines = 4,
             onClick = {
                 volumePin = !volumePin
                 prefs.volumePin = volumePin
@@ -236,6 +240,16 @@ fun VolumeScreen(onBack: () -> Unit) {
             sub = "its own screens have their own volume control — except during a call, where " +
                 "the dialer has none and the strip is the only feedback there is",
             dim = true,
+        )
+        Rule()
+
+        SectionLabel("THE RINGER")
+        MenuRow(
+            label = "Ringer by Wi-Fi",
+            detail = if (prefs.wifiRingerOn) "ON" else "\u203a",
+            sub = "silent on some networks, loud on others — the office and the flat are " +
+                "different places and this phone knows which one it is on",
+            onClick = onWifiRinger,
         )
     }
 }

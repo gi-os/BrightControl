@@ -30,7 +30,8 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. The left edge goes back and is on out of the box, because this phone has no back button; the right edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
-| **Volume** | The on-screen volume level LightOS ships without |
+| **Volume** | The on-screen volume level LightOS ships without, and a selector for every stream the hardware cannot otherwise reach |
+| **Ringer** | Silent on some Wi-Fi networks, loud on others. The office and the flat are different places |
 | **ADB and grants** | The phone grants itself every permission it needs, over its own wireless debugging |
 | **Wi-Fi login** | A captive-portal sign-in page. **In development. It may not work** |
 | **Hotspot** | Raises the hotspot when a paired iPad is near. **In development. It may not work** |
@@ -685,6 +686,23 @@ adjusts.** Nothing here consumes a key, which is what makes it safe to put on th
 It listens to `android.media.VOLUME_CHANGED_ACTION`, so it also catches the slider of a media
 app, a headset button, and a Bluetooth device that turns itself down on connect.
 
+**Both volume settings are off until you ask for them.** The strip appears over whatever you are
+looking at, and the selector below it is the one setting in this app that lets a volume key be
+consumed. Neither is a default anybody should discover by having it happen.
+
+The level is one solid bar: white as far as you are, grey the rest of the way. It was notches, one
+box per press, on the argument that a discrete control deserves a discrete bar. On a black strip
+the gutters between the notches *are* the background, so what the eye read was a row of black lines
+through the bar, and at fifteen media steps they were most of it. There is no percentage either. A
+number that moves on every press reads as the thing to watch and it is the wrong thing; the label's
+job is saying which volume the keys are moving.
+
+**Tap the strip for a list of every volume this phone has** — media, ring, notifications, alarm,
+system, tones, speech, and the call stream during a call — each with where it currently sits. Tap
+one and the keys move that one for a few seconds. This used to be a cycle: one tap, one stream, so
+the alarm was three taps past media, each tap left the keys pointed at something you were only
+passing through, and all of it inside a strip that vanishes after a second and a half.
+
 The HUD stays off LightOS screens, which have volume controls of their own. **A call is the
 exception.** The dialer is in front for the whole call and has no volume control at all, so during
 a call the strip is the only feedback the phone gives.
@@ -699,6 +717,51 @@ the codec to the speaker. It never passes through the app mixer, and its gain co
 inside the audio HAL, which is the `STREAM_VOICE_CALL` index. `LoudnessEnhancer`, an effect on
 session 0, or a dialer of our own would each control the route and the screen. None of them adds a
 decibel.
+
+### The ringer, by network
+
+A network is a place. The office is one, the flat is another, and the answer to "should this thing
+make a noise" is already known for both and is not the same. On a phone with no profiles, no
+automation and no Do Not Disturb schedule, the ringer is a switch you remember to flip and then
+forget to flip back, which costs a morning of missed calls about once a month.
+
+**Volume → Ringer by Wi-Fi.** Mark a network silent, mark a network loud, and joining it does the
+flip. A network you have not marked is never touched, which is nearly all of them. Off by default.
+
+Two things are load-bearing and neither is the rule.
+
+**Only a silence this app applied is ever undone.** A phone you muted by hand is not this app's to
+unmute, so the network a silence was applied for is written down, and the ringer comes back only
+when that network is behind you. Turn the ringer up yourself while standing on a silent network and
+the rule stops applying until you leave — otherwise the next capabilities change, and there is
+always a next one, would put the phone straight back to silent. That reads as a broken ringer and
+not as a setting.
+
+**The list of networks is built by remembering.** Nothing unprivileged can enumerate the networks
+a phone has saved, and a scan lists what is in the air rather than what you use. So networks appear
+in that screen as this phone joins them, whether or not the feature is switched on. The screen says
+so, because an empty list otherwise looks like a broken one.
+
+It needs two grants LightOS has no screen for, and the settings screen reports each one rather than
+assuming it:
+
+```bash
+# muting a phone is a Do Not Disturb operation as far as Android is concerned:
+# setRingerMode(SILENT) throws without this
+adb shell cmd notification allow_dnd com.gios.lightcontrol
+
+# and since Android 10 the network's *name* is redacted from any app that cannot
+# locate the phone. Nothing here reads a location; the background flavour is because
+# the whole point is a phone in a pocket
+adb shell pm grant com.gios.lightcontrol android.permission.ACCESS_FINE_LOCATION
+adb shell pm grant com.gios.lightcontrol android.permission.ACCESS_BACKGROUND_LOCATION
+```
+
+Both are in the ADB screen's batch, so in the ordinary case nobody types them. Without the first,
+ring rules still work and silent rules do nothing; without the second, no rule can match at all,
+and the screen says which is missing. Location must also be switched on: with it off the name is
+redacted from a permitted app exactly as it is from an unpermitted one, and the two are
+indistinguishable from inside the app.
 
 ## System
 
@@ -861,6 +924,8 @@ keys/BackGesture.kt        one edge stroke and its two thresholds, with no Andro
 keys/EdgeSwipe.kt          an edge strip and its indicator, as two windows; one class per side
 keys/Readout.kt            the brightness level, as one reused overlay window
 keys/VolumeHud.kt          the volume level, reported and never adjusted
+audio/RingerDecision.kt    should this network silence the phone; no Android in it
+audio/WifiRinger.kt        the ringer rules, and the two grants that make them real
 keys/CallAudio.kt          the call speaker, put to maximum once per speaker route
 keys/Grants.kt             what is granted, and the volatile own-window flag
 
@@ -954,6 +1019,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.89 | **The ringer follows the Wi-Fi, and the volume strip is a bar again.** Mark a network silent or loud and joining it sets the ringer; only a silence this app applied is ever undone, and turning the ringer up by hand beats the rule until you leave. The strip's notches became one solid bar — on black the gutters between them read as lines through it — and the percentage is gone. Tapping the strip now opens a list of every volume the phone has instead of cycling four of them. Both volume settings ship off |
 | v3.88 | **The volume strip steps aside where LightOS draws its own.** LightOS v572 added its own volume overlay to the light-sdk apps (`com.thelightphone.`), so the strip no longer draws over one — the HUD's front-app gate now treats that namespace the way it treats LightOS itself, and stays down where the platform already shows a readout |
 | v3.87 | **A message from Teams reads as a message, and the box sits square in the corner.** The banner and the lock face read `EXTRA_TITLE` and `EXTRA_TEXT` and nothing else, and a `MessagingStyle` notification fills in neither: it carries the conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at draw time, a step a listener never sees. Teams, WhatsApp and Signal all drew an app name over two blank rows. `NoteText` now reads eight places an app may have written its words, names the room and the sender separately in a group chat, and flattens a newline out of a title. A work-profile app was called "teams", because one package-manager lookup cannot see another user; three sources are asked now. And the box rested three grid units down against one unit in from each side, which reads as having fallen down the screen — one unit on all three sides |
 | v3.86 | **Every button does everything, and a camera keeps its own shutter.** A double tap is a binding on all five buttons, and the picker offers every action to every button rather than a short list per key |

@@ -83,6 +83,27 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
+      The ringer, set by which Wi-Fi the phone is on. Two grants, both of which LightOS has no
+      screen for:
+
+        adb shell cmd notification allow_dnd com.gios.lightcontrol
+        adb shell pm grant com.gios.lightcontrol android.permission.ACCESS_BACKGROUND_LOCATION
+
+      ACCESS_NOTIFICATION_POLICY is what lets an app mute a phone at all - Android counts muting
+      as a Do Not Disturb operation, and setRingerMode(SILENT) throws without the policy access
+      that `allow_dnd` grants. The background location is what lets the network's *name* be read
+      with the screen off: since Android 10 the SSID is redacted from any app that cannot locate
+      the phone, and this feature is entirely about a phone in a pocket. ACCESS_FINE_LOCATION is
+      already declared above for the BLE scan. Nothing here is stored beyond the network names the
+      user has written a rule for, and no location is ever asked for or read.
+
+      Without either grant the feature is inert and the settings screen says which one is missing -
+      the alternative is a ringer rule that silently never fires. See audio/WifiRinger.kt.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!--
       Signal bars on the lock face, and nothing else. A runtime permission LightOS has
       no screen for, so it is granted once over adb:
 

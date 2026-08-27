@@ -59,6 +59,24 @@ object SelfGrant {
             GrantCheck.Permission(PKG, "android.permission.ANSWER_PHONE_CALLS"),
         ),
         Step(
+            "Silence the ringer (DND access)",
+            "cmd notification allow_dnd $PKG",
+            GrantCheck.PolicyAccess(PKG),
+        ),
+        Step(
+            "Wi-Fi names (ACCESS_FINE_LOCATION)",
+            "pm grant $PKG android.permission.ACCESS_FINE_LOCATION",
+            GrantCheck.Permission(PKG, "android.permission.ACCESS_FINE_LOCATION"),
+        ),
+        // After the foreground one, deliberately: granting background location to a package that
+        // does not hold the foreground permission is refused on this platform, so the order here
+        // is the difference between two grants and one failure.
+        Step(
+            "Wi-Fi names with the screen off",
+            "pm grant $PKG android.permission.ACCESS_BACKGROUND_LOCATION",
+            GrantCheck.Permission(PKG, "android.permission.ACCESS_BACKGROUND_LOCATION"),
+        ),
+        Step(
             "Lock-screen notifications",
             "cmd notification allow_listener $PKG/.lock.LockNotifications",
             GrantCheck.SecureListHas(

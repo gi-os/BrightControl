@@ -33,6 +33,21 @@ enum class TurnAction {
         }
 }
 
+/**
+ * What a network says the ringer should be.
+ *
+ * Two opinions and an absence. There is deliberately no `Vibrate`: the phone this runs on
+ * distinguishes vibrate from silent in its own settings, and a third state here would be a third
+ * thing to tap past on every network in the list to reach the one you meant.
+ */
+enum class RingerRule {
+    Silent,
+    Ring,
+    ;
+
+    val label: String get() = if (this == Silent) "SILENT" else "RING"
+}
+
 /** How one app is treated. */
 enum class AppRule {
     /** Whatever [Policy] decides from the built-in table. */
@@ -571,27 +586,148 @@ class Prefs(context: Context) {
     /**
      * Whether a volume change flashes the level at the top of the screen.
      *
-     * On, because on this phone the alternative is nothing at all: LightOS ships no volume UI, so
-     * without this a press changes the level and says nothing, and the ringer's level cannot be
-     * checked without waiting for something to ring. Needs the overlay appop, like the brightness
-     * readout, and simply doesn't appear without it. Nothing about the keys themselves changes with
-     * this off — they were never consumed. See `keys.VolumeHud`.
+     * **Off from v3.89.** It shipped on for eleven releases, on the argument that the alternative
+     * is nothing at all — LightOS ships no volume UI, so a press changes the level silently. That
+     * argument is still true and it is still not enough to switch a window over other people's apps
+     * on for them: the strip appears at the top of whatever you are looking at, and a feature that
+     * covers the screen is one to ask for rather than one to discover. Needs the overlay appop
+     * either way, and nothing about the keys themselves changes with this off — they were never
+     * consumed. See `keys.VolumeHud`.
      */
     var showVolume: Boolean
-        get() = sp.getBoolean("volume_hud", true)
+        get() = sp.getBoolean("volume_hud", false)
         set(v) = sp.edit().putBoolean("volume_hud", v).apply()
 
     /**
-     * Whether tapping the volume strip pins a stream for the keys to move.
+     * Whether tapping the volume strip opens the stream selector and pins what it chooses.
      *
-     * On, because without it the ringer and alarm levels cannot be reached from this phone at all:
-     * Android gives the keys one stream at a time and LightOS has no screen for the others. Off puts
-     * the HUD back to reporting and nothing else — no volume key is ever consumed with this off,
-     * which is the setting to reach for if a press ever feels like it went missing.
+     * **Off from v3.89**, for a harder reason than the strip's: this is the one setting in the app
+     * that lets a volume key be *consumed*. Everything else here reports. A default that quietly
+     * takes a working key is the shape of this codebase's oldest mistake, so it is opt-in now —
+     * turn it on and the ringer and alarm levels become reachable, which Android and LightOS
+     * between them otherwise make impossible on this phone.
      */
     var volumePin: Boolean
-        get() = sp.getBoolean("volume_pin", true)
+        get() = sp.getBoolean("volume_pin", false)
         set(v) = sp.edit().putBoolean("volume_pin", v).apply()
+
+    // ------------------------------------------------------------- the ringer, by network
+
+    /**
+     * Whether joining a Wi-Fi network may set the ringer.
+     *
+     * Off, and it needs two grants LightOS has no screen for, so it is inert until both are in
+     * place. See `audio.WifiRinger` for what it does and `ui.WifiRingerScreen` for what it says
+     * about what it cannot do.
+     */
+    var wifiRingerOn: Boolean
+        get() = sp.getBoolean("wifi_ringer", false)
+        set(v) = sp.edit().putBoolean("wifi_ringer", v).apply()
+
+    /** Networks where the phone goes silent. */
+    var wifiSilentSsids: Set<String>
+        get() = sp.getStringSet(WIFI_SILENT, emptySet()).orEmpty()
+        set(value) { sp.edit().putStringSet(WIFI_SILENT, value).apply() }
+
+    /** Networks where the phone rings. */
+    var wifiRingSsids: Set<String>
+        get() = sp.getStringSet(WIFI_RING, emptySet()).orEmpty()
+        set(value) { sp.edit().putStringSet(WIFI_RING, value).apply() }
+
+    /**
+     * Networks this phone has actually joined, so the settings screen has a list to rule on.
+     *
+     * There is no way to enumerate saved networks from an unprivileged app, and a scan lists what
+     * is in the air rather than what you use. So the list is built by remembering: every network
+     * the phone joins while this app is running gets a line, whether or not the feature is on.
+     * Capped, oldest-first — a `StringSet` has no order, so the cap is a size and the newest
+     * arrival wins a tie by being kept.
+     */
+    var wifiSeenSsids: Set<String>
+        get() = sp.getStringSet(WIFI_SEEN, emptySet()).orEmpty()
+        set(value) { sp.edit().putStringSet(WIFI_SEEN, value).apply() }
+
+    fun noteWifiSeen(ssid: String) {
+        if (ssid.isBlank()) return
+        val current = wifiSeenSsids
+        if (ssid in current) return
+        val next = current.toMutableSet()
+        next.add(ssid)
+        // Never drop one that has a rule on it: those are the ones somebody chose.
+        val ruled = wifiSilentSsids + wifiRingSsids
+        while (next.size > WIFI_SEEN_MAX) {
+            val drop = next.firstOrNull { it != ssid && it !in ruled } ?: break
+            next.remove(drop)
+        }
+        wifiSeenSsids = next
+    }
+
+    /** The rule on one network, or null for "no opinion — leave the ringer alone". */
+    fun wifiRule(ssid: String): RingerRule? = when (ssid) {
+        in wifiSilentSsids -> RingerRule.Silent
+        in wifiRingSsids -> RingerRule.Ring
+        else -> null
+    }
+
+    /** Tapping a network walks its rule: nothing, then silent, then ring, then nothing again. */
+    fun cycleWifiRule(ssid: String): RingerRule? {
+        val next = when (wifiRule(ssid)) {
+            null -> RingerRule.Silent
+            RingerRule.Silent -> RingerRule.Ring
+            RingerRule.Ring -> null
+        }
+        wifiSilentSsids = if (next == RingerRule.Silent) {
+            wifiSilentSsids + ssid
+        } else {
+            wifiSilentSsids - ssid
+        }
+        wifiRingSsids = if (next == RingerRule.Ring) wifiRingSsids + ssid else wifiRingSsids - ssid
+        return next
+    }
+
+    fun clearWifiRules() {
+        sp.edit().remove(WIFI_SILENT).remove(WIFI_RING).remove(WIFI_SEEN)
+            .remove(WIFI_SILENCED).remove(WIFI_OVERRIDDEN).apply()
+    }
+
+    /**
+     * Whether leaving a network this app silenced puts the ringer back.
+     *
+     * On. Silence that follows you off the network that asked for it is a missed call, and it is
+     * the failure people never trace back to a setting they turned on weeks ago. Bounded by
+     * [wifiRingerSilencedFor]: only a silence this app applied is ever undone, so a phone somebody
+     * muted by hand stays muted.
+     */
+    var wifiRingerRestore: Boolean
+        get() = sp.getBoolean("wifi_ringer_restore", true)
+        set(v) = sp.edit().putBoolean("wifi_ringer_restore", v).apply()
+
+    /**
+     * The network this app silenced for, or blank.
+     *
+     * The whole of "was it us". Cleared when the ringer comes back for any reason, including
+     * somebody turning it up themselves — see `audio.WifiRinger`, which watches for that so it
+     * never argues with a person.
+     */
+    var wifiRingerSilencedFor: String
+        get() = sp.getString(WIFI_SILENCED, "").orEmpty()
+        set(value) { sp.edit().putString(WIFI_SILENCED, value).apply() }
+
+    /**
+     * The network the user overrode the rule on, or blank.
+     *
+     * Set when the ringer is turned up by hand on a network marked silent, and cleared the moment
+     * the phone is somewhere else. Without it the rule reasserts itself on the next capabilities
+     * change — and there is always a next one — so turning the ringer up would appear not to work.
+     */
+    var wifiRingerOverriddenFor: String
+        get() = sp.getString(WIFI_OVERRIDDEN, "").orEmpty()
+        set(value) { sp.edit().putString(WIFI_OVERRIDDEN, value).apply() }
+
+    /** One line for the settings screen: what this last did, and when. */
+    var wifiRingerLast: String
+        get() = sp.getString("wifi_ringer_last", "").orEmpty()
+        set(value) { sp.edit().putString("wifi_ringer_last", value).apply() }
 
     /** How far one notch drags the screen, in dp, when a turn is scrolling by swipe. */
     var swipeDp: Int
@@ -1287,6 +1423,14 @@ class Prefs(context: Context) {
         const val DOUBLE_MIGRATED = "double_taps_migrated"
 
         const val HOTSPOT_SSID = "hotspotSsid"
+        const val WIFI_SILENT = "wifiSilentSsids"
+        const val WIFI_RING = "wifiRingSsids"
+        const val WIFI_SEEN = "wifiSeenSsids"
+        const val WIFI_SILENCED = "wifiRingerSilencedFor"
+        const val WIFI_OVERRIDDEN = "wifiRingerOverriddenFor"
+
+        /** Enough for every network a person actually uses, and not a log. */
+        const val WIFI_SEEN_MAX = 40
         const val HOTSPOT_PASSWORD = "hotspotPassword"
 
         const val APP_PREFIX = "app:"

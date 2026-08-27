@@ -50,6 +50,7 @@ import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
 import com.gios.lightcontrol.ui.VolumeScreen
+import com.gios.lightcontrol.ui.WifiRingerScreen
 import com.gios.lightcontrol.ui.LocalCursor
 import com.gios.lightcontrol.ui.WheelCursor
 import com.gios.lightcontrol.ui.WheelScreen
@@ -80,6 +81,7 @@ private sealed interface Screen {
     data object PerAppEdges : Screen
     data object Brightness : Screen
     data object Volume : Screen
+    data object WifiRinger : Screen
     data object Color : Screen
     data object PerAppColor : Screen
     data object Lock : Screen
@@ -292,7 +294,15 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Brightness -> BrightnessScreen(onBack = home)
 
-                        Screen.Volume -> VolumeScreen(onBack = home)
+                        Screen.Volume -> VolumeScreen(
+                            onWifiRinger = { screen = Screen.WifiRinger },
+                            onBack = home,
+                        )
+
+                        Screen.WifiRinger -> WifiRingerScreen(
+                            onBack = { screen = Screen.Volume },
+                            onAdb = { screen = Screen.Adb },
+                        )
 
                         Screen.Color -> ColorScreen(
                             onPerApp = { screen = Screen.PerAppColor },
@@ -445,6 +455,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.PerAppWheel -> Screen.Wheel
     Screen.PerAppEdges -> Screen.Edges
     Screen.PerAppColor -> Screen.Color
+    Screen.WifiRinger -> Screen.Volume
     is Screen.HiddenApps -> screen.back
     is Screen.Notifications -> screen.back
     Screen.Background -> Screen.Lock
