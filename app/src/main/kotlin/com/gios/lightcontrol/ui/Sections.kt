@@ -189,8 +189,9 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onBack: () -> Unit) {
         onBack = onBack,
         guide = "LightOS shows nothing when you change the volume — the level moves silently. " +
             "This draws a strip at the top of the screen so you can see it, and optionally lets " +
-            "you pick which stream the keys move. Both are off until you ask: the strip appears " +
-            "over whatever you are looking at.",
+            "you pick which stream the keys move. The strip is on: it reports and takes nothing. " +
+            "The selector is off until you ask, because it is the one thing here that can swallow " +
+            "a volume key.",
     ) {
         MenuRow(
             label = "Show the level",

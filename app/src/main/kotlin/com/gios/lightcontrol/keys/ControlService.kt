@@ -1082,7 +1082,7 @@ class ControlService : AccessibilityService() {
             if (event.action != KeyEvent.ACTION_DOWN) return
             val key = LightKeys.of(event) ?: return
             if (key != LightKey.VolumeUp && key != LightKey.VolumeDown) return
-            volume.onVolumeKey()
+            volume.onVolumeKey(up = key == LightKey.VolumeUp)
         }
     }
 
@@ -2426,7 +2426,7 @@ class ControlService : AccessibilityService() {
             AudioManager.USE_DEFAULT_STREAM_TYPE,
             0,
         )
-        volume.onVolumeKey()
+        volume.onVolumeKey(up, ours = true)
         true
     }.getOrDefault(false)
 

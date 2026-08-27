@@ -39,9 +39,23 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
     var on by remember { mutableStateOf(prefs.wifiRingerOn) }
     var restore by remember { mutableStateOf(prefs.wifiRingerRestore) }
     var seen by remember { mutableStateOf(prefs.wifiSeenSsids) }
+    /**
+     * The rules, held as state rather than read from [Prefs] while composing.
+     *
+     * This is why v3.89's list did nothing when you tapped it. The rows read `prefs.wifiRule(ssid)`
+     * during composition, and a `SharedPreferences` write is invisible to Compose — so the repaint
+     * had to be provoked by writing some state. The line that did it was
+     * `seen = prefs.wifiSeenSsids + ssid`, and for a network already in the list that is a set
+     * equal to the one already there. Compose compares state structurally and skips a write that
+     * changes nothing, so nothing recomposed and the tap looked ignored. Twice: the rule *was*
+     * being saved, and the screen never showed it.
+     */
+    var silent by remember { mutableStateOf(prefs.wifiSilentSsids) }
+    var ringing by remember { mutableStateOf(prefs.wifiRingSsids) }
     var here by remember { mutableStateOf(ringer.ssid()) }
     var last by remember { mutableStateOf(prefs.wifiRingerLast) }
-    var silent by remember { mutableStateOf(ringer.silent()) }
+    var ringerDown by remember { mutableStateOf(ringer.silent()) }
+    var heldFor by remember { mutableStateOf(prefs.wifiRingerSilencedFor) }
     // Read once per composition rather than remembered: a grant can land while this screen is open,
     // from the ADB screen one tap away.
     val canSilence = ringer.canSilence()
@@ -58,11 +72,22 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
     LaunchedEffect(on) {
         while (true) {
             here = ringer.ssid()
-            silent = ringer.silent()
+            ringerDown = ringer.silent()
             last = prefs.wifiRingerLast
+            heldFor = prefs.wifiRingerSilencedFor
             seen = prefs.wifiSeenSsids
             delay(1_500)
         }
+    }
+
+    /** Everything the screen draws from, re-read after anything that writes. */
+    fun refresh() {
+        silent = prefs.wifiSilentSsids
+        ringing = prefs.wifiRingSsids
+        seen = prefs.wifiSeenSsids
+        last = prefs.wifiRingerLast
+        heldFor = prefs.wifiRingerSilencedFor
+        ringerDown = ringer.silent()
     }
 
     SectionScaffold(
@@ -86,8 +111,7 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
                 // A rule set here should apply to the network you are standing on. Waiting for the
                 // next association would mean walking out and back in to test it.
                 ringer.apply("settings")
-                last = prefs.wifiRingerLast
-                silent = ringer.silent()
+                refresh()
             },
         )
         MenuRow(
@@ -110,7 +134,7 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
         SectionLabel("RIGHT NOW")
         MenuRow(
             label = here ?: "Not on Wi-Fi",
-            detail = here?.let { prefs.wifiRule(it)?.label ?: "—" } ?: "",
+            detail = here?.let { rule(it, silent, ringing)?.label ?: "—" } ?: "",
             sub = when {
                 here != null -> "the network this phone is on. Tap below to give it a rule."
                 !canRead -> "or the name cannot be read — see the two grants below"
@@ -121,9 +145,9 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
         )
         MenuRow(
             label = "The ringer",
-            detail = if (silent) "SILENT" else "ON",
-            sub = if (prefs.wifiRingerSilencedFor.isNotBlank()) {
-                "silenced by this app for ${prefs.wifiRingerSilencedFor}. Turn it up by hand and " +
+            detail = if (ringerDown) "SILENT" else "ON",
+            sub = if (heldFor.isNotBlank()) {
+                "silenced by this app for $heldFor. Turn it up by hand and " +
                     "the rule stops applying until the phone leaves that network."
             } else {
                 "not held down by this app"
@@ -219,7 +243,7 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
             )
         }
         listed.forEach { ssid ->
-            val rule = prefs.wifiRule(ssid)
+            val rule = rule(ssid, silent, ringing)
             MenuRow(
                 label = ssid,
                 detail = rule?.label ?: "—",
@@ -236,10 +260,7 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
                     prefs.cycleWifiRule(ssid)
                     // The rule you just set applies now, not at the next association.
                     if (on) ringer.apply("settings")
-                    last = prefs.wifiRingerLast
-                    silent = ringer.silent()
-                    // `seen` is the state this list is keyed on; nudging it recomposes the rows.
-                    seen = prefs.wifiSeenSsids + ssid
+                    refresh()
                 },
             )
         }
@@ -250,9 +271,21 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             ) {
                 prefs.clearWifiRules()
-                seen = emptySet()
-                silent = ringer.silent()
+                refresh()
             }
         }
     }
+}
+
+/**
+ * One network's rule, read from the screen's own state rather than from [Prefs].
+ *
+ * The same answer [Prefs.wifiRule] gives, asked of the two sets this screen is holding — which is
+ * the point: a value read out of `SharedPreferences` mid-composition is invisible to Compose, so a
+ * row drawn from one never repaints when the rule under it changes.
+ */
+private fun rule(ssid: String, silent: Set<String>, ringing: Set<String>): RingerRule? = when (ssid) {
+    in silent -> RingerRule.Silent
+    in ringing -> RingerRule.Ring
+    else -> null
 }

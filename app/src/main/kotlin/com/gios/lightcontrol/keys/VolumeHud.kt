@@ -68,8 +68,18 @@ class VolumeHud(private val context: Context) {
      * quietly replace it with a strip — that would close the list under a thumb on its way to a
      * row.
      */
-    var picking: Boolean = false
-        private set
+    val picking: Boolean get() = pickerUp && root != null
+
+    /**
+     * Derived from the window rather than kept as a plain flag, and deliberately.
+     *
+     * [VolumeWatcher] drops a volume change while this is true. A flag that could be left true with
+     * no window on screen would therefore be a HUD that had stopped appearing at all, permanently,
+     * with nothing on the phone to say why — the worst failure this file can have, and one that
+     * would look exactly like the feature being broken rather than like a stuck boolean. Tying it
+     * to [root] makes that state unreachable.
+     */
+    private var pickerUp = false
 
     /** One row of the selector: a stream, what it is called, and where it currently sits. */
     data class StreamRow(
@@ -205,7 +215,7 @@ class VolumeHud(private val context: Context) {
                 root = box
                 title = null
                 bar = null
-                picking = true
+                pickerUp = true
                 handler.removeCallbacks(hide)
                 // Long enough to read eight rows and reach for one, and it is closed by the tap
                 // that chooses anyway.
@@ -291,7 +301,7 @@ class VolumeHud(private val context: Context) {
                 root = box
                 title = text
                 bar = segments
-                picking = false
+                pickerUp = false
             }
     }
 
@@ -300,7 +310,7 @@ class VolumeHud(private val context: Context) {
         root = null
         title = null
         bar = null
-        picking = false
+        pickerUp = false
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         runCatching { wm.removeView(box) }
     }

@@ -1,67 +1,53 @@
-## BrightControl v3.89 — the ringer follows the Wi-Fi, and the volume strip is a bar again
+## BrightControl v3.90 — three fixes to v3.89
 
-### The ringer, by network
+### The volume strip is on again by default
 
-**Volume → Ringer by Wi-Fi.** A network is a place. Mark the ones where this phone should be silent
-and the ones where it should ring, and joining one sets the ringer. A network you have not marked is
-never touched, which is nearly all of them.
+v3.89 switched both volume settings off together, on one argument: a window drawn over other
+people's apps is something to ask for rather than something to discover. That argument belongs to
+only one of them.
 
-On a phone with no profiles, no automation and no Do Not Disturb schedule, the ringer is a switch
-you remember to flip and then forget to flip back. That costs a morning of missed calls about once a
-month, and it is the kind of thing a phone should know without being told twice.
+The strip **reports**. It takes nothing, consumes no key, and on a phone whose alternative is no
+volume UI at all, off by default means a press changes the level and nothing anywhere says so. That
+is not a safer default, it is a broken one — and it reads as the feature having stopped working,
+which is exactly how it was reported.
 
-Two things here are load-bearing and neither of them is the rule:
+So **Show the level** is on again. **Tap to pick a stream** stays off, because that one is the half
+the argument does apply to: it is the only setting in this app that lets a volume key be *consumed*.
+Turn it on in **Volume** to reach the ringer and alarm levels, which Android and LightOS between
+them otherwise make unreachable from the hardware.
 
-- **Only a silence this app applied is ever undone.** A phone you muted by hand is not this app's to
-  unmute, so the network the silence was applied for is written down, and the ringer comes back only
-  when that network is behind you.
-- **Turning the ringer up by hand beats the rule.** Do it while standing on a silent network and the
-  rule stops applying until you leave. Without that, the next Wi-Fi capabilities change — and there
-  is always a next one — would put the phone back to silent, which reads as a broken ringer rather
-  than as a setting.
+If you switched the strip off by hand during v3.89, it stays off. The default only decides for a
+setting nobody has touched.
 
-The list of networks is built by remembering, because nothing unprivileged can enumerate the
-networks a phone has saved. Networks appear in that screen as the phone joins them, whether or not
-the feature is on, so it starts nearly empty and fills up over a week. The screen says so.
+### A page turn no longer flashes the volume strip
 
-Off by default, and it needs two grants LightOS has no screen for — both already in the ADB
-screen's batch, and both reported on the settings screen rather than assumed:
+**BrightLibrary turns pages with the volume keys, and consuming a key means the system never sees
+it** — no volume slider, and no change in volume either. But this app's key filter runs *ahead* of
+the app in front, so every page turn was noted as a volume press, and the strip appeared over the
+page it had just turned, reporting a level that had not moved.
 
-```
-adb shell cmd notification allow_dnd com.gios.lightcontrol
-adb shell pm grant com.gios.lightcontrol android.permission.ACCESS_FINE_LOCATION
-adb shell pm grant com.gios.lightcontrol android.permission.ACCESS_BACKGROUND_LOCATION
-```
+There is no API that answers "did the app in front swallow that", and a list of apps that do would
+be a list to maintain. Neither is needed: the strip exists to report a **change**, so a level that
+did not change is not news. That rule has always governed the broadcast path — a repeated value is
+dropped there — and now governs the path that reads the level back after a key.
 
-Muting a phone is a Do Not Disturb operation as far as Android is concerned, so without the first a
-silent rule does nothing at all and ring rules still work. Since Android 10 the network's *name* is
-redacted from any app that cannot locate the phone, so without the other two no rule can match.
-Nothing here reads a location, and only the names you write a rule for are stored.
+Pressing up at maximum still shows the full bar. A key that answers nothing reads as a key that does
+nothing, and the end of the scale is a real answer.
 
-### The volume strip
+### The Wi-Fi ringer list repaints when you tap it
 
-**The bar is one bar.** It was notches — one box per press, with a gutter between them — on the
-argument that a discrete control deserves a discrete bar. On a black strip the gutters *are* the
-background, so what the eye actually read was a row of black lines through the bar, and at fifteen
-media steps they were most of it. The level is still exact; nothing draws the gap.
+Tapping a network in **Ringer by Wi-Fi** did nothing visible. The rule was being saved correctly and
+the screen simply never showed it, which is the worse of the two bugs it looked like.
 
-**The percentage is gone.** A number that changes on every press reads as the thing to watch and it
-is the wrong thing — the bar already says roughly how loud, and the label's job is saying which
-volume the keys are moving. It was also a lie about precision: a seven-step ringer cannot be at 43%.
-VIBRATE and SILENT stay, because those are states rather than numbers.
+The rows read each network's rule straight out of storage while drawing, and a stored value changing
+is invisible to the UI — so the repaint had to be provoked by writing something the screen was
+watching. The line that did it added the network to the list of networks seen, which for a network
+already in that list produces a list equal to the one already there, and a value equal to the one
+already there is not a change. Nothing repainted. The rules are held by the screen now.
 
-**Tapping the strip opens a list of every volume this phone has** — media, ring, notifications,
-alarm, system, tones, speech, and the call stream during a call — each showing where it currently
-sits. Tap one and the keys move that one. It used to be a cycle: one tap, one stream, so the alarm
-was three taps past media, each tap left the keys pointed at something you were only passing
-through, and all of it happened inside a strip that vanishes after a second and a half.
+### Also
 
-### Both volume settings now ship off
-
-**Show the level** and **Tap to pick a stream** were both on by default and are now off. The strip
-draws a window over whatever you are looking at, and the selector is the one setting in this app
-that lets a volume key be *consumed*. Neither belongs in the set of things that happen to you before
-you have asked.
-
-If you were using them, they are in **Volume** and are one tap each. This is the only thing in this
-release that takes something away, and it is deliberate.
+The flag that suspends the strip while the selector is open is derived from whether the selector's
+window is actually on screen, rather than kept as a boolean beside it. A flag stuck on would have
+been a HUD that stopped appearing for good with nothing on the phone to say why — the failure this
+release is mostly about, and worth making unreachable rather than merely unlikely.

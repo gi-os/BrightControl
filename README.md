@@ -686,9 +686,12 @@ adjusts.** Nothing here consumes a key, which is what makes it safe to put on th
 It listens to `android.media.VOLUME_CHANGED_ACTION`, so it also catches the slider of a media
 app, a headset button, and a Bluetooth device that turns itself down on connect.
 
-**Both volume settings are off until you ask for them.** The strip appears over whatever you are
-looking at, and the selector below it is the one setting in this app that lets a volume key be
-consumed. Neither is a default anybody should discover by having it happen.
+**The strip is on; the selector is off until you ask.** They shipped off together in v3.89 on one
+argument — a window over other people's apps is something to ask for — and that argument belongs to
+only one of them. The strip reports and takes nothing, and on a phone whose alternative is no volume
+UI at all, off by default means a press changes the level and nothing says so. The selector is the
+one setting in this app that lets a volume key be *consumed*, and that is a default nobody should
+discover by having it happen.
 
 The level is one solid bar: white as far as you are, grey the rest of the way. It was notches, one
 box per press, on the argument that a discrete control deserves a discrete bar. On a black strip
@@ -696,6 +699,13 @@ the gutters between the notches *are* the background, so what the eye read was a
 through the bar, and at fifteen media steps they were most of it. There is no percentage either. A
 number that moves on every press reads as the thing to watch and it is the wrong thing; the label's
 job is saying which volume the keys are moving.
+
+A press the app in front swallowed shows nothing. The accessibility filter sees a key before the
+app does, so BrightLibrary turning a page with the volume keys — which consumes them, leaving the
+volume unchanged — used to flash a readout of a level that had not moved, over the page it had just
+turned. The strip reports *changes*, so a level that did not change is not news. That is the rule
+the broadcast path always had; the key path now has it too. Pressing up at maximum still shows the
+full bar, because that is a question the bar answers.
 
 **Tap the strip for a list of every volume this phone has** — media, ring, notifications, alarm,
 system, tones, speech, and the call stream during a call — each with where it currently sits. Tap
@@ -1019,6 +1029,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.90 | **Three fixes to v3.89.** The volume strip is back on by default — it reports and takes nothing, and off meant a phone that changed its volume and said nothing, which is not a safer default but a broken one. The selector stays opt-in. A volume press the app in front swallowed no longer flashes the strip, so turning pages in BrightLibrary is silent. And the Wi-Fi ringer list repaints when you tap it: the rules were being saved and the screen never showed it |
 | v3.89 | **The ringer follows the Wi-Fi, and the volume strip is a bar again.** Mark a network silent or loud and joining it sets the ringer; only a silence this app applied is ever undone, and turning the ringer up by hand beats the rule until you leave. The strip's notches became one solid bar — on black the gutters between them read as lines through it — and the percentage is gone. Tapping the strip now opens a list of every volume the phone has instead of cycling four of them. Both volume settings ship off |
 | v3.88 | **The volume strip steps aside where LightOS draws its own.** LightOS v572 added its own volume overlay to the light-sdk apps (`com.thelightphone.`), so the strip no longer draws over one — the HUD's front-app gate now treats that namespace the way it treats LightOS itself, and stays down where the platform already shows a readout |
 | v3.87 | **A message from Teams reads as a message, and the box sits square in the corner.** The banner and the lock face read `EXTRA_TITLE` and `EXTRA_TEXT` and nothing else, and a `MessagingStyle` notification fills in neither: it carries the conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at draw time, a step a listener never sees. Teams, WhatsApp and Signal all drew an app name over two blank rows. `NoteText` now reads eight places an app may have written its words, names the room and the sender separately in a group chat, and flattens a newline out of a title. A work-profile app was called "teams", because one package-manager lookup cannot see another user; three sources are asked now. And the box rested three grid units down against one unit in from each side, which reads as having fallen down the screen — one unit on all three sides |

@@ -586,26 +586,30 @@ class Prefs(context: Context) {
     /**
      * Whether a volume change flashes the level at the top of the screen.
      *
-     * **Off from v3.89.** It shipped on for eleven releases, on the argument that the alternative
-     * is nothing at all — LightOS ships no volume UI, so a press changes the level silently. That
-     * argument is still true and it is still not enough to switch a window over other people's apps
-     * on for them: the strip appears at the top of whatever you are looking at, and a feature that
-     * covers the screen is one to ask for rather than one to discover. Needs the overlay appop
-     * either way, and nothing about the keys themselves changes with this off — they were never
-     * consumed. See `keys.VolumeHud`.
+     * On — and off for the length of v3.89 only, which was a mistake worth recording. The two
+     * volume settings were switched off together on one argument: a window drawn over other
+     * people's apps is something to ask for rather than something to discover. That argument
+     * turns out to belong to only one of them. This one *reports*; it takes nothing, and on a
+     * phone whose alternative is no volume UI at all, off by default means a press changes the
+     * level and nothing anywhere says so. That is not a safer default, it is a broken one, and it
+     * read as the feature having stopped working. Needs the overlay appop either way, and nothing
+     * about the keys themselves changes with this off — they were never consumed. See
+     * `keys.VolumeHud`.
+     *
+     * The pref key is untouched, so anyone who switched it off by hand during v3.89 stays off.
      */
     var showVolume: Boolean
-        get() = sp.getBoolean("volume_hud", false)
+        get() = sp.getBoolean("volume_hud", true)
         set(v) = sp.edit().putBoolean("volume_hud", v).apply()
 
     /**
      * Whether tapping the volume strip opens the stream selector and pins what it chooses.
      *
-     * **Off from v3.89**, for a harder reason than the strip's: this is the one setting in the app
-     * that lets a volume key be *consumed*. Everything else here reports. A default that quietly
-     * takes a working key is the shape of this codebase's oldest mistake, so it is opt-in now —
-     * turn it on and the ringer and alarm levels become reachable, which Android and LightOS
-     * between them otherwise make impossible on this phone.
+     * **Off, from v3.89 and staying off.** This is the half of the pair the argument does apply
+     * to: it is the one setting in the app that lets a volume key be *consumed*. Everything else
+     * here reports. A default that quietly takes a working key is the shape of this codebase's
+     * oldest mistake, so it is opt-in — turn it on and the ringer and alarm levels become
+     * reachable, which Android and LightOS between them otherwise make impossible on this phone.
      */
     var volumePin: Boolean
         get() = sp.getBoolean("volume_pin", false)
