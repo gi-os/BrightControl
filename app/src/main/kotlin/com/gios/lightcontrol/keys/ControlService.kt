@@ -312,6 +312,8 @@ class ControlService : AccessibilityService() {
         )
         volumeHud.onTap = { volume.openPicker() }
         volumeHud.onPick = { stream -> volume.onPick(stream) }
+        volumeHud.onSetLevel = { stream, level -> volume.onSetLevel(stream, level) }
+        volumeHud.onCycleRinger = { volume.cycleRinger() }
         volume.start()
         // Not gated on `prefs.enabled`. The master switch is about keys — "this app touches no
         // control on this phone" — and the ringer rules are not a control anybody is holding. It

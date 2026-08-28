@@ -1,12 +1,17 @@
 package com.gios.lightcontrol.ui
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
@@ -181,6 +186,11 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
     val prefs = remember { Prefs(context) }
     val canOverlay = Grants.canDrawOverlays(context)
 
+    // Bumped when a binding is reset, so the row below redraws with the new state. Held as state
+    // rather than read from Prefs while composing: a SharedPreferences write is invisible to
+    // Compose, which is how the Wi-Fi ringer list shipped ignoring every tap.
+    var bumped by remember { mutableIntStateOf(0) }
+
     var volumeHud by remember { mutableStateOf(prefs.showVolume) }
     var volumePin by remember { mutableStateOf(prefs.volumePin) }
     var callBoost by remember { mutableStateOf(prefs.callBoost) }
@@ -205,16 +215,24 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
             },
         )
         MenuRow(
-            label = "Tap to pick a stream",
+            label = "A tap may take the keys",
             detail = if (volumePin) "ON" else "OFF",
-            sub = "tap the strip for a list of every volume this phone has — media, ring, " +
-                "notifications, alarm — and the keys move the one you choose. The only setting " +
-                "here that lets a volume key be consumed, which is why it is off by default.",
+            sub = "tapping a name in the panel hands the hardware volume keys to that stream for " +
+                "a few seconds. The only setting here that lets a volume key be consumed, which " +
+                "is why it is off. The panel and its sliders open either way.",
             subMaxLines = 4,
             onClick = {
                 volumePin = !volumePin
                 prefs.volumePin = volumePin
             },
+        )
+        MenuRow(
+            label = "Drag the bar",
+            sub = "the bar is a slider — drag it to set the level. Tap the name above it for a " +
+                "panel with every volume this phone has, each one draggable, and a row for the " +
+                "ringer's normal / vibrate / silent.",
+            dim = true,
+            subMaxLines = 4,
         )
         MenuRow(
             label = "Loud speakerphone",
@@ -245,6 +263,48 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
             subMaxLines = 3,
             onClick = onVolumeApps,
         )
+        Rule()
+
+        SectionLabel("THE KEYS THEMSELVES")
+        // A volume key that stopped working is this app's fault more often than not, and until now
+        // there was nowhere on the phone that said what was holding it. Every binding on both keys,
+        // in one row, and one button to give them all back.
+        val volumeBindings = listOf(
+            Button.VolumeUp to Gesture.Tap,
+            Button.VolumeUp to Gesture.Hold,
+            Button.VolumeUp to Gesture.DoubleTap,
+            Button.VolumeDown to Gesture.Tap,
+            Button.VolumeDown to Gesture.Hold,
+            Button.VolumeDown to Gesture.DoubleTap,
+        )
+        val bound = remember(bumped) {
+            volumeBindings.filter { (button, gesture) ->
+                prefs.action(button, gesture) != Action.PassThrough
+            }
+        }
+        MenuRow(
+            label = "Volume keys",
+            detail = if (bound.isEmpty()) "PASSED ON" else "${bound.size} BOUND",
+            sub = if (bound.isEmpty()) {
+                "nothing is bound to either key, so both go straight to the system — which is " +
+                    "what makes the volume change."
+            } else {
+                "bound, so this app takes the press: " + bound.joinToString(", ") { (b, g) ->
+                    "${b.label} ${g.label.lowercase()} → ${shortLabel(prefs.action(b, g))}"
+                } + ". That is why the keys are not changing the volume."
+            },
+            dim = bound.isEmpty(),
+            subMaxLines = 5,
+        )
+        if (bound.isNotEmpty()) {
+            BigButton(
+                label = "GIVE THE VOLUME KEYS BACK",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                volumeBindings.forEach { (b, g) -> prefs.setAction(b, g, Action.PassThrough) }
+                bumped++
+            }
+        }
         Rule()
 
         SectionLabel("WHY THE STRIP DID OR DID NOT APPEAR")

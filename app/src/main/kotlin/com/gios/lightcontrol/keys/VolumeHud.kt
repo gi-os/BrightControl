@@ -11,13 +11,15 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlin.math.roundToInt
 
 /**
- * The volume level, at the top of the screen, over whatever app is in front.
+ * The volume, at the top of the screen, over whatever app is in front.
  *
  * LightOS ships no volume UI at all. The keys work — the system changes the volume, media
  * responds — but nothing on screen says so, so the only way to find a level is to keep pressing
@@ -25,71 +27,88 @@ import android.widget.TextView
  * sound to judge in the moment, there is no feedback whatsoever: a silent phone and a phone at one
  * notch look identical until something arrives.
  *
- * So this is the missing HUD, and it is deliberately *only* a HUD. It reports; it never adjusts.
- * Nothing here consumes a key, which is the whole reason it is safe to put on the volume keys —
- * they are the one pair that already works, and this codebase's rule is that a key filter must
- * never remove a function to add one. See [VolumeWatcher] for what triggers it.
+ * **It was only ever a readout, and from v3.94 it is a control.** "It reports; it never adjusts"
+ * was the rule here for eleven releases, and it was the right rule while the only way to touch it
+ * was a key: a key filter must never take a working control away to add one. A finger on a bar this
+ * app drew takes nothing from anybody. So the bar is a slider — drag it and the volume goes there —
+ * and the panel behind it is one slider per stream, which is the only way the ringer and alarm
+ * levels can be reached on this phone at all.
+ *
+ * What is still true is the part that mattered: **no volume key is consumed** unless a stream has
+ * been pinned deliberately, which is its own setting and off by default. See [VolumeWatcher].
  *
  * Top of the screen rather than the bottom, unlike the brightness readout: brightness is judged by
  * looking at the screen, so its readout stays clear of what you are reading, while volume is what
  * you glance up at with a thumb already on the key.
  *
- * Views, not Compose — a service has no lifecycle owner, and this is a `TextView` and some
- * rectangles.
+ * Views, not Compose — a service has no lifecycle owner, and this is text and rectangles.
  */
 class VolumeHud(private val context: Context) {
 
     /**
-     * Tapped. Set after construction, because the thing that answers a tap is [VolumeWatcher] and
-     * the watcher needs the hud handed to it first.
-     *
-     * This is the one part of the HUD that is not passive, and it is why the window is touchable at
-     * all. See the flags in [attach] for what that costs.
+     * The strip's label was tapped: open the panel. The bar itself is a slider, so the label is
+     * what is left to tap, and "which volume" is the right question for it to ask.
      */
     var onTap: (() -> Unit)? = null
 
-    /**
-     * A row in the selector was chosen. The stream is the `AudioManager.STREAM_*` constant, and
-     * what happens next is the watcher's business — this only reports the tap.
-     */
+    /** A row of the panel was chosen — let the hardware keys move that stream. */
     var onPick: ((Int) -> Unit)? = null
+
+    /** A bar was dragged. The stream is an `AudioManager.STREAM_*`, the level an index on it. */
+    var onSetLevel: ((Int, Int) -> Unit)? = null
+
+    /**
+     * The ringer-mode row was tapped. Returns the state to show afterwards, or null if the change
+     * was refused — muting a phone needs Do Not Disturb access, and a row that silently did nothing
+     * would be the third undiagnosable thing in this file.
+     */
+    var onCycleRinger: (() -> String?)? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val hide = Runnable { detach() }
 
     private var root: LinearLayout? = null
     private var title: TextView? = null
-    private var bar: SegmentBar? = null
+    private var bar: LevelBar? = null
+
+    /** A finger is on a bar. Nothing may take the window away while that is true. */
+    private var dragging = false
 
     /**
-     * Whether the window currently holds the selector rather than the one-line strip.
+     * Whether the window currently holds the panel rather than the one-line strip.
      *
-     * The watcher asks, because a volume broadcast arriving while the list is open must not
-     * quietly replace it with a strip — that would close the list under a thumb on its way to a
-     * row.
+     * Derived from the window rather than kept as a plain flag, and deliberately. [VolumeWatcher]
+     * drops a volume change while this is true, so a flag left true with no window on screen would
+     * be a HUD that had stopped appearing at all, permanently, with nothing on the phone to say
+     * why. Tying it to [root] makes that state unreachable.
      */
     val picking: Boolean get() = pickerUp && root != null
 
-    /**
-     * Derived from the window rather than kept as a plain flag, and deliberately.
-     *
-     * [VolumeWatcher] drops a volume change while this is true. A flag that could be left true with
-     * no window on screen would therefore be a HUD that had stopped appearing at all, permanently,
-     * with nothing on the phone to say why — the worst failure this file can have, and one that
-     * would look exactly like the feature being broken rather than like a stuck boolean. Tying it
-     * to [root] makes that state unreachable.
-     */
     private var pickerUp = false
 
-    /** One row of the selector: a stream, what it is called, and where it currently sits. */
-    data class StreamRow(
-        val stream: Int,
-        val name: String,
-        val level: Int,
-        val max: Int,
-        val note: String? = null,
-        val current: Boolean = false,
-    )
+    /** What the panel lists. */
+    sealed interface Row {
+
+        /** One stream, drawn as a slider. */
+        data class Level(
+            val stream: Int,
+            val name: String,
+            val level: Int,
+            val max: Int,
+            val note: String? = null,
+            val current: Boolean = false,
+        ) : Row
+
+        /**
+         * The ringer's mode, which is not a level and cannot be one.
+         *
+         * Normal, vibrate and silent are three states of one switch, and the bottom of the ring
+         * slider is only the first of them. Dragging to zero gets you vibrate on this phone and
+         * there is nothing further to drag — so getting from vibrate to silent had no gesture at
+         * all, which is exactly the sort of thing LightOS leaves to an app to notice.
+         */
+        data class Mode(val name: String, val state: String, val hint: String) : Row
+    }
 
     /**
      * Show [level] of [max] for the stream named [stream].
@@ -102,7 +121,14 @@ class VolumeHud(private val context: Context) {
      * says, and the label's job is which stream the keys are moving. The percentage was also a lie
      * about precision — a 7-step ringer cannot be at 43%.
      */
-    fun show(stream: String, level: Int, max: Int, note: String? = null, pinned: Boolean = false) {
+    fun show(
+        stream: String,
+        streamId: Int,
+        level: Int,
+        max: Int,
+        note: String? = null,
+        pinned: Boolean = false,
+    ) {
         if (!allowed()) {
             VolumeSignals.note("no overlay permission — see Setup")
             return
@@ -113,12 +139,12 @@ class VolumeHud(private val context: Context) {
             VolumeSignals.note("the screen was off")
             return
         }
-        // Coming back from the selector: the list's window is not this one.
+        // A finger is on the panel. Nothing arriving from outside gets to replace it mid-drag.
+        if (dragging) return
+        // Coming back from the panel: the list's window is not this one.
         if (picking) detach()
         attach()
         if (root == null) {
-            // `addView` refused. Worth naming: it is the one failure here that is neither a setting
-            // nor a state, and it looks exactly like all the others from the phone.
             VolumeSignals.note("the window would not attach")
             return
         }
@@ -126,7 +152,7 @@ class VolumeHud(private val context: Context) {
         title?.text = stream +
             (note?.let { " · $it" } ?: if (level == 0) " · SILENT" else "") +
             if (pinned) " · PIN" else ""
-        bar?.set(level, safeMax)
+        bar?.bind(streamId, level, safeMax)
         VolumeSignals.noteShown("$stream $level/$safeMax")
         handler.removeCallbacks(hide)
         // A pin is something you are in the middle of using, so it gets longer to be used in.
@@ -134,18 +160,17 @@ class VolumeHud(private val context: Context) {
     }
 
     /**
-     * Show every stream at once, so one can be chosen.
+     * Every volume at once, each one a slider.
      *
      * This replaced a tap that walked the streams one at a time. Cycling meant the only way to
      * reach the alarm was to tap past the ringer, inside a strip that disappears — four taps to
-     * arrive somewhere, each one changing which stream the keys would move if you stopped. A list
-     * says what there is, says where each one currently sits, and needs one tap to land on the one
-     * you meant.
+     * arrive somewhere, each one changing which stream the keys would move if you stopped. A panel
+     * says what there is, says where each one sits, and lets you drag the one you meant.
      *
-     * It is still the same window and the same rules: unfocusable, so no key can be swallowed, and
-     * `FLAG_NOT_TOUCH_MODAL`, so every touch outside the list goes to the app underneath.
+     * Same window and same rules: unfocusable, so no key can be swallowed, and
+     * `FLAG_NOT_TOUCH_MODAL`, so every touch outside it goes to the app underneath.
      */
-    fun showPicker(rows: List<StreamRow>) {
+    fun showPicker(rows: List<Row>) {
         if (!allowed() || !screenOn() || rows.isEmpty()) return
         detach()
         val wm = context.getSystemService(WindowManager::class.java) ?: return
@@ -153,22 +178,21 @@ class VolumeHud(private val context: Context) {
         val config = context.resources.configuration
         val unit = config.screenWidthDp / 27f * density
         val labelSp = 24.5f * config.screenHeightDp / 600f
-        // `caption` on the SDK's scale, for the one line that is not a choice.
+        // `caption` on the SDK's scale, for the lines that are not a choice.
         val headSp = 19f * config.screenHeightDp / 600f
 
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             background = ColorDrawable(Color.BLACK)
             setPadding(unit.toInt(), (unit * 0.38f).toInt(), unit.toInt(), (unit * 0.5f).toInt())
-            // The list itself is the touch target. The box is clickable so a tap on the padding
-            // between rows closes it rather than falling through to the app — a list that
-            // sometimes swallows a tap and sometimes does not is worse than either.
+            // A tap on the padding between rows closes the panel rather than falling through to the
+            // app. A list that sometimes swallows a tap and sometimes does not is worse than either.
             isClickable = true
             setOnClickListener { dismiss() }
         }
         box.addView(
             TextView(context).apply {
-                text = "WHICH VOLUME"
+                text = "DRAG A BAR · TAP A NAME"
                 setTextColor(Color.parseColor(DIM))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, headSp)
                 letterSpacing = 0.15f
@@ -176,42 +200,10 @@ class VolumeHud(private val context: Context) {
             },
         )
         for (row in rows) {
-            val line = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = (unit * 0.4f).toInt() }
-                isClickable = true
-                setOnClickListener {
-                    // Down before up: the callback shows the strip for the chosen stream, and it
-                    // has to find the window free when it does.
-                    val chosen = row.stream
-                    runCatching { onPick?.invoke(chosen) }
-                }
+            when (row) {
+                is Row.Level -> box.addView(levelRow(row, unit, density, labelSp))
+                is Row.Mode -> box.addView(modeRow(row, unit, labelSp, headSp))
             }
-            line.addView(
-                TextView(context).apply {
-                    text = row.name +
-                        (row.note?.let { " · $it" } ?: if (row.level == 0) " · SILENT" else "") +
-                        if (row.current) " ·" else ""
-                    setTextColor(if (row.current) Color.WHITE else Color.parseColor(DIM))
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp)
-                    letterSpacing = 0.15f
-                    isSingleLine = true
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                },
-            )
-            line.addView(
-                SegmentBar(context).apply {
-                    set(row.level, row.max.coerceAtLeast(1))
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        (unit * 0.28f).toInt().coerceAtLeast((2 * density).toInt()),
-                    ).apply { topMargin = (unit * 0.2f).toInt() }
-                },
-            )
-            box.addView(line)
         }
 
         val params = WindowManager.LayoutParams(
@@ -229,11 +221,82 @@ class VolumeHud(private val context: Context) {
                 title = null
                 bar = null
                 pickerUp = true
-                handler.removeCallbacks(hide)
-                // Long enough to read eight rows and reach for one, and it is closed by the tap
-                // that chooses anyway.
-                handler.postDelayed(hide, PICKER_DWELL_MS)
+                keepOpen()
             }
+    }
+
+    private fun levelRow(row: Row.Level, unit: Float, density: Float, labelSp: Float): View {
+        val line = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = (unit * 0.3f).toInt() }
+        }
+        val name = TextView(context).apply {
+            text = row.name + (row.note?.let { " · $it" } ?: "") + if (row.current) " ·" else ""
+            setTextColor(if (row.current) Color.WHITE else Color.parseColor(DIM))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp)
+            letterSpacing = 0.15f
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // The name is the tap target, because the bar under it is a slider now. Tapping it
+            // hands the hardware keys to this stream.
+            isClickable = true
+            setOnClickListener { runCatching { onPick?.invoke(row.stream) } }
+        }
+        line.addView(name)
+        line.addView(
+            LevelBar(context).apply {
+                bind(row.stream, row.level, row.max.coerceAtLeast(1))
+                onSet = { stream, level -> runCatching { onSetLevel?.invoke(stream, level) } }
+                onGrab = { dragging = true; handler.removeCallbacks(hide) }
+                onRelease = { dragging = false; keepOpen() }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (unit * TOUCH_UNITS).toInt().coerceAtLeast((28 * density).toInt()),
+                ).apply { topMargin = (unit * 0.1f).toInt() }
+            },
+        )
+        return line
+    }
+
+    private fun modeRow(row: Row.Mode, unit: Float, labelSp: Float, headSp: Float): View {
+        val line = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = (unit * 0.3f).toInt() }
+            isClickable = true
+        }
+        val state = TextView(context).apply {
+            text = "${row.name} · ${row.state}"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, labelSp)
+            letterSpacing = 0.15f
+            isSingleLine = true
+        }
+        val hint = TextView(context).apply {
+            text = row.hint
+            setTextColor(Color.parseColor(DIM))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, headSp)
+            letterSpacing = 0.15f
+            isSingleLine = true
+        }
+        line.addView(state)
+        line.addView(hint)
+        line.setOnClickListener {
+            keepOpen()
+            val next = runCatching { onCycleRinger?.invoke() }.getOrNull()
+            if (next == null) {
+                hint.text = "needs DND access — see Volume in the app"
+            } else {
+                state.text = "${row.name} · $next"
+                hint.text = row.hint
+            }
+        }
+        return line
     }
 
     fun allowed(): Boolean =
@@ -242,6 +305,12 @@ class VolumeHud(private val context: Context) {
     private fun screenOn(): Boolean = runCatching {
         context.getSystemService(PowerManager::class.java)?.isInteractive ?: true
     }.getOrDefault(true)
+
+    /** Push the dismissal back. Every touch on the panel buys more time on it. */
+    private fun keepOpen() {
+        handler.removeCallbacks(hide)
+        handler.postDelayed(hide, PICKER_DWELL_MS)
+    }
 
     private fun attach() {
         if (root != null) return
@@ -265,12 +334,24 @@ class VolumeHud(private val context: Context) {
             // would double its height at the moment it is covering someone's app.
             isSingleLine = true
             ellipsize = android.text.TextUtils.TruncateAt.END
+            // The label opens the panel. It is the tap target now that the bar is a slider, and it
+            // is the better one anyway: the label is what says which volume this is.
+            isClickable = true
+            setOnClickListener { runCatching { onTap?.invoke() } }
         }
-        val segments = SegmentBar(context).apply {
+        val slider = LevelBar(context).apply {
+            onSet = { stream, level -> runCatching { onSetLevel?.invoke(stream, level) } }
+            onGrab = { dragging = true; handler.removeCallbacks(hide) }
+            onRelease = {
+                dragging = false
+                handler.removeCallbacks(hide)
+                // Longer than a glance: a strip you have just used is one you may use again.
+                handler.postDelayed(hide, PIN_DWELL_MS)
+            }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                (unit * 0.28f).toInt().coerceAtLeast((2 * density).toInt()),
-            ).apply { topMargin = (unit * 0.25f).toInt() }
+                (unit * TOUCH_UNITS).toInt().coerceAtLeast((28 * density).toInt()),
+            ).apply { topMargin = (unit * 0.1f).toInt() }
         }
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -282,15 +363,14 @@ class VolumeHud(private val context: Context) {
             val padV = (unit * 0.38f).toInt()
             setPadding(padH, padV, padH, padV)
             addView(text)
-            addView(segments)
-            // Touchable, so the strip can be tapped to choose which stream the keys move. The
-            // window is only as tall as the strip and `FLAG_NOT_TOUCH_MODAL` lets everything
-            // outside it through, so what this costs is precisely: a tap landing on a thin bar at
-            // the very top of the screen, during the second it is visible, goes here instead of to
-            // the app. That is the whole of it — and it can never cost a *key*, because the window
-            // stays unfocusable.
+            addView(slider)
+            // Touchable, so the strip can be used at all. The window is only as tall as the strip
+            // and `FLAG_NOT_TOUCH_MODAL` lets everything outside it through, so what this costs is
+            // precisely: a touch landing on a thin bar at the very top of the screen, during the
+            // seconds it is visible, goes here instead of to the app. That is the whole of it — and
+            // it can never cost a *key*, because the window stays unfocusable.
             isClickable = true
-            setOnClickListener { onTap?.invoke() }
+            setOnClickListener { runCatching { onTap?.invoke() } }
         }
 
         val params = WindowManager.LayoutParams(
@@ -299,9 +379,6 @@ class VolumeHud(private val context: Context) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // Not focusable, deliberately and permanently: an overlay that took key focus would
             // swallow the very presses it exists to report, which is worse than no HUD at all.
-            // `FLAG_NOT_TOUCHABLE` is the one that had to go, because a tap has to be able to
-            // reach the strip; `FLAG_NOT_TOUCH_MODAL` keeps every touch outside it going to the
-            // app underneath, and the window is `WRAP_CONTENT` tall.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT,
@@ -313,7 +390,7 @@ class VolumeHud(private val context: Context) {
             .onSuccess {
                 root = box
                 title = text
-                bar = segments
+                bar = slider
                 pickerUp = false
             }
     }
@@ -324,6 +401,7 @@ class VolumeHud(private val context: Context) {
         title = null
         bar = null
         pickerUp = false
+        dragging = false
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         runCatching { wm.removeView(box) }
     }
@@ -335,15 +413,20 @@ class VolumeHud(private val context: Context) {
     }
 
     /**
-     * The level as one solid bar: white as far as you are, grey the rest of the way.
+     * The level as one solid bar, and a slider you can drag.
      *
      * It was notches — one box per press, with a gutter between them — on the argument that the
      * control is discrete, so the bar should answer "how many more presses". On a black strip the
      * gutters *are* the background, so what the eye actually read was a row of black lines through
-     * the bar, and at fifteen media steps they were most of it. A bar is a bar. The count still
-     * decides where the white ends, so the level is exact; nothing draws the gap.
+     * the bar, and at fifteen media steps they were most of it. A bar is a bar. The step count
+     * still decides where the white ends, so the level is exact; nothing draws the gap.
+     *
+     * **The view is much taller than the bar it draws.** The bar is a few pixels high, which is
+     * right to look at and impossible to hit — so the touchable height is a finger's worth and the
+     * bar is drawn down the middle of it. A control you have to aim at is not one you can use with
+     * the phone half out of a pocket.
      */
-    private class SegmentBar(context: Context) : View(context) {
+    private class LevelBar(context: Context) : View(context) {
 
         private val fill = Paint().apply {
             color = Color.WHITE
@@ -355,22 +438,74 @@ class VolumeHud(private val context: Context) {
             isAntiAlias = false
         }
 
+        var onSet: ((Int, Int) -> Unit)? = null
+        var onGrab: (() -> Unit)? = null
+        var onRelease: (() -> Unit)? = null
+
+        private var stream = -1
         private var level = 0
         private var max = 1
 
-        fun set(level: Int, max: Int) {
+        fun bind(stream: Int, level: Int, max: Int) {
+            this.stream = stream
             this.max = max.coerceAtLeast(1)
             this.level = level.coerceIn(0, this.max)
             invalidate()
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (stream < 0) return false
+            return when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    // The window is not touch-modal and the parent has a click listener on it.
+                    // Claiming the gesture here is what stops a drag that starts on the bar being
+                    // read as a tap on the strip.
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    runCatching { onGrab?.invoke() }
+                    moveTo(event.x)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    moveTo(event.x)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    moveTo(event.x)
+                    runCatching { onRelease?.invoke() }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        /**
+         * Where the finger is, as an index on this stream's own scale.
+         *
+         * Rounded to the nearest step rather than truncated, so both ends are reachable: with
+         * truncation the top of the scale would need the very last pixel, and on a seven-step
+         * ringer that is a worse aim than the notch it is setting.
+         */
+        private fun moveTo(x: Float) {
+            val w = width.toFloat()
+            if (w <= 0f) return
+            val next = ((x / w).coerceIn(0f, 1f) * max).roundToInt().coerceIn(0, max)
+            if (next == level) return
+            level = next
+            invalidate()
+            runCatching { onSet?.invoke(stream, next) }
         }
 
         override fun onDraw(canvas: Canvas) {
             val w = width.toFloat()
             val h = height.toFloat()
             if (w <= 0f || h <= 0f) return
-            canvas.drawRect(0f, 0f, w, h, empty)
+            // Drawn down the middle of a much taller touch target.
+            val thickness = (BAR_DP * resources.displayMetrics.density).coerceAtMost(h)
+            val top = (h - thickness) / 2f
+            val bottom = top + thickness
+            canvas.drawRect(0f, top, w, bottom, empty)
             if (level <= 0) return
-            canvas.drawRect(0f, 0f, w * level / max, h, fill)
+            canvas.drawRect(0f, top, w * level / max, bottom, fill)
         }
     }
 
@@ -378,11 +513,17 @@ class VolumeHud(private val context: Context) {
         /** Long enough to read after the last press, short enough not to sit on the screen. */
         const val DWELL_MS = 1_400L
 
-        /** Longer, once a stream is pinned: the presses that use the pin come after the tap. */
+        /** Longer, once a stream is pinned or a bar has been dragged: it is in use. */
         const val PIN_DWELL_MS = 4_000L
 
-        /** The selector is read and then aimed at, which takes longer than a glance. */
+        /** The panel is read and then aimed at, which takes longer than a glance. */
         const val PICKER_DWELL_MS = 8_000L
+
+        /** How tall a bar is to the finger, in grid units. About a thumb. */
+        const val TOUCH_UNITS = 1.8f
+
+        /** How tall it is to the eye. */
+        const val BAR_DP = 4f
 
         /** contentSecondary, dimmed for black. */
         const val DIM = "#4A4A4A"

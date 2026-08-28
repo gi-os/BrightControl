@@ -681,8 +681,13 @@ so. The only way to find a level is to press until it is too loud and come back 
 ring and alarm streams there is no feedback whatsoever. A silent phone and a phone at one notch
 look identical until something arrives.
 
-So there is a HUD at the top of the screen, and it is **only a HUD. It reports. It never
-adjusts.** Nothing here consumes a key, which is what makes it safe to put on the volume keys.
+So there is a strip at the top of the screen. It was **only a readout** for eleven releases, on the
+rule that a key filter must never take a working control away to add one — and that rule is about
+*keys*. A finger on a bar this app drew takes nothing from anybody, so from v3.94 the bar is a
+slider: drag it and the volume goes there. What is still true is the part that mattered — **no volume
+key is consumed** unless a stream has been pinned on purpose, which is its own setting and off by
+default. The bar is drawn thin and the thing you touch is a finger's worth of height around it,
+because a control you have to aim at is not one you can use with the phone half out of a pocket.
 It listens to `android.media.VOLUME_CHANGED_ACTION`, so it also catches the slider of a media
 app, a headset button, and a Bluetooth device that turns itself down on connect.
 
@@ -714,18 +719,35 @@ anywhere at all.
 
 So: **Volume → Apps whose volume keys are their own**. The same answer this codebase gives
 everywhere it needs to know something about an app that nothing will tell it, and unlike the
-inference it cannot go wrong anywhere except on the apps in it. The accessibility filter sees a key before the
-app does, so BrightLibrary turning a page with the volume keys — which consumes them, leaving the
-volume unchanged — used to flash a readout of a level that had not moved, over the page it had just
-turned. The strip reports *changes*, so a level that did not change is not news. That is the rule
-the broadcast path always had; the key path now has it too. Pressing up at maximum still shows the
-full bar, because that is a question the bar answers.
+inference it cannot go wrong anywhere except on the apps in it.
 
-**Tap the strip for a list of every volume this phone has** — media, ring, notifications, alarm,
-system, tones, speech, and the call stream during a call — each with where it currently sits. Tap
-one and the keys move that one for a few seconds. This used to be a cycle: one tap, one stream, so
-the alarm was three taps past media, each tap left the keys pointed at something you were only
-passing through, and all of it inside a strip that vanishes after a second and a half.
+**Tap the name for a panel with every volume this phone has** — media, ring, notifications, alarm,
+system, tones, speech, and the call stream during a call — each showing where it sits and each one
+draggable. Tapping a *name* additionally hands the hardware keys to that stream for a few seconds,
+which is the one thing here that consumes a key and so the one thing behind a setting. The panel
+itself opens for anybody: gating the only route to the ringer and alarm levels behind a setting about
+key interception left them unreachable by default for no reason.
+
+It used to be a cycle: one tap, one stream, so the alarm was three taps past media, each tap left the
+keys pointed at something you were only passing through, and all of it inside a strip that vanishes
+after a second and a half.
+
+**Under the ring slider is the ringer's own row** — normal, vibrate, silent, one tap apart. Three
+states of one switch, and the bottom of a slider is only the first of them: dragging the ring volume
+to zero gets you vibrate and there is nothing further to drag, so getting from vibrate to silent had
+no gesture at all.
+
+**A pinned stream that cannot be moved gives the key back.** Crossing the ringer into silence needs
+Do Not Disturb access, and a stream the platform refuses to move refuses the same way — the old code
+consumed the press anyway *and refreshed the pin*, so once a pin landed on a stream this app could
+not move, every further press was swallowed and extended the pin swallowing it. The volume keys were
+dead for as long as you kept pressing them. A key filter must never remove a function to add one: if
+the pin cannot do the job, the pin ends and the system gets its press. The move is verified by
+reading the level back rather than by the absence of an exception.
+
+**Volume** also lists every binding on both volume keys and offers to hand them back in one tap. A
+volume key that stopped working is this app's fault more often than not, and there was nowhere on the
+phone that said what was holding it.
 
 The HUD stays off LightOS screens, which have volume controls of their own. **A call is the
 exception.** The dialer is in front for the whole call and has no volume control at all, so during
@@ -1043,6 +1065,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.94 | **The bar is a slider.** Drag it and the volume goes there — in the strip and in every row of the panel, which now opens without the key-interception setting, because sliders consume nothing. A ringer row under the ring slider walks normal, vibrate and silent, which a slider cannot express and which had no gesture at all. And a pinned stream this app cannot move now gives the key back instead of swallowing the press and re-arming the pin, which is how the volume keys could stop working entirely |
 | v3.93 | **The strip is back, and the page-turn fix is a list.** Two releases tried to infer a swallowed key from whether the level moved; on this phone the level has already moved by the time an accessibility filter is asked about the key, so every press looked unmoved and the HUD never drew. Replaced with a per-app list, BrightLibrary in it by default. The Volume screen also names the reason the strip last declined to draw — it has nine, and from the phone they all look identical |
 | v3.92 | **A stored rule could eat a wheel click for ever.** An explicit per-app rule beats the built-in table, and rightly — but a rule of "scroll through" saved before Roll and BrightRecorder used their own click kept winning after the fix existed, so the click was spent on this service's binding and never reached the app. The click of a wheel-owning app now has the camera key's first claim, answered from the built-in list alone, and the claim is logged |
 | v3.91 | **The strip is back.** v3.90's new guard took its "before" reading from a posted runnable, which runs after the system has already applied the press — so every press looked like one that moved nothing and the HUD stopped appearing entirely. Read synchronously in the key callback now, where the level is still the old one, and everything about the guard fails towards showing the strip. The Volume screen also reports which of the HUD's two sources is alive on this phone, because on a build that sends no volume broadcast the fallback path is the whole feature |

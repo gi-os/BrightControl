@@ -56,6 +56,14 @@ class VolumeWatcher(
     private var pinnedStream: Int? = null
     private var pinnedUntil = 0L
 
+    /**
+     * Whether the press currently in flight was taken by the pin.
+     *
+     * A press is consumed for its whole life or not at all — a DOWN we refused must not be followed
+     * by an UP we swallow, or the app underneath gets half a press.
+     */
+    private var takingPress = false
+
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -249,7 +257,7 @@ class VolumeWatcher(
             ringish && mode == AudioManager.RINGER_MODE_SILENT -> "SILENT"
             else -> null
         }
-        hud.show(name(stream), level, max, label, pinned = pinnedStream == stream)
+        hud.show(name(stream), stream, level, max, label, pinned = pinnedStream == stream)
     }
 
     /**
@@ -266,33 +274,45 @@ class VolumeWatcher(
      * control that lies.
      */
     fun openPicker() {
-        if (!wanted() || !pinningAllowed()) return
+        // Not gated on [pinningAllowed] any more. That setting is about *consuming a volume key*,
+        // and the panel does not consume anything — it is sliders on this app's own window. Gating
+        // the way in to every volume this phone has behind a setting about key interception meant
+        // the ringer and alarm were unreachable by default for no reason at all.
+        if (!wanted()) return
         runCatching {
             val audio = context.getSystemService(AudioManager::class.java) ?: return
             val mode = runCatching { audio.ringerMode }.getOrDefault(AudioManager.RINGER_MODE_NORMAL)
             val chosen = pinnedStream
-            val rows = offered
-                .filter { it != AudioManager.STREAM_VOICE_CALL || inCall(audio) }
-                .mapNotNull { stream ->
-                    val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
-                    if (max <= 0) return@mapNotNull null
-                    val level = runCatching { audio.getStreamVolume(stream) }.getOrNull()
-                        ?: return@mapNotNull null
-                    val ringish = stream == AudioManager.STREAM_RING ||
-                        stream == AudioManager.STREAM_NOTIFICATION
-                    VolumeHud.StreamRow(
-                        stream = stream,
-                        name = name(stream),
-                        level = level,
-                        max = max,
-                        note = when {
-                            ringish && mode == AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
-                            ringish && mode == AudioManager.RINGER_MODE_SILENT -> "SILENT"
-                            else -> null
-                        },
-                        current = stream == (chosen ?: lastStream),
+            val rows = mutableListOf<VolumeHud.Row>()
+            for (stream in offered) {
+                if (stream == AudioManager.STREAM_VOICE_CALL && !inCall(audio)) continue
+                val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
+                if (max <= 0) continue
+                val level = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: continue
+                val ringish = stream == AudioManager.STREAM_RING ||
+                    stream == AudioManager.STREAM_NOTIFICATION
+                rows += VolumeHud.Row.Level(
+                    stream = stream,
+                    name = name(stream),
+                    level = level,
+                    max = max,
+                    note = when {
+                        ringish && mode == AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
+                        ringish && mode == AudioManager.RINGER_MODE_SILENT -> "SILENT"
+                        else -> null
+                    },
+                    current = stream == (chosen ?: lastStream),
+                )
+                // Right under the ring slider, because that is where you are when you discover the
+                // bottom of it is not silence.
+                if (stream == AudioManager.STREAM_RING) {
+                    rows += VolumeHud.Row.Mode(
+                        name = "RINGER",
+                        state = modeName(mode),
+                        hint = "tap: normal · vibrate · silent",
                     )
                 }
+            }
             hud.showPicker(rows)
         }
     }
@@ -323,6 +343,57 @@ class VolumeWatcher(
     }
 
     /**
+     * A bar was dragged: put that stream there.
+     *
+     * The one thing in this app that changes a volume without a key being involved, and the reason
+     * the "it reports, it never adjusts" rule could be relaxed: a finger on a bar this app drew
+     * takes nothing away from anybody. Nothing is presented afterwards — the bar is already showing
+     * where the finger put it, and re-showing would tear down the panel the finger is still on.
+     */
+    fun onSetLevel(stream: Int, level: Int) {
+        runCatching {
+            val audio = context.getSystemService(AudioManager::class.java) ?: return
+            val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
+            if (max <= 0) return
+            val want = level.coerceIn(0, max)
+            // Muting the ringer is a Do Not Disturb operation as far as Android is concerned, so
+            // this throws without the grant rather than doing nothing. Said out loud on the strip
+            // when it is the strip being dragged; the panel's own row keeps what the finger drew.
+            val ok = runCatching { audio.setStreamVolume(stream, want, 0) }.isSuccess
+            if (!ok) {
+                VolumeSignals.note("stream $stream refused a level — needs DND access")
+                if (!hud.picking) present(stream, "NEEDS DND ACCESS", -1, force = true)
+            }
+        }
+    }
+
+    /**
+     * The ringer's three states, walked one tap at a time. Returns what it now is, or null when the
+     * change was refused — which is what happens without Do Not Disturb access, and the panel says
+     * so rather than sitting there unchanged.
+     */
+    fun cycleRinger(): String? = runCatching {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return null
+        val next = when (runCatching { audio.ringerMode }.getOrDefault(AudioManager.RINGER_MODE_NORMAL)) {
+            AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
+            AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
+            else -> AudioManager.RINGER_MODE_NORMAL
+        }
+        runCatching { audio.ringerMode = next }
+        // Read back rather than trusting the write: a refused mode change is swallowed as often as
+        // it throws, and a row that reported a state the phone is not in would be worse than one
+        // that admitted it could not.
+        val now = runCatching { audio.ringerMode }.getOrNull() ?: return null
+        if (now != next) null else modeName(now)
+    }.getOrNull()
+
+    private fun modeName(mode: Int): String = when (mode) {
+        AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
+        AudioManager.RINGER_MODE_SILENT -> "SILENT"
+        else -> "NORMAL"
+    }
+
+    /**
      * A volume key while a stream is pinned: move that stream and swallow the press.
      *
      * Returns false for everything else, which is the normal case and the safe one — the key goes
@@ -335,20 +406,40 @@ class VolumeWatcher(
             clearPin()
             return false
         }
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            val audio = context.getSystemService(AudioManager::class.java) ?: return false
-            val direction = if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-            // Flag 0: no system UI (there is none) and no beep. Crossing the ringer into silence
-            // needs DND access, which a sideloaded app does not have, so that throws — and the
-            // honest thing is to say so on the strip rather than look broken.
-            val moved = runCatching { audio.adjustStreamVolume(stream, direction, 0) }.isSuccess
-            pinnedUntil = SystemClock.uptimeMillis() + PIN_MS
-            if (moved) {
-                present(stream, null, -1, force = true)
-            } else {
-                present(stream, "NEEDS DND ACCESS", -1, force = true)
-            }
+        // Repeats and the release follow whatever the press itself did, so no app is ever handed
+        // half of one.
+        if (event.action != KeyEvent.ACTION_DOWN) return takingPress
+
+        val audio = context.getSystemService(AudioManager::class.java) ?: return false
+        val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
+        val before = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return false
+        val direction = if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+        // Flag 0: no system UI (there is none on this phone) and no beep.
+        runCatching { audio.adjustStreamVolume(stream, direction, 0) }
+        val after = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: before
+        // Already at the end of the scale is not a failure — there was nowhere to go.
+        val atRail = (up && before >= max && max > 0) || (!up && before <= 0)
+        val moved = after != before || atRail
+
+        if (!moved) {
+            // **Give the key back.** This is the whole of the fix for a phone whose volume keys
+            // stopped working. Crossing the ringer into silence needs Do Not Disturb access; a
+            // stream the platform will not move for us refuses in the same way, and the old code
+            // consumed the press regardless and then *refreshed the pin* — so once a pin landed on
+            // a stream this app could not move, every further press was swallowed and extended the
+            // pin that was swallowing it. The keys were dead for as long as you kept pressing them.
+            //
+            // A key filter must never remove a function to add one. If the pin cannot do the job,
+            // the pin ends and the system gets the press it would have had.
+            clearPin()
+            takingPress = false
+            VolumeSignals.note("could not move stream $stream — key passed to the system")
+            return false
         }
+
+        takingPress = true
+        pinnedUntil = SystemClock.uptimeMillis() + PIN_MS
+        present(stream, null, after, force = true)
         true
     }.getOrDefault(false)
 
@@ -363,6 +454,7 @@ class VolumeWatcher(
     private fun clearPin() {
         pinnedStream = null
         pinnedUntil = 0L
+        takingPress = false
     }
 
     private fun inCall(audio: AudioManager): Boolean =
