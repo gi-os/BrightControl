@@ -1621,7 +1621,13 @@ class ControlService : AccessibilityService() {
         val up = runCatching { switcher.show(list) }.getOrDefault(false)
         // Counted without the pinned Home row. It is always there, so including it would add one
         // to every reading and make an empty switcher log as though it had found something.
-        log("HOME double · switcher ${if (up) "${list.count { !it.home }} apps" else "FAILED"}")
+        //
+        // Where Home resolved is logged beside it, because that answer has a fallback in it and
+        // v3.97 shipped it resolving to LightOS for nearly everybody with nothing anywhere saying
+        // so. A rule you cannot read the output of is a rule nobody can report a bug about.
+        val home = list.lastOrNull { it.home }
+        val where = home?.let { " · home ${it.pkg.substringAfterLast('.')} ${it.action?.store()}" } ?: ""
+        log("HOME double · switcher ${if (up) "${list.count { !it.home }} apps$where" else "FAILED"}")
         return up
     }
 

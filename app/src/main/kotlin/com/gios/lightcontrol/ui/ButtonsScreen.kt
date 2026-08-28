@@ -29,6 +29,8 @@ import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.switcher.HomeApp
+import com.gios.lightcontrol.switcher.appName
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -60,6 +62,16 @@ fun ButtonsScreen(
         Button.entries.any { b -> Gesture.entries.any { prefs.action(b, it) == Action.Resume } }
     var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
     var homeRow by remember { mutableStateOf(prefs.switcherHomeRow) }
+    // Read on every composition rather than remembered: it depends on the tap binding, which is
+    // changed on the picker screen this one is recomposed on the way back from. A remembered answer
+    // would be the one from before the change, which on this particular row is the whole bug -- the
+    // setting exists to say where Home is going.
+    val homeGoesTo = if (homeRow) {
+        runCatching { HomeApp.label(prefs, context.packageManager) { appName(context, it) } }
+            .getOrDefault("the system's home")
+    } else {
+        ""
+    }
     var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
@@ -145,13 +157,13 @@ fun ButtonsScreen(
                         )
                         MenuRow(
                             label = "Home is pinned",
-                            detail = if (homeRow) "ON" else "OFF",
+                            detail = if (homeRow) homeGoesTo.uppercase() else "OFF",
                             sub = if (homeRow) {
                                 "Home sits at the bottom of the switcher, always, with a drawn " +
-                                    "house — and the app it goes to is left out of the recents " +
-                                    "above it. Home is whatever a single press of the home " +
-                                    "button reaches, so binding the tap to a launcher is what " +
-                                    "stops that launcher reading as one more app."
+                                    "house — and $homeGoesTo is left out of the recents above " +
+                                    "it. It follows the tap binding when that names an app, and " +
+                                    "otherwise finds the launcher you installed: the HOME role " +
+                                    "is always LightOS on this phone whether you use it or not."
                             } else {
                                 "off, so there is no pinned row and your launcher is listed by " +
                                     "its own name and icon like any other app. The switcher " +

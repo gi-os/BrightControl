@@ -207,14 +207,21 @@ offering, never worth ranking by recency — so it sits below the list behind a 
 app it goes to is taken out of the rows above it. A launcher that appears twice, once as itself and
 once as Home, is the list saying two different things about one press.
 
-**Home is whatever a single press of the home button reaches**, read from that button's own tap
-binding. Not from whichever app holds the HOME role: on this phone that is always LightOS, which has
-to keep the role or it crash-loops, so the role says nothing about the launcher a person actually
-uses. Bind the tap to Luma and Luma stops appearing as an app, because it stopped being one the
-moment it became where home goes; bind it elsewhere and Luma is listed by its own name again, with
-no special case anywhere to remove. A tap bound to something that is not a home at all — back, the
-switcher, the torch — leaves the pinned row on the system's own home, because the row's promise is
-that this list always has a way out of it.
+**Which app that is: the tap binding first, then the launcher you installed.** A home tap bound to
+a package wins outright — point **Buttons → Home button → Tap** at your launcher and the row follows
+it exactly, and so does the button. Otherwise the shipped tap is a plain `CATEGORY_HOME` intent, and
+that reaches whoever holds the HOME role, which on this phone is **always LightOS** — it has to be,
+or LightOS crash-loops. So when the role holder is LightOS and there is exactly one other launcher
+installed, the row goes there instead. Nobody sideloads a second launcher onto a Light Phone III by
+accident, and the role carries no information here. Two other launchers is a question this cannot
+answer and it falls back to the system's home rather than guessing.
+
+**Buttons → Home button → Home is pinned** names the app it resolved to, rather than saying only ON.
+The rule has a fallback in it, and where Home actually goes is the one fact worth having on the
+screen. It is in the log line the switcher writes, too.
+
+A tap bound to something that is not a home at all — back, the switcher, the torch — leaves the row
+on the same answer, because its promise is that this list always has a way out of it.
 
 Off under **Buttons → Home button → Home is pinned**. The switcher only: the bindings picker still
 names packages, because a picker that renames its own options is a picker you cannot search.
@@ -1090,6 +1097,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 | v3.89 | **The ringer follows the Wi-Fi, and the volume strip is a bar again.** Mark a network silent or loud and joining it sets the ringer; only a silence this app applied is ever undone, and turning the ringer up by hand beats the rule until you leave. The strip's notches became one solid bar — on black the gutters between them read as lines through it — and the percentage is gone. Tapping the strip now opens a list of every volume the phone has instead of cycling four of them. Both volume settings ship off |
 | v3.88 | **The volume strip steps aside where LightOS draws its own.** LightOS v572 added its own volume overlay to the light-sdk apps (`com.thelightphone.`), so the strip no longer draws over one — the HUD's front-app gate now treats that namespace the way it treats LightOS itself, and stays down where the platform already shows a readout |
 | v3.87 | **A message from Teams reads as a message, and the box sits square in the corner.** The banner and the lock face read `EXTRA_TITLE` and `EXTRA_TEXT` and nothing else, and a `MessagingStyle` notification fills in neither: it carries the conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at draw time, a step a listener never sees. Teams, WhatsApp and Signal all drew an app name over two blank rows. `NoteText` now reads eight places an app may have written its words, names the room and the sender separately in a group chat, and flattens a newline out of a title. A work-profile app was called "teams", because one package-manager lookup cannot see another user; three sources are asked now. And the box rested three grid units down against one unit in from each side, which reads as having fallen down the screen — one unit on all three sides |
+| v3.98 | **Home in the switcher stops resolving to LightOS.** v3.97 read the pinned row from the home button's tap binding, which is faithful and useless: the shipped tap is a `CATEGORY_HOME` intent and LightOS holds that role on every one of these phones — it has to, or it crash-loops — so Home went to LightOS for everybody using Luma. A tap bound to a package still wins outright; otherwise, when the role holder is LightOS and exactly one other launcher is installed, the row goes to that launcher. **Home is pinned** now names the app it resolved to instead of saying only ON |
 | v3.97 | **Home is pinned to the bottom of the switcher, and is not an app in it.** The recents list no longer carries a row for wherever home goes; Home sits under its own heading below the list, always there, with the drawn house. Which app that is comes from the home button's *tap binding* rather than from a hard-coded launcher package — so pointing the tap at Luma is what takes Luma out of the recents, and pointing it elsewhere puts it back. Replaces **Luma is Home** with **Home is pinned**, which no longer needs Luma installed to appear |
 | v3.86 | **Every button does everything, and a camera keeps its own shutter.** A double tap is a binding on all five buttons, and the picker offers every action to every button rather than a short list per key |
 | v3.85 | **An app can ask for colour instead of holding the grant.** Five apps carried `WRITE_SECURE_SETTINGS` to fight over the same two settings, which is five grants to lose on the next reinstall and five writers taking turns on one screen. A new exported service takes a request from another app, identified by the calling uid and honoured only while that app is in front, and an app with one opinion can declare it in a manifest tag instead and write no code at all. `PASS` stays for apps that have not migrated. **Color → Apps asking now** says who is asking |

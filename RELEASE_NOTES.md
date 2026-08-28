@@ -1,50 +1,37 @@
-## BrightControl v3.97 — Home is pinned to the switcher, and is not an app in it
+## BrightControl v3.98 — Home in the switcher stops resolving to LightOS
 
-**Every other row in the switcher is somewhere you were. Home is where you go to leave wherever you
-were.** Ranking that by recency was always the wrong shape, and drawing it with a name and an icon
-like the rest of the list made the one row that is not an app look exactly like the apps.
+**v3.97 pinned Home to the bottom of the switcher and then sent it to the wrong place.** The row read
+its destination from the home button's tap binding, on the reasoning that home is whatever a single
+press reaches. That is true, and it was not enough.
 
-Home now sits at the bottom, under its own **HOME** heading, with the drawn house — always there,
-whether or not you have been to it, and taken out of the recents above it. A launcher that appears
-twice, once as itself and once as Home, is the list telling you two different things about one press.
+The shipped tap is a plain `CATEGORY_HOME` intent, and that reaches whoever holds the HOME role.
+**On this phone the HOME role is always LightOS** — it has to be, or LightOS crash-loops. So for
+everybody who had not deliberately re-bound their home button, which is everybody, Home resolved to
+LightOS. Faithful to the binding, and useless if the launcher you actually use is Luma.
 
-### Home is the home button's tap, not a list of launcher packages
+### The launcher you installed is the better signal
 
-v3.78 relabelled Luma by matching `app.luma`, which only ever answered a narrower question: whether
-one named app should be renamed where it happened to appear. This reads the **Home button → Tap**
-binding instead, because that is what a person means by home on this phone — whatever a single press
-actually reaches.
+A tap bound to a package still wins outright, and so does one bound to LightOS. Nothing changes for
+anyone who has already answered this question with a binding.
 
-That is also what makes the hiding right rather than a special case. Bind the tap to Luma and Luma
-stops appearing as an app, because it stopped being one the moment it became the destination of the
-home button. Bind it to something else and Luma is an app again, listed by its own name and icon,
-with nothing anywhere to undo.
+Otherwise: when the role holder is LightOS and there is **exactly one** other launcher installed,
+the row goes to that launcher — and by launching it, not by firing a home intent that would go
+straight back to the role holder. Nobody sideloads a second launcher onto a Light Phone III by
+accident, and on this phone the role carries almost no information.
 
-Asking the system who holds the HOME role would give the wrong answer every time: LightOS holds it
-and has to, or it crash-loops, no matter which launcher is being used.
+Two other launchers is a question this cannot answer. It falls back to the system's home rather than
+guessing between them, and binding the tap is the way out — that is the only answer that cannot be
+wrong about which launcher a person means.
 
-A tap bound to something that is not a home at all — back, the switcher, the torch — leaves the
-pinned row on the system's own home. The row's promise is that the list always has a way out of it;
-it is not a second copy of whatever the home button happens to be doing.
+### The setting says where Home is going
 
-### What moved in Buttons
+**Buttons → Home button → Home is pinned** names the app it resolved to instead of reading ON. A
+rule with a fallback in it should not leave "where does this actually go" as something you find out
+by opening the switcher — v3.97 shipped resolving to LightOS for nearly everybody, and nothing
+anywhere said so. The switcher's log line carries the same answer.
 
-**Luma is Home** is gone and **Home is pinned** is in its place, under **Buttons → Home button**. It
-no longer waits for Luma to be installed, because there is always a home. The default is on, and
-turning it off gives you the old shape back: no pinned row, and your launcher listed like any other
-app.
+### If you want the button to agree with the row
 
-The bindings picker still names packages. A picker that renames its own options is a picker you
-cannot search.
-
-### Smaller things in the same change
-
-- **The list is still exactly as tall as the screen allows.** The pinned row and its heading are
-  counted into the same arithmetic the header, the hint and SYSTEM SWITCHER already were — a row
-  this measurement forgets is always the app furthest back, on a list that refuses to be scrolled
-  by finger.
-- **"Nothing yet" comes back.** The empty-switcher line was asked of the whole list, which is never
-  empty now. It is asked of the recents instead, so a fresh install still says why it has nothing to
-  show.
-- **Holding the pinned row** opens App info for whatever home resolves to, the same as any other
-  row, and does nothing at all when it resolves to no package.
+Point **Buttons → Home button → Tap** at your launcher. The row follows a named binding exactly, and
+so does the press — which is the configuration where home means one thing rather than two. Holding
+home still reaches LightOS's dashboard, as it always has.
