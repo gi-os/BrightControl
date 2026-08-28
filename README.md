@@ -700,12 +700,21 @@ through the bar, and at fifteen media steps they were most of it. There is no pe
 number that moves on every press reads as the thing to watch and it is the wrong thing; the label's
 job is saying which volume the keys are moving.
 
-A press the app in front swallowed shows nothing, and the reading that decides it is taken
-**synchronously inside the key callback**. That is not an optimisation to be undone: volume keys are
-handled upstream of accessibility filtering, so a "before" reading posted to run a moment later is
-taken *after* the system has applied the press, every press then looks like a press that moved
-nothing, and the strip stops appearing at all. v3.90 shipped exactly that. At the DOWN the press has
-not landed yet, which is why the read-back is delayed 90ms in the first place. The accessibility filter sees a key before the
+**An app that takes the volume keys for itself gets no strip**, and which apps those are is a list
+rather than something worked out. BrightLibrary turns pages with them, and consuming a key means the
+system never sees it — so a page turn used to flash a readout of a level that had not moved.
+
+The obvious inference is to compare the level before and after the press and show nothing when it
+did not move. It does not work here, and two releases went into finding that out. The "before"
+reading has to happen before the system applies the press: posted to a handler it runs *after*
+(v3.90), and taken synchronously in the key callback it is *still* after (v3.91), because volume
+keys are handled upstream of accessibility filtering. There is no moment in this process where the
+old value can be read. Both attempts made every press look unmoved, and the strip stopped appearing
+anywhere at all.
+
+So: **Volume → Apps whose volume keys are their own**. The same answer this codebase gives
+everywhere it needs to know something about an app that nothing will tell it, and unlike the
+inference it cannot go wrong anywhere except on the apps in it. The accessibility filter sees a key before the
 app does, so BrightLibrary turning a page with the volume keys — which consumes them, leaving the
 volume unchanged — used to flash a readout of a level that had not moved, over the page it had just
 turned. The strip reports *changes*, so a level that did not change is not news. That is the rule
@@ -1034,6 +1043,8 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.93 | **The strip is back, and the page-turn fix is a list.** Two releases tried to infer a swallowed key from whether the level moved; on this phone the level has already moved by the time an accessibility filter is asked about the key, so every press looked unmoved and the HUD never drew. Replaced with a per-app list, BrightLibrary in it by default. The Volume screen also names the reason the strip last declined to draw — it has nine, and from the phone they all look identical |
+| v3.92 | **A stored rule could eat a wheel click for ever.** An explicit per-app rule beats the built-in table, and rightly — but a rule of "scroll through" saved before Roll and BrightRecorder used their own click kept winning after the fix existed, so the click was spent on this service's binding and never reached the app. The click of a wheel-owning app now has the camera key's first claim, answered from the built-in list alone, and the claim is logged |
 | v3.91 | **The strip is back.** v3.90's new guard took its "before" reading from a posted runnable, which runs after the system has already applied the press — so every press looked like one that moved nothing and the HUD stopped appearing entirely. Read synchronously in the key callback now, where the level is still the old one, and everything about the guard fails towards showing the strip. The Volume screen also reports which of the HUD's two sources is alive on this phone, because on a build that sends no volume broadcast the fallback path is the whole feature |
 | v3.90 | **Three fixes to v3.89.** The volume strip is back on by default — it reports and takes nothing, and off meant a phone that changed its volume and said nothing, which is not a safer default but a broken one. The selector stays opt-in. A volume press the app in front swallowed no longer flashes the strip, so turning pages in BrightLibrary is silent. And the Wi-Fi ringer list repaints when you tap it: the rules were being saved and the screen never showed it |
 | v3.89 | **The ringer follows the Wi-Fi, and the volume strip is a bar again.** Mark a network silent or loud and joining it sets the ringer; only a silence this app applied is ever undone, and turning the ringer up by hand beats the rule until you leave. The strip's notches became one solid bar — on black the gutters between them read as lines through it — and the percentage is gone. Tapping the strip now opens a list of every volume the phone has instead of cycling four of them. Both volume settings ship off |

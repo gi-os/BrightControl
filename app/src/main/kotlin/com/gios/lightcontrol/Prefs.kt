@@ -615,6 +615,32 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("volume_pin", false)
         set(v) = sp.edit().putBoolean("volume_pin", v).apply()
 
+    /**
+     * Apps that take the volume keys for themselves, so a press in one is not a volume change.
+     *
+     * There is no way to ask whether the app in front swallowed a key — the accessibility filter
+     * sees a press before anything acts on it, and nothing reports back — and two releases were
+     * spent trying to infer it from whether the level moved. It cannot be inferred on this phone:
+     * volume keys are handled upstream of the filter, so by the time this app is asked about the
+     * key the level has already changed. A list is the honest answer, and it is the same answer
+     * this codebase gives everywhere else it needs to know something about an app it cannot ask.
+     *
+     * BrightLibrary turns pages with them, so it is here out of the box. The default only applies
+     * while nobody has edited the list: `getStringSet` is asked with a null default, so an empty
+     * list the user made stays empty rather than springing back.
+     */
+    var volumeKeyApps: Set<String>
+        get() = sp.getStringSet(VOLUME_KEY_APPS, null) ?: DEFAULT_VOLUME_KEY_APPS
+        set(value) { sp.edit().putStringSet(VOLUME_KEY_APPS, value).apply() }
+
+    fun toggleVolumeKeyApp(pkg: String): Boolean {
+        val next = volumeKeyApps.toMutableSet()
+        val added = next.add(pkg)
+        if (!added) next.remove(pkg)
+        volumeKeyApps = next
+        return added
+    }
+
     // ------------------------------------------------------------- the ringer, by network
 
     /**
@@ -1427,6 +1453,11 @@ class Prefs(context: Context) {
         const val DOUBLE_MIGRATED = "double_taps_migrated"
 
         const val HOTSPOT_SSID = "hotspotSsid"
+        const val VOLUME_KEY_APPS = "volumeKeyApps"
+
+        /** BrightLibrary turns pages with the volume keys. See [volumeKeyApps]. */
+        val DEFAULT_VOLUME_KEY_APPS = setOf("com.lightfastread")
+
         const val WIFI_SILENT = "wifiSilentSsids"
         const val WIFI_RING = "wifiRingSsids"
         const val WIFI_SEEN = "wifiSeenSsids"

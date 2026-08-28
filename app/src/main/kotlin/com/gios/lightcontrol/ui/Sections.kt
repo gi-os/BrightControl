@@ -176,7 +176,7 @@ fun BrightnessScreen(onBack: () -> Unit) {
 
 /** The volume readout LightOS has no screen for. */
 @Composable
-fun VolumeScreen(onWifiRinger: () -> Unit, onBack: () -> Unit) {
+fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val canOverlay = Grants.canDrawOverlays(context)
@@ -238,14 +238,34 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onBack: () -> Unit) {
             dim = true,
         )
         MenuRow(
-            label = "Where the strip's news comes from",
+            label = "Apps whose volume keys are their own",
+            detail = "${prefs.volumeKeyApps.size}",
+            sub = "an app that turns pages with the volume keys is not changing the volume, so " +
+                "the strip stays down while it is in front. BrightLibrary is on the list already.",
+            subMaxLines = 3,
+            onClick = onVolumeApps,
+        )
+        Rule()
+
+        SectionLabel("WHY THE STRIP DID OR DID NOT APPEAR")
+        // Not a setting. The strip declines to draw for nine different reasons and from the phone
+        // they all look the same — you press a key and nothing happens. Three releases were spent
+        // guessing which one it was.
+        MenuRow(
+            label = "Last time",
+            sub = VolumeSignals.lastOutcome() ?: "nothing has asked for the strip yet",
+            dim = true,
+            subMaxLines = 3,
+        )
+        MenuRow(
+            label = "Counted",
             detail = if (VolumeSignals.broadcastSilent()) "KEYS ONLY" else "BOTH",
-            sub = if (VolumeSignals.broadcastSilent()) {
-                "this build sends no volume broadcast, so reading the level back after a key is " +
-                    "the only thing keeping the strip alive. " + VolumeSignals.summary()
+            sub = VolumeSignals.summary() + ". " + if (VolumeSignals.broadcastSilent()) {
+                "This build sends no volume broadcast, so reading the level back after a key is " +
+                    "the only thing keeping the strip alive."
             } else {
-                "the system's volume broadcast and a read-back after each key. " +
-                    VolumeSignals.summary()
+                "The strip has two sources: the system's volume broadcast, and a read-back after " +
+                    "each key."
             },
             dim = true,
             subMaxLines = 4,

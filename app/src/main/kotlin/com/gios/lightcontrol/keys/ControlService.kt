@@ -308,6 +308,7 @@ class ControlService : AccessibilityService() {
             front = { if (OwnWindow.resumed) packageName else foreground },
             wanted = { prefs.enabled && prefs.showVolume },
             pinningAllowed = { prefs.volumePin },
+            keyApps = { prefs.volumeKeyApps },
         )
         volumeHud.onTap = { volume.openPicker() }
         volumeHud.onPick = { stream -> volume.onPick(stream) }
@@ -1082,7 +1083,7 @@ class ControlService : AccessibilityService() {
             if (event.action != KeyEvent.ACTION_DOWN) return
             val key = LightKeys.of(event) ?: return
             if (key != LightKey.VolumeUp && key != LightKey.VolumeDown) return
-            volume.onVolumeKey(up = key == LightKey.VolumeUp)
+            volume.onVolumeKey()
         }
     }
 
@@ -2434,7 +2435,7 @@ class ControlService : AccessibilityService() {
             AudioManager.USE_DEFAULT_STREAM_TYPE,
             0,
         )
-        volume.onVolumeKey(up, ours = true)
+        volume.onVolumeKey()
         true
     }.getOrDefault(false)
 

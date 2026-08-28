@@ -103,18 +103,31 @@ class VolumeHud(private val context: Context) {
      * about precision — a 7-step ringer cannot be at 43%.
      */
     fun show(stream: String, level: Int, max: Int, note: String? = null, pinned: Boolean = false) {
-        if (!allowed()) return
+        if (!allowed()) {
+            VolumeSignals.note("no overlay permission — see Setup")
+            return
+        }
         // A HUD on a screen nobody is looking at is a window added and removed for nothing — and
         // volume can change while the phone is in a pocket, which is much of when it does.
-        if (!screenOn()) return
+        if (!screenOn()) {
+            VolumeSignals.note("the screen was off")
+            return
+        }
         // Coming back from the selector: the list's window is not this one.
         if (picking) detach()
         attach()
+        if (root == null) {
+            // `addView` refused. Worth naming: it is the one failure here that is neither a setting
+            // nor a state, and it looks exactly like all the others from the phone.
+            VolumeSignals.note("the window would not attach")
+            return
+        }
         val safeMax = max.coerceAtLeast(1)
         title?.text = stream +
             (note?.let { " · $it" } ?: if (level == 0) " · SILENT" else "") +
             if (pinned) " · PIN" else ""
         bar?.set(level, safeMax)
+        VolumeSignals.noteShown("$stream $level/$safeMax")
         handler.removeCallbacks(hide)
         // A pin is something you are in the middle of using, so it gets longer to be used in.
         handler.postDelayed(hide, if (pinned) PIN_DWELL_MS else DWELL_MS)

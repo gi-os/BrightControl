@@ -39,8 +39,10 @@ class VolumeWatcher(
     private val front: () -> String?,
     /** Whether the HUD is wanted at all right now — the master switch and its own setting. */
     private val wanted: () -> Boolean,
-    /** Whether a tap on the strip may pin a stream. See [onHudTap]. */
+    /** Whether a tap on the strip may pin a stream. See [onPick]. */
     private val pinningAllowed: () -> Boolean,
+    /** Apps whose volume keys are their own. See [readAndShow]. */
+    private val keyApps: () -> Set<String>,
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -54,16 +56,6 @@ class VolumeWatcher(
     private var pinnedStream: Int? = null
     private var pinnedUntil = 0L
 
-    /**
-     * Where the level stood before the current burst of key presses, and which way it was pushed.
-     *
-     * The whole of "did that press do anything". See [readAndShow].
-     */
-    private var beforeStream = -1
-    private var beforeLevel = -1
-    private var beforeMax = 0
-    private var pressedUp = false
-    private var lastKeyAt = 0L
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -133,25 +125,13 @@ class VolumeWatcher(
      * the last one is still pending replaces it, which is also more correct: what the strip should
      * show is the level after the *last* press, not after each one on the way.
      */
-    fun onVolumeKey(up: Boolean, ours: Boolean = false) {
-        if (!wanted()) return
+    fun onVolumeKey() {
+        if (!wanted()) {
+            VolumeSignals.note("off in settings")
+            return
+        }
         VolumeSignals.keys++
         runCatching {
-            val now = SystemClock.uptimeMillis()
-            if (ours) {
-                // This app moved the volume itself, from a bound button, and the move has already
-                // happened by the time we are called. There is nothing to compare against and
-                // nothing to be suspicious of: no baseline, so the guard in [readAndShow] cannot
-                // fire.
-                beforeStream = NO_BASELINE
-            } else if (now - lastKeyAt > BURST_MS) {
-                // One baseline per burst of presses. A repeat is the same press continuing, and
-                // re-reading here after the first notch has already landed would compare the level
-                // against itself and conclude nothing had happened.
-                pressedUp = up
-                takeBaseline()
-            }
-            lastKeyAt = now
             handler.removeCallbacks(firstRead)
             handler.removeCallbacks(secondRead)
             handler.postDelayed(firstRead, FIRST_READ_MS)
@@ -159,86 +139,44 @@ class VolumeWatcher(
         }
     }
 
-    /**
-     * Where the level stands right now, read **synchronously, inside the key callback**.
-     *
-     * v3.90 posted this at zero delay instead, to keep three binder calls off the thread the input
-     * dispatcher is waiting on. That turned the whole HUD off. A posted runnable does not run until
-     * the current message finishes, and by then the system has applied the press — volume keys are
-     * handled upstream of accessibility filtering — so the "before" reading was the level *after*
-     * the change. Every press then looked like a press that moved nothing, and every press was
-     * suppressed. The strip stopped appearing at all.
-     *
-     * Reading here is correct because at the DOWN the press has not landed yet. That is not an
-     * assumption: it is why [firstRead] is delayed 90ms in the first place, and the comment at the
-     * top of this file has said so since the HUD was written.
-     *
-     * The cost is three binder calls once per burst of presses, where before this feature existed
-     * the two reads made one [activeStream] call *each*, per press. It is less work than the
-     * version that had no guard.
-     *
-     * [beforeStream] is cleared first, so a read that fails half way cannot leave a stale baseline
-     * behind — a stale one suppresses, and everything here fails towards showing the strip.
-     */
-    private fun takeBaseline() {
-        beforeStream = NO_BASELINE
-        runCatching {
-            val audio = context.getSystemService(AudioManager::class.java) ?: return
-            val stream = activeStream(audio)
-            val level = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return
-            beforeLevel = level
-            beforeMax = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
-            beforeStream = stream
-        }
-    }
-
     private val firstRead = Runnable { readAndShow() }
     private val secondRead = Runnable { readAndShow() }
 
     /**
-     * Read the level back and show it — unless the press moved nothing.
+     * Read the level back and show it — unless the app in front took the key for itself.
      *
-     * **A key this app sees is not a key that reaches the system.** The accessibility filter runs
-     * ahead of the app in front, so a press is noted here whether or not anything acts on it, and
-     * an app that consumes volume keys for its own purposes got a volume strip anyway. BrightLibrary
-     * turns pages with them — consuming one means, in its own words, "no volume slider, and no
-     * change in volume either" — so every page turn flashed a readout of a level that had not
-     * moved, over the page it had just turned.
+     * **A key this app sees is not a key the system acted on.** The accessibility filter runs ahead
+     * of the app in front, so a press is noted here whether or not anything came of it, and an app
+     * that turns pages with the volume keys got a volume strip over every page.
      *
-     * There is no way to ask whether the app in front swallowed the key, and a list of apps that do
-     * would be a list to maintain. But there is no need for either: what the strip exists to report
-     * is a *change*, so a level that did not change is not news. This is the same rule the broadcast
-     * path has followed since the beginning — `prev == value` is dropped there — applied to the
-     * fallback path, which had never had it.
+     * v3.90 tried to work that out by comparing the level before and after, and it is worth writing
+     * down why that failed twice rather than leaving a hole where somebody re-derives it. The
+     * "before" reading has to be taken before the system applies the press. Posted to a handler it
+     * is taken *after* — v3.90 — so every press looked unmoved and the strip stopped appearing
+     * anywhere. Taken synchronously in the key callback it was still wrong on this phone — v3.91 —
+     * because volume keys are handled upstream of accessibility filtering, and by the time the
+     * filter is asked about the key, the level has already moved. There is no moment in this
+     * process where the old value can be read. The approach cannot work here, however it is timed.
      *
-     * The one press that moves nothing and still deserves a strip is the one at the end of the
-     * scale: pressing up at maximum is a question the full bar answers.
+     * So the rule is a list, which is the thing this codebase does everywhere else it needs to know
+     * something about an app it cannot ask: an app on it does not get a strip from its volume keys.
+     * BrightLibrary is on it out of the box, and the list is editable, because the person holding
+     * the phone knows which of their apps take the volume keys and no API will ever say.
+     *
+     * The broadcast path is deliberately not gated the same way. An app that consumes a volume key
+     * produces no broadcast at all, so there is nothing there to suppress — and an app that reads
+     * the key *without* consuming it really did change the volume, which is worth showing wherever
+     * you are.
      */
     private fun readAndShow() {
         runCatching {
+            val app = front()
+            if (app != null && app in volumeKeyApps()) {
+                VolumeSignals.note("$app takes the volume keys itself")
+                return
+            }
             val audio = context.getSystemService(AudioManager::class.java) ?: return
-            val stream = activeStream(audio)
-            val level = runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return
-            // A baseline is only evidence while it is fresh. Anything older than the burst it was
-            // taken in is not a comparison, and an unanswered volume key is a worse failure than a
-            // strip shown once too often — so the doubt resolves towards showing.
-            val fresh = SystemClock.uptimeMillis() - lastKeyAt < BURST_MS
-            if (!fresh) {
-                present(stream, null, level)
-                return
-            }
-            if (!VolumeNews.worthShowing(
-                    stream = stream,
-                    level = level,
-                    beforeStream = beforeStream,
-                    beforeLevel = beforeLevel,
-                    beforeMax = beforeMax,
-                    up = pressedUp,
-                )
-            ) {
-                return
-            }
-            present(stream, null, level)
+            present(activeStream(audio), null, -1)
         }
     }
 
@@ -250,11 +188,17 @@ class VolumeWatcher(
      * mistake in a new place: on Light's own screens, anything added is something duplicated.
      */
     private fun present(stream: Int, note: String?, valueFromBroadcast: Int, force: Boolean = false) {
-        if (!wanted()) return
+        if (!wanted()) {
+            VolumeSignals.note("off in settings")
+            return
+        }
         // The selector is open and a thumb is on its way to a row. A volume broadcast arriving now
         // is not a reason to replace the list with a strip — a notification volume mirroring the
         // ringer would close the list out from under the tap that was choosing the alarm.
-        if (hud.picking && !force) return
+        if (hud.picking && !force) {
+            VolumeSignals.note("the selector was open")
+            return
+        }
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         val app = front()
         // The one exception to "not over LightOS", and it is the case the rule was never about.
@@ -268,20 +212,30 @@ class VolumeWatcher(
             // taken over on a screen showing LightOS's own slider.
             clearPin()
             hud.dismiss()
+            VolumeSignals.note("not drawn over $app, which has its own")
             return
         }
         val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
-        if (max <= 0) return
+        if (max <= 0) {
+            VolumeSignals.note("the phone reports no scale for stream $stream")
+            return
+        }
         val level = if (valueFromBroadcast >= 0) {
             valueFromBroadcast
         } else {
-            runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: return
+            runCatching { audio.getStreamVolume(stream) }.getOrNull() ?: run {
+                VolumeSignals.note("stream $stream would not report a level")
+                return
+            }
         }
 
         val now = SystemClock.uptimeMillis()
         // The same stream at the same level, twice inside a moment, is one change seen twice —
         // the broadcast and the fallback read both firing for one press.
-        if (!force && stream == lastStream && level == lastLevel && now - lastAt < DEDUPE_MS) return
+        if (!force && stream == lastStream && level == lastLevel && now - lastAt < DEDUPE_MS) {
+            VolumeSignals.note("the same level twice inside a moment")
+            return
+        }
         lastStream = stream
         lastLevel = level
         lastAt = now
@@ -398,6 +352,14 @@ class VolumeWatcher(
         true
     }.getOrDefault(false)
 
+    /**
+     * Apps that take the volume keys for themselves, so a press in one is not a volume change.
+     *
+     * Read through the callback rather than held, because it is a setting and settings change while
+     * the service is bound.
+     */
+    private fun volumeKeyApps(): Set<String> = runCatching { keyApps() }.getOrDefault(emptySet())
+
     private fun clearPin() {
         pinnedStream = null
         pinnedUntil = 0L
@@ -457,14 +419,6 @@ class VolumeWatcher(
         /** One change seen twice, by both paths, inside this window. */
         const val DEDUPE_MS = 600L
 
-        /**
-         * Presses closer together than this are one burst, and share one baseline. Comfortably
-         * past [SECOND_READ_MS], so a burst's own reads can never be mistaken for a new press.
-         */
-        const val BURST_MS = 900L
-
-        /** No usable "before" reading. Every stream constant is >= 0, so nothing can equal it. */
-        const val NO_BASELINE = -1
 
         /** How long a tapped stream keeps the keys. Refreshed by every press that uses it. */
         const val PIN_MS = 4_000L
