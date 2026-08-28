@@ -1230,12 +1230,19 @@ class LockOverlay(private val context: Context) {
             icon.level = batteryLevel()
             icon.charging = batteryCharging()
         }
-        fillNotes()
+        fillNotes(now)
         renderMedia(media.track)
         renderCall(callState)
     }
 
-    private fun fillNotes() {
+    /**
+     * The rows under the clock, ages and all.
+     *
+     * One reading of the clock for the whole pass, taken here rather than per row: two rows posted
+     * in the same minute must not disagree about how long ago that was because the loop crossed a
+     * minute boundary between them.
+     */
+    private fun fillNotes(now: Long = System.currentTimeMillis()) {
         val list = notes ?: return
         // Wrapped by every caller, but named here too: this runs on a broadcast, on the main
         // thread, behind the lock screen. A throw here is the phone appearing to freeze.
@@ -1258,14 +1265,55 @@ class LockOverlay(private val context: Context) {
                 // rebuilt on every notification the phone receives.
                 tag = note.key
             }
+            // The app name and the age share one line: the name takes the room it needs and the
+            // age is pinned to the right edge, so a long app name ellipsises rather than pushing
+            // the timestamp off the screen. Its own line would have cost a row -- [LockNoteList]
+            // hands rows out of the space left under the clock, so height here is measured in
+            // notifications you can no longer see.
             row.addView(
-                TextView(context).apply {
-                    typeface = type.medium
-                    setTextColor(DIM)
-                    textSize = type.superfine
-                    letterSpacing = type.buttonTracking
-                    maxLines = 1
-                    text = note.app.uppercase()
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    )
+                    addView(
+                        TextView(context).apply {
+                            typeface = type.medium
+                            setTextColor(DIM)
+                            textSize = type.superfine
+                            letterSpacing = type.buttonTracking
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                            layoutParams = LinearLayout.LayoutParams(
+                                0,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                1f,
+                            )
+                            text = note.app.uppercase()
+                        },
+                    )
+                    // Blank for a notification with no usable post time, which then reads exactly
+                    // as the face did before. See [NoteAge].
+                    val age = NoteAge.label(note.postedAt, now)
+                    if (age.isNotEmpty()) {
+                        addView(
+                            TextView(context).apply {
+                                typeface = type.medium
+                                setTextColor(DIM)
+                                textSize = type.superfine
+                                letterSpacing = type.buttonTracking
+                                maxLines = 1
+                                layoutParams = LinearLayout.LayoutParams(
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                                ).apply {
+                                    marginStart = type.gridPx(0.5f)
+                                }
+                                text = age
+                            },
+                        )
+                    }
                 },
             )
             val headline = note.title.ifBlank { note.text }
