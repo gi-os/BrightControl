@@ -1,35 +1,50 @@
-## BrightControl v3.96 — the volume keys get their press back
+## BrightControl v3.97 — Home is pinned to the switcher, and is not an app in it
 
-**This is why the volume was not changing, and why the strip kept showing a level that had not
-moved.**
+**Every other row in the switcher is somewhere you were. Home is where you go to leave wherever you
+were.** Ranking that by recency was always the wrong shape, and drawing it with a name and an icon
+like the rest of the list made the one row that is not an app look exactly like the apps.
 
-Timing a hold means swallowing the press: the DOWN has to be kept until the release, or there is no
-way to tell a tap from a hold, and a key already handed to the system cannot be taken back. That is
-a fair trade on the home button or the wheel click, whose taps this service then owns and reproduces.
+Home now sits at the bottom, under its own **HOME** heading, with the drawn house — always there,
+whether or not you have been to it, and taken out of the recents above it. A launcher that appears
+twice, once as itself and once as Home, is the list telling you two different things about one press.
 
-The button handler consumed whenever **any** of a button's three gestures was bound. So binding
-anything to one volume key's hold or double tap made every press on that key disappear — whatever
-its tap was set to, and whether or not you ever held it. The volume stopped changing, and the strip,
-working perfectly, reported the level that had not moved on every single press.
+### Home is the home button's tap, not a list of launcher packages
 
-Four releases were spent looking at the strip. The strip was telling the truth.
+v3.78 relabelled Luma by matching `app.luma`, which only ever answered a narrower question: whether
+one named app should be renamed where it happened to appear. This reads the **Home button → Tap**
+binding instead, because that is what a person means by home on this phone — whatever a single press
+actually reaches.
 
-### The hold and double tap are gone from both volume keys
+That is also what makes the hiding right rather than a special case. Bind the tap to Luma and Luma
+stops appearing as an app, because it stopped being one the moment it became the destination of the
+home button. Bind it to something else and Luma is an app again, listed by its own name and icon,
+with nothing anywhere to undo.
 
-Not defaulted to nothing — **gone**. Holding a volume key is how you change the volume quickly, so
-there was never anything on the other side of that trade worth having, and a gesture that has to be
-timed cannot coexist with a key whose ordinary job is a repeating function this app cannot reproduce.
+Asking the system who holds the HOME role would give the wrong answer every time: LightOS holds it
+and has to, or it crash-loops, no matter which launcher is being used.
 
-Buttons now shows one row for each volume key, and says why the other two are missing. A hold or
-double tap stored by an older build is refused when it is read back, not merely hidden, so an
-upgrade cannot leave one still acting.
+A tap bound to something that is not a home at all — back, the switcher, the torch — leaves the
+pinned row on the system's own home. The row's promise is that the list always has a way out of it;
+it is not a second copy of whatever the home button happens to be doing.
 
-The rule is one function with tests on it, because it is exactly the kind of thing that regresses
-silently somewhere other than where it breaks.
+### What moved in Buttons
 
-### If yours is still not changing
+**Luma is Home** is gone and **Home is pinned** is in its place, under **Buttons → Home button**. It
+no longer waits for Luma to be installed, because there is always a home. The default is on, and
+turning it off gives you the old shape back: no pinned row, and your launcher listed like any other
+app.
 
-**Volume → If the strip is not appearing** names the cause directly. The *Volume keys* row reads
-`PASSED ON` when nothing is holding them, or lists what is bound with a button to hand them back.
-After this release only a binding on the *tap* can hold a volume key, and that one is an explicit
-choice to spend the press.
+The bindings picker still names packages. A picker that renames its own options is a picker you
+cannot search.
+
+### Smaller things in the same change
+
+- **The list is still exactly as tall as the screen allows.** The pinned row and its heading are
+  counted into the same arithmetic the header, the hint and SYSTEM SWITCHER already were — a row
+  this measurement forgets is always the app furthest back, on a list that refuses to be scrolled
+  by finger.
+- **"Nothing yet" comes back.** The empty-switcher line was asked of the whole list, which is never
+  empty now. It is asked of the recents instead, so a fresh install still says why it has nothing to
+  show.
+- **Holding the pinned row** opens App info for whatever home resolves to, the same as any other
+  row, and does nothing at all when it resolves to no package.

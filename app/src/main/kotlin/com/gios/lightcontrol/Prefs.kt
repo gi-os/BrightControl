@@ -395,25 +395,31 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("wheel_cursor", v).apply()
 
     /**
-     * Whether the switcher calls Luma "Home" and draws it as a house.
+     * Whether the switcher pins a **Home** row to the bottom of the list.
      *
-     * Luma is an app to `PackageManager` and is not one to a hand reaching for the home button.
-     * Every other row in the switcher is somewhere you *were*; the launcher is where you go to
-     * leave wherever you were, and giving it a name and an icon like the rest of the list makes
-     * the one row that is not a destination-among-apps look exactly like the apps.
+     * Every other row in the switcher is somewhere you *were*. Home is where you go to leave
+     * wherever you were — always worth offering, never worth ranking by recency — so it sits below
+     * the recents under its own heading, with a drawn house, and the app it lands on is taken out
+     * of the rows above it. Where home goes is read from the home button's own tap binding rather
+     * than from the HOME role, which on this phone is always LightOS whatever launcher you use.
+     * See [com.gios.lightcontrol.switcher.HomeApp].
      *
      * A preference and not a rule, because it is a claim about how somebody uses their phone.
-     * Anyone who treats Luma as an app — who switches to it the way they switch to anything else,
-     * or who runs two launchers and needs to tell them apart — is better served by its real name.
-     * The row is hidden entirely when Luma is not installed; see [HomeApp.installed].
+     * Anyone who treats their launcher as an app — who switches to it the way they switch to
+     * anything else, or who runs two of them and needs to tell them apart — is better served by
+     * its real name in the recents and nothing pinned.
      *
      * Scoped to the switcher on purpose. The bindings picker names packages so you can choose
      * between them, and a picker that renames one of its own options is a picker you cannot
      * search.
+     *
+     * A new key rather than the old `switcher_luma_as_home`, which answered a narrower question —
+     * whether one named launcher was relabelled where it happened to appear. Reusing it would have
+     * carried an answer about Luma over into a setting about the shape of the list.
      */
-    var switcherLumaAsHome: Boolean
-        get() = sp.getBoolean("switcher_luma_as_home", true)
-        set(v) = sp.edit().putBoolean("switcher_luma_as_home", v).apply()
+    var switcherHomeRow: Boolean
+        get() = sp.getBoolean("switcher_home_row", true)
+        set(v) = sp.edit().putBoolean("switcher_home_row", v).apply()
 
     /**
      * The shortest gap between two rows while the switcher is up, in milliseconds.

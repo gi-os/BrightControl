@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.R
 import com.gios.lightcontrol.lock.LightType
 
@@ -58,13 +59,22 @@ import com.gios.lightcontrol.lock.LightType
 class SwitcherOverlay(private val context: Context) {
 
     /**
-     * One recent app: the package, the name a person recognizes it by, and whether it is the
-     * launcher being shown as Home rather than as itself.
+     * One row: the package, the name a person recognizes it by, and whether it is the pinned Home
+     * rather than a recent app.
      *
-     * [home] is decided by `Recents`, which holds the preference — this window draws the answer
-     * and does not have an opinion about it.
+     * [home] and [action] are both decided by `Recents`, which holds the preference and the
+     * binding — this window draws the answer and does not have an opinion about it. A home row
+     * carries the [Action] to perform instead of a package to launch, because home is not always a
+     * package: `DefaultHome` is a global action and reaches whatever the system's choice is. [pkg]
+     * on a home row is only what its App info hold points at, and may be blank when nothing
+     * resolved.
      */
-    data class Entry(val pkg: String, val label: String, val home: Boolean = false)
+    data class Entry(
+        val pkg: String,
+        val label: String,
+        val home: Boolean = false,
+        val action: Action? = null,
+    )
 
     private val handler = Handler(Looper.getMainLooper())
     private val type = LightType(context)
@@ -88,8 +98,14 @@ class SwitcherOverlay(private val context: Context) {
      */
     private val icons = HashMap<String, Drawable?>()
 
-    /** Told which package was chosen. The service does the launching — it owns the throttle. */
-    var onPick: ((String) -> Unit)? = null
+    /**
+     * Told which row was chosen. The service does the launching — it owns the throttle.
+     *
+     * The whole [Entry] rather than a package, because the pinned Home row is an [Action] and not
+     * always an app: handing back a package would mean this window deciding what "home" means, and
+     * that decision belongs to the home button's own binding.
+     */
+    var onPick: ((Entry) -> Unit)? = null
 
     /** The bottom button was tapped: ask the system for its own recents. */
     var onSystem: (() -> Unit)? = null
@@ -121,8 +137,16 @@ class SwitcherOverlay(private val context: Context) {
 
     val showing: Boolean get() = root != null
 
-    /** The package under the selection, or null when nothing is up. */
-    val selected: String? get() = entries.getOrNull(index)?.pkg
+    /** The row under the selection, or null when nothing is up. */
+    val selectedEntry: Entry? get() = entries.getOrNull(index)
+
+    /**
+     * The package under the selection, or null when there is not one.
+     *
+     * Blank is folded into null on purpose: the pinned Home row can carry no package at all, and
+     * "" is not something to open an App info page for.
+     */
+    val selected: String? get() = selectedEntry?.pkg?.takeIf { it.isNotBlank() }
 
     /**
      * The list as it stands, for a caller that is about to take the window down and may need to
@@ -143,12 +167,12 @@ class SwitcherOverlay(private val context: Context) {
      * finger.
      *
      * Worked out from the same numbers the view is built from: the panel's height, the grid units
-     * of padding above and below, the header and the hint, and one row of type plus its own
-     * padding. [FLOOR] is the honest minimum — a switcher showing fewer than three apps is not
+     * of padding above and below, the header and the hint, one row of type plus its own padding,
+     * and — when [pinned] — the HOME heading over the row at the bottom. [FLOOR] is the honest minimum — a switcher showing fewer than three apps is not
      * worth the gesture — and the ceiling stops a tablet-sized surface turning this into a
      * launcher.
      */
-    fun capacity(): Int {
+    fun capacity(pinned: Boolean): Int {
         val metrics = context.resources.displayMetrics
         // The icon is drawn exactly one line tall (see [iconPx]), so a row with one in it is the
         // same height as a row without -- which is why this arithmetic does not mention it.
@@ -160,8 +184,13 @@ class SwitcherOverlay(private val context: Context) {
         // fold of a list that cannot be scrolled by finger, and it is always the app furthest back
         // -- the one a switcher is for.
         val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
+        // The HOME heading over the pinned row, and the air around it. Counted for the same reason
+        // as everything else here: the row this arithmetic forgets is the app furthest back. Zero
+        // when the row is switched off, because charging a screen for something it is not drawing
+        // is a row of recents spent on nothing.
+        val pinPx = if (pinned) sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f) else 0f
         val padding = type.gridPx(3f) + type.gridPx(3f)
-        val room = metrics.heightPixels - padding - labelPx - hintPx - buttonPx
+        val room = metrics.heightPixels - padding - labelPx - hintPx - buttonPx - pinPx
         if (rowPx <= 0f) return FLOOR
         return (room / rowPx).toInt().coerceIn(FLOOR, CEILING)
     }
@@ -221,9 +250,9 @@ class SwitcherOverlay(private val context: Context) {
 
     /** Take the selection, and get out of the way. */
     fun choose() {
-        val pkg = selected
+        val entry = selectedEntry
         hide()
-        if (pkg != null) onPick?.invoke(pkg)
+        if (entry != null) onPick?.invoke(entry)
     }
 
     /**
@@ -334,7 +363,12 @@ class SwitcherOverlay(private val context: Context) {
                 setPadding(0, 0, 0, type.gridPx(1f))
             },
         )
-        if (entries.isEmpty()) {
+        // Asked of the recents rather than of the whole list: Home is pinned whether or not
+        // anything has been opened, so `entries.isEmpty()` stopped being the same question as
+        // "have you been anywhere yet" the moment it was added. Without this the line that
+        // explains an empty switcher would never appear again, on exactly the install that needs
+        // it -- a fresh one, which is every phone the minute after an update.
+        if (entries.none { !it.home }) {
             col.addView(
                 TextView(context).apply {
                     text = "Nothing yet. Open an app and press home twice again."
@@ -345,7 +379,11 @@ class SwitcherOverlay(private val context: Context) {
                 },
             )
         }
+        // Drawn in the order `Recents` handed them over, which puts Home last -- but with the
+        // pinned row set below a gap and under its own label, so the bottom of this screen reads
+        // as "and here is the way out" rather than as one more thing you happened to open.
         rows = entries.map { entry ->
+            if (entry.home) col.addView(pinLabel())
             TextView(context).apply {
                 text = entry.label
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
@@ -361,16 +399,20 @@ class SwitcherOverlay(private val context: Context) {
                 setCompoundDrawablesRelative(art(entry), null, null, null)
                 isClickable = true
                 setOnClickListener {
-                    val pkg = entry.pkg
                     hide()
-                    onPick?.invoke(pkg)
+                    onPick?.invoke(entry)
                 }
                 // Hold for App info -- Settings' own page for this app, where Force stop,
                 // Uninstall and storage are. Something you do *about* an app rather than instead
                 // of switching to one, which is why it is the hold and not the tap.
                 setOnLongClickListener {
-                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    onAppInfo?.invoke(entry.pkg)
+                    // Nothing to show a page for when home resolved to no package at all. Silent
+                    // rather than a note: a hold that does nothing on one row is a smaller
+                    // surprise than a line of explanation nobody asked for.
+                    if (entry.pkg.isNotBlank()) {
+                        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        onAppInfo?.invoke(entry.pkg)
+                    }
                     true
                 }
                 col.addView(this)
@@ -397,6 +439,22 @@ class SwitcherOverlay(private val context: Context) {
             col.addView(this)
         }
         paint()
+    }
+
+    /**
+     * The rule above the pinned row.
+     *
+     * The gap is doing the work — this list has no colour and no boxes to separate anything with,
+     * so a heading and some air is the whole vocabulary available for "the part below this is not
+     * the part above it".
+     */
+    private fun pinLabel(): View = TextView(context).apply {
+        text = "HOME"
+        setTextColor(DIM)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
+        typeface = type.medium
+        letterSpacing = type.buttonTracking
+        setPadding(0, type.gridPx(1.5f), 0, type.gridPx(0.5f))
     }
 
     /**

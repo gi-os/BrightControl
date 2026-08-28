@@ -43,12 +43,18 @@ class Recents(private val prefs: Prefs) {
     }
 
     /**
-     * The switcher's list: openable apps, most recent first, without the one you are looking at.
+     * The switcher's list: openable apps, most recent first, with Home pinned to the bottom.
      *
      * The current app is left out because the switcher exists to leave it — an entry that lands
      * you where you already are is a row that can only waste a press. Anything with no way in is
      * left out too, resolved the same way `ControlService.launch` resolves it, so the list can
      * never offer a row that does nothing.
+     *
+     * **Home is not one of the recents.** It is appended last, always, whether or not you have
+     * been there, and the package it lands on is taken out of the rows above — see [HomeApp]. The
+     * recents are shortened by one to pay for it, so the list is still exactly as tall as the
+     * caller said it could be: the row that does not fit is the app furthest back, and this list
+     * refuses to be scrolled by finger.
      */
     @Synchronized
     fun entries(
@@ -56,17 +62,29 @@ class Recents(private val prefs: Prefs) {
         excluding: Set<String>,
         limit: Int,
         label: (String) -> String,
-    ): List<SwitcherOverlay.Entry> = order.asSequence()
-        .filter { it !in excluding }
-        .filter { openable(pm, it) }
-        .take(limit)
-        .map { pkg ->
-            // Both halves of "this is Home, not an app" are decided here, in the one place that
-            // already holds the preference, so the window only has to draw what it is handed.
-            val home = HomeApp.isHome(pkg) && prefs.switcherLumaAsHome
-            SwitcherOverlay.Entry(pkg, if (home) "Home" else label(pkg), home)
+    ): List<SwitcherOverlay.Entry> {
+        val target = if (prefs.switcherHomeRow) HomeApp.target(prefs, pm) else null
+        // Only the resolved home package is hidden. An unresolved home hides nothing, which is the
+        // honest failure: a list missing a row for a reason nobody can see is worse than a list
+        // with the launcher still in it.
+        val hidden = excluding + setOfNotNull(target?.pkg)
+        val room = if (target == null) limit else (limit - 1).coerceAtLeast(1)
+        val recents = order.asSequence()
+            .filter { it !in hidden }
+            .filter { openable(pm, it) }
+            .take(room)
+            .map { pkg -> SwitcherOverlay.Entry(pkg, label(pkg)) }
+            .toList()
+        val home = target?.let {
+            SwitcherOverlay.Entry(
+                pkg = it.pkg.orEmpty(),
+                label = "Home",
+                home = true,
+                action = it.action,
+            )
         }
-        .toList()
+        return recents + listOfNotNull(home)
+    }
 
     private fun openable(pm: PackageManager, pkg: String): Boolean = runCatching {
         if (pm.getLaunchIntentForPackage(pkg) != null) return true

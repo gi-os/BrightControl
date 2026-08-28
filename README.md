@@ -201,15 +201,23 @@ without and the same number of apps still fit — an icon a few pixels taller pu
 back below a fold this list deliberately cannot be scrolled past. The icon dims with the name it
 belongs to, because brightness is the only thing this screen has to say *here*.
 
-**Luma is listed as Home, with a drawn house instead of its own icon.** Every other row is somewhere
-you were; the launcher is how you leave wherever you were, and a name and an app icon like the rest
-of the list makes the one row that is not an app look like one. The house is a thin outline among
-solid squares, which is the distinction doing the work. Matched by package (`app.luma`) rather than
-by whichever app holds the HOME role — on this phone that is always LightOS, which has to keep the
-role or it crash-loops, so the role says nothing about the launcher a person actually uses. Off
-under **Buttons → Home button → Luma is Home**, where the row only appears if Luma is installed. The
-switcher only: the bindings picker still names it Luma, because a picker that renames its own
-options is a picker you cannot search.
+**Home is pinned to the bottom, under its own heading, and is not one of the recents.** Every other
+row is somewhere you *were*. Home is where you go to leave wherever you were — always worth
+offering, never worth ranking by recency — so it sits below the list behind a drawn house, and the
+app it goes to is taken out of the rows above it. A launcher that appears twice, once as itself and
+once as Home, is the list saying two different things about one press.
+
+**Home is whatever a single press of the home button reaches**, read from that button's own tap
+binding. Not from whichever app holds the HOME role: on this phone that is always LightOS, which has
+to keep the role or it crash-loops, so the role says nothing about the launcher a person actually
+uses. Bind the tap to Luma and Luma stops appearing as an app, because it stopped being one the
+moment it became where home goes; bind it elsewhere and Luma is listed by its own name again, with
+no special case anywhere to remove. A tap bound to something that is not a home at all — back, the
+switcher, the torch — leaves the pinned row on the system's own home, because the row's promise is
+that this list always has a way out of it.
+
+Off under **Buttons → Home button → Home is pinned**. The switcher only: the bindings picker still
+names packages, because a picker that renames its own options is a picker you cannot search.
 
 Switch it off under **Buttons → Home button → Double press**. A right-edge swipe opens the same
 window, if you would rather not spend a button on it. See **Edge gestures**.
@@ -1082,6 +1090,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 | v3.89 | **The ringer follows the Wi-Fi, and the volume strip is a bar again.** Mark a network silent or loud and joining it sets the ringer; only a silence this app applied is ever undone, and turning the ringer up by hand beats the rule until you leave. The strip's notches became one solid bar — on black the gutters between them read as lines through it — and the percentage is gone. Tapping the strip now opens a list of every volume the phone has instead of cycling four of them. Both volume settings ship off |
 | v3.88 | **The volume strip steps aside where LightOS draws its own.** LightOS v572 added its own volume overlay to the light-sdk apps (`com.thelightphone.`), so the strip no longer draws over one — the HUD's front-app gate now treats that namespace the way it treats LightOS itself, and stays down where the platform already shows a readout |
 | v3.87 | **A message from Teams reads as a message, and the box sits square in the corner.** The banner and the lock face read `EXTRA_TITLE` and `EXTRA_TEXT` and nothing else, and a `MessagingStyle` notification fills in neither: it carries the conversation under `EXTRA_MESSAGES` and lets SystemUI build the two lines at draw time, a step a listener never sees. Teams, WhatsApp and Signal all drew an app name over two blank rows. `NoteText` now reads eight places an app may have written its words, names the room and the sender separately in a group chat, and flattens a newline out of a title. A work-profile app was called "teams", because one package-manager lookup cannot see another user; three sources are asked now. And the box rested three grid units down against one unit in from each side, which reads as having fallen down the screen — one unit on all three sides |
+| v3.97 | **Home is pinned to the bottom of the switcher, and is not an app in it.** The recents list no longer carries a row for wherever home goes; Home sits under its own heading below the list, always there, with the drawn house. Which app that is comes from the home button's *tap binding* rather than from a hard-coded launcher package — so pointing the tap at Luma is what takes Luma out of the recents, and pointing it elsewhere puts it back. Replaces **Luma is Home** with **Home is pinned**, which no longer needs Luma installed to appear |
 | v3.86 | **Every button does everything, and a camera keeps its own shutter.** A double tap is a binding on all five buttons, and the picker offers every action to every button rather than a short list per key |
 | v3.85 | **An app can ask for colour instead of holding the grant.** Five apps carried `WRITE_SECURE_SETTINGS` to fight over the same two settings, which is five grants to lose on the next reinstall and five writers taking turns on one screen. A new exported service takes a request from another app, identified by the calling uid and honoured only while that app is in front, and an app with one opinion can declare it in a manifest tag instead and write no code at all. `PASS` stays for apps that have not migrated. **Color → Apps asking now** says who is asking |
 | v3.84 | **The edge strips reach the apps that were quietly refused them.** The strips asked the wheel's hands-off list whether an app was Light's, and that list refuses the prefix `com.lightphone.` — which no software of Light's uses. BrightMusic ships as `com.lightphone.spotify`, an id it inherited and cannot change, so the strip was never put up in front of it. Audiobooks, Chats and Passes were refused the same way. The strips have their own table now: LightOS is still refused, and so are the light-sdk tools, because the SDK draws them a back button and `navigateTo` is not the Android back stack. The wheel is unchanged, and a test pins both halves |

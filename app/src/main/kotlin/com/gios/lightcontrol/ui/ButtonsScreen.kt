@@ -29,7 +29,6 @@ import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
-import com.gios.lightcontrol.switcher.HomeApp
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -60,10 +59,7 @@ fun ButtonsScreen(
     val resumeBound =
         Button.entries.any { b -> Gesture.entries.any { prefs.action(b, it) == Action.Resume } }
     var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
-    var lumaAsHome by remember { mutableStateOf(prefs.switcherLumaAsHome) }
-    // Asked once. Whether Luma is installed cannot change while this screen is open without the
-    // process being rebuilt around it, and it is a package query per composition otherwise.
-    val hasLuma = remember { HomeApp.installed(context.packageManager) }
+    var homeRow by remember { mutableStateOf(prefs.switcherHomeRow) }
     var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
@@ -147,26 +143,26 @@ fun ButtonsScreen(
                                 prefs.switcherStepMs = stepMs
                             },
                         )
-                        if (hasLuma) {
-                            MenuRow(
-                                label = "Luma is Home",
-                                detail = if (lumaAsHome) "ON" else "OFF",
-                                sub = if (lumaAsHome) {
-                                    "Luma is listed as Home, with a drawn house instead of its " +
-                                        "own icon. Every other row is somewhere you were; the " +
-                                        "launcher is how you leave, and it stops reading as one " +
-                                        "more app in the list."
-                                } else {
-                                    "off, so Luma is listed by its own name and icon like any " +
-                                        "other app. The switcher only — nothing else in here " +
-                                        "renames it."
-                                },
-                                onClick = {
-                                    lumaAsHome = !lumaAsHome
-                                    prefs.switcherLumaAsHome = lumaAsHome
-                                },
-                            )
-                        }
+                        MenuRow(
+                            label = "Home is pinned",
+                            detail = if (homeRow) "ON" else "OFF",
+                            sub = if (homeRow) {
+                                "Home sits at the bottom of the switcher, always, with a drawn " +
+                                    "house — and the app it goes to is left out of the recents " +
+                                    "above it. Home is whatever a single press of the home " +
+                                    "button reaches, so binding the tap to a launcher is what " +
+                                    "stops that launcher reading as one more app."
+                            } else {
+                                "off, so there is no pinned row and your launcher is listed by " +
+                                    "its own name and icon like any other app. The switcher " +
+                                    "only — nothing else in here renames it."
+                            },
+                            subMaxLines = 6,
+                            onClick = {
+                                homeRow = !homeRow
+                                prefs.switcherHomeRow = homeRow
+                            },
+                        )
                     }
                     MenuRow(
                         label = "Timing the hold takes the key",
