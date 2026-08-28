@@ -1,41 +1,21 @@
-## BrightControl v4.1 — one screen for the switcher, and no flash of the app you are leaving
+## BrightControl v4.2 — the pairing reader stops mistaking its own screen for the dialog
 
-### Picking an app no longer shows you the old one first
+**A report said the pairing code could not be read, and the screen it showed was this app's own setup screen.**
 
-The switcher took itself down and *then* started the activity. That is the obvious order and it is
-the wrong one: a start is not instant, and for the few frames between the window coming off and the
-new app drawing, what is on screen is **the app you were trying to leave**. Reported as switching
-that goes a little too quick, which is exactly how it looks — a flash of where you were on the way
-to where you asked to go.
+The pairing helper reads the six digits off the Settings pairing dialog. The report that landed carried the
+app's **ADB & grants** screen text — "START OVER", "START OVER AND PAIR", "STEP 1 — TURN ON WIRELESS
+DEBUGGING" — not the dialog. No dialog was open, and no code was on screen. The reader had looked at the
+app's own window and decided it was the pairing dialog, because the help text on that screen literally
+says "Pair device with pairing code".
 
-The list is a full-screen opaque window above everything, so leaving it up costs nothing and hides
-the whole handover. The app starts behind it, and the list lifts off a screen that is already
-correct. One cut instead of a flicker.
+The reader is declared to see only the Settings app, and it was assumed that was enough. It is not. That
+declaration filters which *events* reach the service; it does nothing to `windows` and `rootInActiveWindow`,
+which hand back every window on screen regardless of package. So while the reader sat armed, it offered the
+app's own screen to the dialog test, the test said yes, and a false "could not read the pairing code"
+report went out.
 
-It comes off when the window-state event names the new app, plus a frame to let it draw — removing
-it one frame early shows the old app again, which is the bug rather than the fix. And after 700 ms
-regardless, because a start can be throttled, refused, or land somewhere that raises no event this
-service is allowed to see, and a full-screen black window with nothing to remove it is the single
-worst thing this app could ship.
+The reader now skips any window whose package is not `com.android.settings` before it even reads the text.
+Every other window — the app's own screen included — is never offered to the dialog test, so a setup screen
+describing how to reach the dialog can no longer be mistaken for the dialog itself.
 
-### App switcher is a screen of its own
-
-On the main menu, under Controls. Scroll speed, Show Home, and Home app — everything about the
-recent-apps list in the one place.
-
-They used to live under **Buttons → Home button**, from back when a double press of home was the
-only way to open that window. It has been an ordinary binding on all five buttons and both edges
-since v3.86, so those rows were sitting under one gesture on one particular button: not where
-anybody looks for "how fast does this scroll", and gone entirely if you moved the binding elsewhere,
-which reads as settings being taken away.
-
-**It says what opens it.** A read-only row names every button gesture and live edge swipe bound to
-the switcher, and says so plainly when nothing is. The bindings themselves stay in Buttons and Edge
-gestures — a screen that could set both would be a second binding editor, out of step with the first
-the moment either changed.
-
-Two lines at the bottom answer the questions this feature actually gets: what the wheel, the click
-and the hold do while the list is up, and why the list is drawn here rather than being the
-platform's own.
-
-Buttons keeps a door to it under the home button, once something is bound to the switcher.
+Fixes [light-reports#177] — the reader read the app's own setup screen as if it were the pairing dialog.

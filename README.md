@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v3.88.** See [Version history](#version-history).
+**Current version: v4.2.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1109,6 +1109,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.2 | **The pairing reader stops mistaking its own screen for the dialog.** The helper that reads the six digits off the Settings pairing dialog was reading the app's own ADB screen too, because that screen's help text says "Pair device with pairing code" and the reader was offered every window regardless of package. It filed a false "could not read the pairing code" report against the setup screen. It now skips any window whose package is not `com.android.settings` before reading it |
 | v4.1 | **One screen for the switcher, and no flash of the app you are leaving.** Every recent-apps setting now sits under *App switcher* on the main menu instead of under Buttons → Home button, where they hung off one gesture on one button and disappeared if you moved the binding. The screen also names which gestures open the list. And picking an app no longer shows the previous one for a few frames on the way: the list used to hide *before* starting the activity, so the gap between the two was the app you were trying to leave — it now stays up until the new app is actually behind it |
 | v4.0 | **Pick the Home app, rather than the phone guessing it.** Two releases tried to deduce which app the switcher's Home row opens — v3.97 from the home button's tap binding, v3.98 from "the one launcher that is not LightOS" — and both handed somebody the wrong app, because LightOS holds the home role here whether you use it or not. It is a list now: **Buttons → Home button → Home app**, launchers first, including the ones that publish no launcher icon and so appear in no other picker. **Show Home** hides the row. An uninstalled choice falls back to the system's home rather than leaving a dead row |
 | v3.99 | **Home in the switcher stops resolving to LightOS.** v3.97 read the pinned row from the home button's tap binding, which is faithful and useless: the shipped tap is a `CATEGORY_HOME` intent and LightOS holds that role on every one of these phones — it has to, or it crash-loops — so Home went to LightOS for everybody using Luma. A tap bound to a package still wins outright; otherwise, when the role holder is LightOS and exactly one other launcher is installed, the row goes to that launcher. **Home is pinned** now names the app it resolved to instead of saying only ON |

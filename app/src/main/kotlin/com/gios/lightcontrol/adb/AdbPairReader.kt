@@ -57,8 +57,25 @@ class AdbPairReader : AccessibilityService() {
         // is a line that is *exactly* six digits, and joining the dialog to the list behind it
         // surrounds those digits with a screenful of other numbers.
         val roots = mutableListOf<AccessibilityNodeInfo>()
-        runCatching { windows.forEach { window -> window.root?.let { roots += it } } }
-        rootInActiveWindow?.let { roots += it }
+        // **Only Settings windows, and only ever.**
+        //
+        // The service is declared `packageNames="com.android.settings"`, but that pin filters which
+        // *events* reach [onAccessibilityEvent] — it does nothing to `windows` or
+        // `rootInActiveWindow`, which return every window on screen. Without this filter the reader
+        // offers the app's own ADB screen to [AdbPairSession], and that screen's help text says
+        // "Pair device with pairing code" — which [AdbPairCode.looksLikePairingDialog] accepts,
+        // finds no six digits, and files a false "could not read the pairing code" report
+        // (light-reports#177).
+        runCatching {
+            windows.forEach { window ->
+                window.root?.let { root ->
+                    if (root.packageName?.toString() == SETTINGS_PACKAGE) roots += root
+                }
+            }
+        }
+        rootInActiveWindow?.let { root ->
+            if (root.packageName?.toString() == SETTINGS_PACKAGE) roots += root
+        }
         if (roots.isEmpty()) return
         try {
             for (root in roots) {
@@ -183,5 +200,12 @@ class AdbPairReader : AccessibilityService() {
          * this only has to be faster than a person's patience, not faster than the dialog.
          */
         const val SWEEP_MS = 500L
+
+        /**
+         * The one package this reader may look at, mirroring the service's `packageNames` pin in
+         * adb_pair_service.xml. Not redundant with it: that attribute filters events, not the
+         * windows [read] is offered, so this is what actually keeps the app's own screen out.
+         */
+        const val SETTINGS_PACKAGE = "com.android.settings"
     }
 }
