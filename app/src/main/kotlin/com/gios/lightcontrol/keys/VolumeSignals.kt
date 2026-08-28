@@ -70,6 +70,24 @@ object VolumeSignals {
         "$keys press(es) · $broadcasts broadcast(s) · $shown shown, since the service started"
 
     /**
+     * Ask the service to show the strip exactly as a volume key would.
+     *
+     * Set by [ControlService] while it is bound, and null the moment it is not — which makes it two
+     * diagnostics in one. A strip that will not appear has two large classes of cause: the service
+     * is not running at all, or it is running and something downstream declined. This field answers
+     * the first before anything has to guess at the second, and the button answers the second in one
+     * tap instead of in a release.
+     *
+     * Service and settings screen share a process, the assumption [OwnWindow] already rests on, so
+     * this is a field and not IPC.
+     */
+    @Volatile
+    var test: (() -> Unit)? = null
+
+    /** Whether the key service is bound right now — not merely enabled in settings. */
+    fun serviceBound(): Boolean = test != null
+
+    /**
      * Whether the broadcast has ever arrived. Only meaningful once a key has been seen — before
      * that, zero and zero says nothing at all.
      */

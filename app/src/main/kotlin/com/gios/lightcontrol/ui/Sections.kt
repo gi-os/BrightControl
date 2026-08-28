@@ -3,6 +3,7 @@ package com.gios.lightcontrol.ui
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +21,7 @@ import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.keys.VolumeSignals
 import com.gios.lightcontrol.report.CrashLog
+import kotlinx.coroutines.delay
 
 /** What a bare turn does, per-app overrides, and swipe distance. */
 @Composable
@@ -179,17 +181,17 @@ fun BrightnessScreen(onBack: () -> Unit) {
     }
 }
 
-/** The volume readout LightOS has no screen for. */
+/** The volume strip, the panel behind it, and the ringer. */
 @Composable
-fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () -> Unit) {
+fun VolumeScreen(
+    onWifiRinger: () -> Unit,
+    onVolumeApps: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val canOverlay = Grants.canDrawOverlays(context)
-
-    // Bumped when a binding is reset, so the row below redraws with the new state. Held as state
-    // rather than read from Prefs while composing: a SharedPreferences write is invisible to
-    // Compose, which is how the Wi-Fi ringer list shipped ignoring every tap.
-    var bumped by remember { mutableIntStateOf(0) }
 
     var volumeHud by remember { mutableStateOf(prefs.showVolume) }
     var volumePin by remember { mutableStateOf(prefs.volumePin) }
@@ -198,17 +200,22 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
     SectionScaffold(
         title = "Volume",
         onBack = onBack,
-        guide = "LightOS shows nothing when you change the volume — the level moves silently. " +
-            "This draws a strip at the top of the screen so you can see it, and optionally lets " +
-            "you pick which stream the keys move. The strip is on: it reports and takes nothing. " +
-            "The selector is off until you ask, because it is the one thing here that can swallow " +
-            "a volume key.",
+        guide = "LightOS shows nothing when you change the volume. This puts a strip at the top of " +
+            "the screen — and the bar on it is a slider, so it is also the only way to reach the " +
+            "ringer and alarm levels on this phone.",
     ) {
+        SectionLabel("THE STRIP")
         MenuRow(
             label = "Show the level",
             detail = if (volumeHud) "ON" else "OFF",
-            sub = if (canOverlay) "a strip at the top when a volume key is pressed" else "needs the overlay grant",
+            sub = if (canOverlay) {
+                "a strip at the top when the volume changes. Drag its bar to set the level; tap " +
+                    "the name for every volume this phone has."
+            } else {
+                "needs the overlay grant — see Setup"
+            },
             dim = !canOverlay,
+            subMaxLines = 3,
             onClick = {
                 volumeHud = !volumeHud
                 prefs.showVolume = volumeHud
@@ -219,7 +226,7 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
             detail = if (volumePin) "ON" else "OFF",
             sub = "tapping a name in the panel hands the hardware volume keys to that stream for " +
                 "a few seconds. The only setting here that lets a volume key be consumed, which " +
-                "is why it is off. The panel and its sliders open either way.",
+                "is why it is off. Sliders work either way.",
             subMaxLines = 4,
             onClick = {
                 volumePin = !volumePin
@@ -227,114 +234,12 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
             },
         )
         MenuRow(
-            label = "Drag the bar",
-            sub = "the bar is a slider — drag it to set the level. Tap the name above it for a " +
-                "panel with every volume this phone has, each one draggable, and a row for the " +
-                "ringer's normal / vibrate / silent.",
-            dim = true,
-            subMaxLines = 4,
-        )
-        MenuRow(
-            label = "Loud speakerphone",
-            detail = if (callBoost) "ON" else "OFF",
-            sub = if (callBoost) {
-                "a call on the phone's own speaker starts at maximum. Turn it down mid-call and " +
-                    "it stays down; the earpiece level is never touched."
-            } else {
-                "off. The call speaker stays wherever it was last left, which on LightOS is a " +
-                    "number nothing shows you."
-            },
-            onClick = {
-                callBoost = !callBoost
-                prefs.callBoost = callBoost
-            },
-        )
-        MenuRow(
-            label = "Maximum is the ceiling",
-            sub = "call audio does not pass through this phone's app mixer, so no app can add a " +
-                "decibel past the top of the scale",
-            dim = true,
-        )
-        MenuRow(
-            label = "Apps whose volume keys are their own",
+            label = "Apps with their own volume keys",
             detail = "${prefs.volumeKeyApps.size}",
             sub = "an app that turns pages with the volume keys is not changing the volume, so " +
-                "the strip stays down while it is in front. BrightLibrary is on the list already.",
+                "no strip while it is in front. BrightLibrary is listed already.",
             subMaxLines = 3,
             onClick = onVolumeApps,
-        )
-        Rule()
-
-        SectionLabel("THE KEYS THEMSELVES")
-        // A volume key that stopped working is this app's fault more often than not, and until now
-        // there was nowhere on the phone that said what was holding it. Every binding on both keys,
-        // in one row, and one button to give them all back.
-        val volumeBindings = listOf(
-            Button.VolumeUp to Gesture.Tap,
-            Button.VolumeUp to Gesture.Hold,
-            Button.VolumeUp to Gesture.DoubleTap,
-            Button.VolumeDown to Gesture.Tap,
-            Button.VolumeDown to Gesture.Hold,
-            Button.VolumeDown to Gesture.DoubleTap,
-        )
-        val bound = remember(bumped) {
-            volumeBindings.filter { (button, gesture) ->
-                prefs.action(button, gesture) != Action.PassThrough
-            }
-        }
-        MenuRow(
-            label = "Volume keys",
-            detail = if (bound.isEmpty()) "PASSED ON" else "${bound.size} BOUND",
-            sub = if (bound.isEmpty()) {
-                "nothing is bound to either key, so both go straight to the system — which is " +
-                    "what makes the volume change."
-            } else {
-                "bound, so this app takes the press: " + bound.joinToString(", ") { (b, g) ->
-                    "${b.label} ${g.label.lowercase()} → ${shortLabel(prefs.action(b, g))}"
-                } + ". That is why the keys are not changing the volume."
-            },
-            dim = bound.isEmpty(),
-            subMaxLines = 5,
-        )
-        if (bound.isNotEmpty()) {
-            BigButton(
-                label = "GIVE THE VOLUME KEYS BACK",
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            ) {
-                volumeBindings.forEach { (b, g) -> prefs.setAction(b, g, Action.PassThrough) }
-                bumped++
-            }
-        }
-        Rule()
-
-        SectionLabel("WHY THE STRIP DID OR DID NOT APPEAR")
-        // Not a setting. The strip declines to draw for nine different reasons and from the phone
-        // they all look the same — you press a key and nothing happens. Three releases were spent
-        // guessing which one it was.
-        MenuRow(
-            label = "Last time",
-            sub = VolumeSignals.lastOutcome() ?: "nothing has asked for the strip yet",
-            dim = true,
-            subMaxLines = 3,
-        )
-        MenuRow(
-            label = "Counted",
-            detail = if (VolumeSignals.broadcastSilent()) "KEYS ONLY" else "BOTH",
-            sub = VolumeSignals.summary() + ". " + if (VolumeSignals.broadcastSilent()) {
-                "This build sends no volume broadcast, so reading the level back after a key is " +
-                    "the only thing keeping the strip alive."
-            } else {
-                "The strip has two sources: the system's volume broadcast, and a read-back after " +
-                    "each key."
-            },
-            dim = true,
-            subMaxLines = 4,
-        )
-        MenuRow(
-            label = "Not over LightOS",
-            sub = "its own screens have their own volume control — except during a call, where " +
-                "the dialer has none and the strip is the only feedback there is",
-            dim = true,
         )
         Rule()
 
@@ -346,6 +251,183 @@ fun VolumeScreen(onWifiRinger: () -> Unit, onVolumeApps: () -> Unit, onBack: () 
                 "different places and this phone knows which one it is on",
             onClick = onWifiRinger,
         )
+        MenuRow(
+            label = "Vibrate, silent",
+            sub = "in the panel, under the ring slider. Three states of one switch, and the " +
+                "bottom of a slider is only the first of them.",
+            dim = true,
+            subMaxLines = 3,
+        )
+        Rule()
+
+        SectionLabel("CALLS")
+        MenuRow(
+            label = "Loud speakerphone",
+            detail = if (callBoost) "ON" else "OFF",
+            sub = if (callBoost) {
+                "a call on the phone's own speaker starts at maximum. Turn it down mid-call and " +
+                    "it stays down; the earpiece level is never touched."
+            } else {
+                "the call speaker stays wherever it was last left, which on LightOS is a number " +
+                    "nothing shows you."
+            },
+            subMaxLines = 3,
+            onClick = {
+                callBoost = !callBoost
+                prefs.callBoost = callBoost
+            },
+        )
+        MenuRow(
+            label = "Not over LightOS",
+            sub = "its own screens have their own volume control — except during a call, where " +
+                "the dialer has none and the strip is the only feedback there is",
+            dim = true,
+            subMaxLines = 3,
+        )
+        Rule()
+
+        MenuRow(
+            label = "If the strip is not appearing",
+            detail = "\u203a",
+            sub = "show it on demand, and read the reason it last declined",
+            onClick = onDiagnostics,
+        )
+    }
+}
+
+/**
+ * Why the strip is not on screen, answered by the phone instead of guessed at.
+ *
+ * Its own screen because it earned one. The strip declines to draw for a dozen different reasons,
+ * every one of them a bare `return` on a path with no UI attached, and from the phone they are
+ * indistinguishable: you press a key and nothing happens. Four releases went into guessing which
+ * one it was, and the guessing is what took the HUD off the screen twice.
+ *
+ * The button is the point. It asks the service for a strip down exactly the path a volume key
+ * takes, with every gate left in place, so either one appears — and the trigger is what is at fault
+ * — or the reason lands in the line underneath it.
+ */
+@Composable
+fun VolumeDiagnosticsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+
+    var tick by remember { mutableIntStateOf(0) }
+    // Re-read on every tick rather than remembered: the whole screen is a live readout, and a
+    // value cached at composition is the bug this screen exists to find.
+    val serviceBound = remember(tick) { VolumeSignals.serviceBound() }
+    val outcome = remember(tick) { VolumeSignals.lastOutcome() }
+    val counts = remember(tick) { VolumeSignals.summary() }
+    val keysOnly = remember(tick) { VolumeSignals.broadcastSilent() }
+
+    val volumeBindings = listOf(
+        Button.VolumeUp to Gesture.Tap,
+        Button.VolumeUp to Gesture.Hold,
+        Button.VolumeUp to Gesture.DoubleTap,
+        Button.VolumeDown to Gesture.Tap,
+        Button.VolumeDown to Gesture.Hold,
+        Button.VolumeDown to Gesture.DoubleTap,
+    )
+    val keyBindings = remember(tick) {
+        volumeBindings.filter { (b, g) -> prefs.action(b, g) != Action.PassThrough }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
+
+    SectionScaffold(
+        title = "Strip diagnostics",
+        onBack = onBack,
+        guide = "Press the button. Either the strip appears over this screen — in which case the " +
+            "strip works and the trigger is the problem — or the line under it says why it did not.",
+    ) {
+        BigButton(
+            label = "SHOW THE STRIP NOW",
+            filled = true,
+            enabled = serviceBound,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            runCatching { VolumeSignals.test?.invoke() }
+            tick++
+        }
+        MenuRow(
+            label = "Last time",
+            sub = outcome ?: "nothing has asked for the strip yet",
+            dim = true,
+            subMaxLines = 3,
+        )
+        Rule()
+
+        SectionLabel("WHAT IS TRUE RIGHT NOW")
+        MenuRow(
+            label = "The key service",
+            detail = if (serviceBound) "BOUND" else "NOT BOUND",
+            sub = if (serviceBound) {
+                "running, so it is receiving keys"
+            } else {
+                "switched on in Android's settings is not the same as running. Nothing works " +
+                    "until this says BOUND — see Setup & guide."
+            },
+            dim = serviceBound,
+            subMaxLines = 3,
+        )
+        GrantRow(
+            label = "Overlay permission",
+            ok = Grants.canDrawOverlays(context),
+            fix = "adb shell appops set com.gios.lightcontrol SYSTEM_ALERT_WINDOW allow",
+            sub = "without it the strip cannot be drawn at all",
+        )
+        MenuRow(
+            label = "Show the level",
+            detail = if (prefs.showVolume) "ON" else "OFF",
+            sub = "off means nothing is ever asked for",
+            dim = prefs.showVolume,
+        )
+        MenuRow(
+            label = "Counted",
+            detail = if (keysOnly) "KEYS ONLY" else "BOTH",
+            sub = "$counts. " + if (keysOnly) {
+                "This build sends no volume broadcast, so reading the level back after a key is " +
+                    "the only thing keeping the strip alive."
+            } else {
+                "The strip has two sources: the system's volume broadcast, and a read-back after " +
+                    "each key."
+            },
+            dim = true,
+            subMaxLines = 4,
+        )
+        Rule()
+
+        SectionLabel("THE KEYS THEMSELVES")
+        // A volume key that stopped working is this app's fault more often than not, and until this
+        // row there was nowhere on the phone that said what was holding it.
+        MenuRow(
+            label = "Volume keys",
+            detail = if (keyBindings.isEmpty()) "PASSED ON" else "${keyBindings.size} BOUND",
+            sub = if (keyBindings.isEmpty()) {
+                "nothing is bound to either key, so both go straight to the system — which is " +
+                    "what makes the volume change"
+            } else {
+                "bound, so this app takes the press: " + keyBindings.joinToString(", ") { (b, g) ->
+                    "${b.label} ${g.label.lowercase()} \u2192 ${shortLabel(prefs.action(b, g))}"
+                } + ". That is why the keys are not changing the volume."
+            },
+            dim = keyBindings.isEmpty(),
+            subMaxLines = 5,
+        )
+        if (keyBindings.isNotEmpty()) {
+            BigButton(
+                label = "GIVE THE VOLUME KEYS BACK",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                volumeBindings.forEach { (b, g) -> prefs.setAction(b, g, Action.PassThrough) }
+                tick++
+            }
+        }
     }
 }
 

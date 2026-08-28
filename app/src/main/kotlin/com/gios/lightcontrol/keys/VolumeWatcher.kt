@@ -343,6 +343,25 @@ class VolumeWatcher(
     }
 
     /**
+     * Show the strip now, on request, down the same path a volume key takes.
+     *
+     * Every gate is left in place on purpose — the setting, the overlay grant, the front-app rules,
+     * the stream's own scale. A test that bypassed them would prove the window can be drawn, which
+     * was never the question; this proves whether *this phone, right now* will draw it, and when it
+     * will not, [VolumeSignals] holds the reason by the time this returns.
+     */
+    fun testStrip() {
+        VolumeSignals.note("test requested")
+        runCatching {
+            val audio = context.getSystemService(AudioManager::class.java) ?: run {
+                VolumeSignals.note("no audio service")
+                return
+            }
+            present(activeStream(audio), null, -1, force = true)
+        }
+    }
+
+    /**
      * A bar was dragged: put that stream there.
      *
      * The one thing in this app that changes a volume without a key being involved, and the reason

@@ -313,6 +313,9 @@ class ControlService : AccessibilityService() {
         volumeHud.onTap = { volume.openPicker() }
         volumeHud.onPick = { stream -> volume.onPick(stream) }
         volumeHud.onSetLevel = { stream, level -> volume.onSetLevel(stream, level) }
+        // The settings screen's "show it now" button, and the one honest signal that this service
+        // is bound rather than merely switched on. Cleared in [onUnbind].
+        VolumeSignals.test = { volume.testStrip() }
         volumeHud.onCycleRinger = { volume.cycleRinger() }
         volume.start()
         // Not gated on `prefs.enabled`. The master switch is about keys — "this app touches no
@@ -2091,6 +2094,7 @@ class ControlService : AccessibilityService() {
         // to finish taking it down.
         runCatching { banner.dismiss(animated = false) }
         volume.stop()
+        VolumeSignals.test = null
         wifiRinger.stop()
         swipe.cancel()
         pendingTaps.clear()

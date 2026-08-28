@@ -71,8 +71,20 @@ class VolumeHud(private val context: Context) {
     private var title: TextView? = null
     private var bar: LevelBar? = null
 
-    /** A finger is on a bar. Nothing may take the window away while that is true. */
-    private var dragging = false
+    /**
+     * A finger is on a bar. Nothing may take the window away while that is true.
+     *
+     * Held as a *time* rather than a boolean, and checked against the window, for the same reason
+     * [picking] is derived: this suppresses everything arriving from outside, so a flag left set
+     * with no finger and no window would be a HUD that had stopped appearing for good. A touch that
+     * never delivers its release — the window taken away mid-gesture — is exactly how that happens.
+     * Two seconds of silence ends it whatever the view thinks.
+     */
+    private var dragAt = 0L
+
+    private val dragging: Boolean
+        get() = root != null && dragAt != 0L &&
+            android.os.SystemClock.uptimeMillis() - dragAt < DRAG_GRACE_MS
 
     /**
      * Whether the window currently holds the panel rather than the one-line strip.
@@ -250,8 +262,8 @@ class VolumeHud(private val context: Context) {
             LevelBar(context).apply {
                 bind(row.stream, row.level, row.max.coerceAtLeast(1))
                 onSet = { stream, level -> runCatching { onSetLevel?.invoke(stream, level) } }
-                onGrab = { dragging = true; handler.removeCallbacks(hide) }
-                onRelease = { dragging = false; keepOpen() }
+                onGrab = { dragAt = android.os.SystemClock.uptimeMillis(); handler.removeCallbacks(hide) }
+                onRelease = { dragAt = 0L; keepOpen() }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     (unit * TOUCH_UNITS).toInt().coerceAtLeast((28 * density).toInt()),
@@ -341,9 +353,9 @@ class VolumeHud(private val context: Context) {
         }
         val slider = LevelBar(context).apply {
             onSet = { stream, level -> runCatching { onSetLevel?.invoke(stream, level) } }
-            onGrab = { dragging = true; handler.removeCallbacks(hide) }
+            onGrab = { dragAt = android.os.SystemClock.uptimeMillis(); handler.removeCallbacks(hide) }
             onRelease = {
-                dragging = false
+                dragAt = 0L
                 handler.removeCallbacks(hide)
                 // Longer than a glance: a strip you have just used is one you may use again.
                 handler.postDelayed(hide, PIN_DWELL_MS)
@@ -401,7 +413,7 @@ class VolumeHud(private val context: Context) {
         title = null
         bar = null
         pickerUp = false
-        dragging = false
+        dragAt = 0L
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         runCatching { wm.removeView(box) }
     }
@@ -524,6 +536,9 @@ class VolumeHud(private val context: Context) {
 
         /** How tall it is to the eye. */
         const val BAR_DP = 4f
+
+        /** How long a touch with no release still counts as a finger on the bar. */
+        const val DRAG_GRACE_MS = 2_000L
 
         /** contentSecondary, dimmed for black. */
         const val DIM = "#4A4A4A"
