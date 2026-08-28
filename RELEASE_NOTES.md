@@ -59,3 +59,13 @@ The limit is gone. A row is as tall as its text, and a longer explanation costs 
 than the end of a sentence.
 
 Fixes [light-reports#130].
+
+### The note field no longer hides under the keyboard
+
+Typing a long note in the report sheet pushed the line you were writing behind the keyboard. The
+sheet scrolls, and Compose already brings a focused field into view inside a scroll — but it was
+bringing it into a region the keyboard was covering, because the sheet had no idea the bottom of
+the screen had moved. It does now.
+
+Fixes [light-reports#134]. The same fix went into `light-common`, which is where the other apps
+get this sheet from.
