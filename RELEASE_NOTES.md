@@ -1,36 +1,41 @@
-## BrightControl v4.0 — pick the Home app, rather than the phone guessing it
+## BrightControl v4.1 — one screen for the switcher, and no flash of the app you are leaving
 
-**Two releases were spent trying to work out which app the switcher's Home row should open. Both got
-it wrong for somebody.** v3.97 read it off the home button's tap binding; v3.98 added a rule on top —
-if the role holder is LightOS and exactly one other launcher is installed, use that one. Each was
-defensible and each was a fallback nobody could see the output of.
+### Picking an app no longer shows you the old one first
 
-There was never a signal here worth deducing from. **LightOS holds the HOME role on every one of
-these phones**, because it has to or it crash-loops, so the role says nothing at all about the
-launcher you actually use.
+The switcher took itself down and *then* started the activity. That is the obvious order and it is
+the wrong one: a start is not instant, and for the few frames between the window coming off and the
+new app drawing, what is on screen is **the app you were trying to leave**. Reported as switching
+that goes a little too quick, which is exactly how it looks — a flash of where you were on the way
+to where you asked to go.
 
-### It is a list
+The list is a full-screen opaque window above everything, so leaving it up costs nothing and hides
+the whole handover. The app starts behind it, and the list lifts off a screen that is already
+correct. One cut instead of a flicker.
 
-**Buttons → Home button → Home app.** Tap the app you want. That is the whole rule, and the row on
-the Buttons screen names whatever it resolved to, so where Home goes is never something you find out
-by opening the switcher.
+It comes off when the window-state event names the new app, plus a frame to let it draw — removing
+it one frame early shows the old app again, which is the bug rather than the fix. And after 700 ms
+regardless, because a start can be throttled, refused, or land somewhere that raises no event this
+service is allowed to see, and a full-screen black window with nothing to remove it is the single
+worst thing this app could ship.
 
-The list is launchers first, and it is built from `CATEGORY_HOME` **and** `CATEGORY_LAUNCHER`
-together — a launcher publishes the first and need not publish the second at all, which is why Luma
-appears in no other app picker in this app. On the one screen whose job is choosing a launcher, that
-had to be fixed rather than worked around.
+### App switcher is a screen of its own
 
-Picking LightOS gets LightOS's own action rather than a plain launch, so arriving there is still a
-*visit*: the state where the home button belongs to LightOS while you walk through its menu.
+On the main menu, under Controls. Scroll speed, Show Home, and Home app — everything about the
+recent-apps list in the one place.
 
-### Show Home
+They used to live under **Buttons → Home button**, from back when a double press of home was the
+only way to open that window. It has been an ordinary binding on all five buttons and both edges
+since v3.86, so those rows were sitting under one gesture on one particular button: not where
+anybody looks for "how fast does this scroll", and gone entirely if you moved the binding elsewhere,
+which reads as settings being taken away.
 
-**Buttons → Home button → Show Home** is the toggle. Off, and there is no pinned row — your launcher
-is listed by its own name and icon like any other app. On is the default.
+**It says what opens it.** A read-only row names every button gesture and live edge swipe bound to
+the switcher, and says so plainly when nothing is. The bindings themselves stay in Buttons and Edge
+gestures — a screen that could set both would be a second binding editor, out of step with the first
+the moment either changed.
 
-### Smaller things
+Two lines at the bottom answer the questions this feature actually gets: what the wheel, the click
+and the hold do while the list is up, and why the list is drawn here rather than being the
+platform's own.
 
-- **Unset means the system's home**, which is what a plain home intent does. Honest, and one screen
-  away from being changed.
-- **An uninstalled choice falls back** to the system's home. The setting keeps your answer, because
-  a package can go away after you pick it, but the row will not sit there opening nothing.
+Buttons keeps a door to it under the home button, once something is bound to the switcher.

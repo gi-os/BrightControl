@@ -225,8 +225,25 @@ that has since been uninstalled falls back the same way, so an uninstall cannot 
 pinned to the bottom of the list. **Home app** names whatever it resolved to, and so does the log
 line the switcher writes.
 
-**Buttons → Home button → Show Home** hides the row. Off, and your launcher is listed by its own
-name and icon like any other app.
+**Every switcher setting is on one screen** — *App switcher*, on the main menu, under Controls. How
+fast the wheel moves the selection, whether the Home row is shown, and which app it opens. They used
+to sit under **Buttons → Home button**, from when a double press of home was the only way to open
+this window; it is an ordinary binding on all five buttons and both edges now, so settings hanging
+off one gesture on one button were both hard to find and liable to vanish when the binding moved.
+The screen names the gestures that open it and does not offer to change them — that stays in Buttons
+and Edge gestures, so there is only ever one binding editor.
+
+**Show Home** hides the pinned row. Off, and your launcher is listed by its own name and icon like
+any other app.
+
+**The list stays up until the app you picked is in front of it.** It used to take itself down and
+*then* start the activity, which is the obvious order and the wrong one: a start is not instant, and
+for the few frames in between what is on screen is the app you were trying to leave. Since this
+window is opaque and above everything, leaving it up costs nothing and hides the handover — the app
+starts behind it and the list lifts off a screen that is already correct. It comes off on the
+window-state event naming the new app, plus a frame to let it draw, and after 700 ms regardless: a
+start can be throttled or refused, and a full-screen black window with nothing to remove it is the
+worst thing this app could ship.
 
 Off under **Buttons → Home button → Home is pinned**. The switcher only: the bindings picker still
 names packages, because a picker that renames its own options is a picker you cannot search.
@@ -1092,6 +1109,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.1 | **One screen for the switcher, and no flash of the app you are leaving.** Every recent-apps setting now sits under *App switcher* on the main menu instead of under Buttons → Home button, where they hung off one gesture on one button and disappeared if you moved the binding. The screen also names which gestures open the list. And picking an app no longer shows the previous one for a few frames on the way: the list used to hide *before* starting the activity, so the gap between the two was the app you were trying to leave — it now stays up until the new app is actually behind it |
 | v4.0 | **Pick the Home app, rather than the phone guessing it.** Two releases tried to deduce which app the switcher's Home row opens — v3.97 from the home button's tap binding, v3.98 from "the one launcher that is not LightOS" — and both handed somebody the wrong app, because LightOS holds the home role here whether you use it or not. It is a list now: **Buttons → Home button → Home app**, launchers first, including the ones that publish no launcher icon and so appear in no other picker. **Show Home** hides the row. An uninstalled choice falls back to the system's home rather than leaving a dead row |
 | v3.99 | **Home in the switcher stops resolving to LightOS.** v3.97 read the pinned row from the home button's tap binding, which is faithful and useless: the shipped tap is a `CATEGORY_HOME` intent and LightOS holds that role on every one of these phones — it has to, or it crash-loops — so Home went to LightOS for everybody using Luma. A tap bound to a package still wins outright; otherwise, when the role holder is LightOS and exactly one other launcher is installed, the row goes to that launcher. **Home is pinned** now names the app it resolved to instead of saying only ON |
 | v3.98 | **The volume strip can be told to stay out of an app, and the edge gestures buzz.** Four reports said the same thing about four different apps: a strip drawn over something that already shows its own volume control. The built-in table only knows Light's own screens, so *Volume → Apps the strip stays down for* is a list you keep — it gates both the key path and the broadcast path, and it beats the table, so the dialer during a call can be silenced too. Edge gestures now tick as each threshold arms and again when one fires, matching LightOS's own back gesture, with a switch. And rows in settings are no longer clipped at two lines: the explanation under a setting wraps as far as it needs to. The report sheet's note field no longer hides under the keyboard as you type |

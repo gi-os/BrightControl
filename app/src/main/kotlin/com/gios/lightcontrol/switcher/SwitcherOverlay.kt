@@ -248,11 +248,19 @@ class SwitcherOverlay(private val context: Context) {
         arm()
     }
 
-    /** Take the selection, and get out of the way. */
+    /**
+     * Take the selection. **This no longer takes the window down** — the service does, once the
+     * app is in front of it.
+     *
+     * It used to hide first, which is the obvious order and the wrong one: a start is not instant,
+     * and for the few frames in between what is on screen is the app you were trying to leave. See
+     * `ControlService.holdSwitcherThrough`. The idle timer is re-armed as the backstop for a
+     * handover that somehow never finishes.
+     */
     fun choose() {
-        val entry = selectedEntry
-        hide()
-        if (entry != null) onPick?.invoke(entry)
+        val entry = selectedEntry ?: return
+        arm()
+        onPick?.invoke(entry)
     }
 
     /**
@@ -399,7 +407,9 @@ class SwitcherOverlay(private val context: Context) {
                 setCompoundDrawablesRelative(art(entry), null, null, null)
                 isClickable = true
                 setOnClickListener {
-                    hide()
+                    // No hide here either: the service takes the list off once the app it
+                    // started is actually behind it. See [choose].
+                    arm()
                     onPick?.invoke(entry)
                 }
                 // Hold for App info -- Settings' own page for this app, where Force stop,

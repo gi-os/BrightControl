@@ -50,6 +50,7 @@ import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
+import com.gios.lightcontrol.ui.SwitcherScreen
 import com.gios.lightcontrol.ui.VolumeScreen
 import com.gios.lightcontrol.ui.VolumeAppListScreen
 import com.gios.lightcontrol.ui.VolumeHudAppListScreen
@@ -95,7 +96,10 @@ private sealed interface Screen {
     data object Background : Screen
     data object ResumeApps : Screen
 
-    /** Which app the switcher's pinned Home row opens. Hangs off Buttons. */
+    /** Everything about the recent-apps list. */
+    data object Switcher : Screen
+
+    /** Which app the switcher's pinned Home row opens. Hangs off [Switcher]. */
     data object SwitcherHomeApp : Screen
     data object ResumeFallback : Screen
     data object Adb : Screen
@@ -257,6 +261,7 @@ class MainActivity : ComponentActivity() {
                             onButtons = { screen = Screen.Buttons },
                             onWheel = { screen = Screen.Wheel },
                             onEdges = { screen = Screen.Edges },
+                            onSwitcher = { screen = Screen.Switcher },
                             onBrightness = { screen = Screen.Brightness },
                             onColor = { screen = Screen.Color },
                             onLock = { screen = Screen.Lock },
@@ -279,12 +284,17 @@ class MainActivity : ComponentActivity() {
                                 screen = Screen.Pick(BindSlot.Key(button, gesture), Screen.Buttons)
                             },
                             onResumeApps = { screen = Screen.ResumeApps },
+                            onSwitcher = { screen = Screen.Switcher },
+                            onBack = home,
+                        )
+
+                        Screen.Switcher -> SwitcherScreen(
                             onHomeApp = { screen = Screen.SwitcherHomeApp },
                             onBack = home,
                         )
 
                         Screen.SwitcherHomeApp -> HomeAppScreen(
-                            onBack = { screen = Screen.Buttons },
+                            onBack = { screen = Screen.Switcher },
                         )
 
                         Screen.Wheel -> WheelScreen(
@@ -493,7 +503,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     is Screen.Notifications -> screen.back
     Screen.Background -> Screen.Lock
     Screen.ResumeFallback -> Screen.ResumeApps
-    Screen.SwitcherHomeApp -> Screen.Buttons
+    Screen.SwitcherHomeApp -> Screen.Switcher
     is Screen.Pick -> screen.back
     else -> Screen.Home
 }

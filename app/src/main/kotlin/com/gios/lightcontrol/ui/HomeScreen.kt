@@ -38,6 +38,7 @@ fun HomeScreen(
     onButtons: () -> Unit,
     onWheel: () -> Unit,
     onEdges: () -> Unit,
+    onSwitcher: () -> Unit,
     onBrightness: () -> Unit,
     onColor: () -> Unit,
     onLock: () -> Unit,
@@ -150,6 +151,15 @@ fun HomeScreen(
                 },
                 sub = "swipe in from an edge — short and long, bound like a button",
                 onClick = onEdges,
+            )
+            MenuRow(
+                label = "App switcher",
+                // The recent-apps list is one of this app's larger features and had no door of
+                // its own -- its settings sat under Buttons, beside the one gesture that used to
+                // be the only way to open it, which is not where anybody looks for them.
+                detail = if (prefs.switcherHomeRow) "HOME" else "\u203a",
+                sub = "the list of apps you have been in, and the Home row pinned under it",
+                onClick = onSwitcher,
             )
             MenuRow(
                 label = "Brightness",

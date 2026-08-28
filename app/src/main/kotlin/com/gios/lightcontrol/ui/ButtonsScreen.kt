@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,8 +28,6 @@ import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
-import com.gios.lightcontrol.switcher.HomeApp
-import com.gios.lightcontrol.switcher.appName
 import com.gios.lightcontrol.ui.theme.Dim
 
 /**
@@ -45,33 +42,25 @@ import com.gios.lightcontrol.ui.theme.Dim
 fun ButtonsScreen(
     onPick: (Button, Gesture) -> Unit,
     onResumeApps: () -> Unit,
-    onHomeApp: () -> Unit,
+    onSwitcher: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
 
     var homeArmed by remember { mutableStateOf(prefs.homeTakeover) }
-    // The switcher's settings, and Resume's app list, belong wherever those actions are reachable
-    // from — and that is a binding now rather than a switch of its own. Read on every composition
-    // rather than remembered, because the thing they depend on is changed on another screen: this
-    // one is recomposed on the way back from the picker, and a remembered answer would be the one
-    // from before the change.
+    // Resume's app list belongs wherever that action is reachable from — and that is a binding
+    // rather than a switch of its own. Read on every composition rather than remembered, because
+    // the thing it depends on is changed on another screen: this one is recomposed on the way back
+    // from the picker, and a remembered answer would be the one from before the change.
+    //
+    // The switcher's own settings are no longer here at all. They were, back when a double press
+    // of home was the only way to open that window; it is an ordinary binding on all five buttons
+    // and both edges now, so they have a screen of their own and this is a door to it.
     val switcherBound =
         Button.entries.any { b -> Gesture.entries.any { prefs.action(b, it) == Action.Switcher } }
     val resumeBound =
         Button.entries.any { b -> Gesture.entries.any { prefs.action(b, it) == Action.Resume } }
-    var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
-    var homeRow by remember { mutableStateOf(prefs.switcherHomeRow) }
-    // Read on every composition rather than remembered: it is set on another screen, and this one
-    // is recomposed on the way back from it. A remembered answer would be the one from before the
-    // change, which on this particular row is the whole point -- it exists to say where Home goes.
-    val homeGoesTo = if (homeRow) {
-        runCatching { HomeApp.label(prefs, context.packageManager) { appName(context, it) } }
-            .getOrDefault("the system's home")
-    } else {
-        ""
-    }
     var cameraLightOs by remember { mutableStateOf(prefs.cameraOnLightOs) }
 
     val scroll = rememberScrollState()
@@ -137,52 +126,18 @@ fun ButtonsScreen(
                     )
                 }
                 if (button == Button.Home) {
+                    // A door, not the settings themselves. It only appears once something is bound
+                    // to the switcher, which is the same rule the rows it replaced followed — and
+                    // the screen behind it is on the main menu either way, so a binding moved to
+                    // another button never takes a setting away with it.
                     if (switcherBound) {
                         MenuRow(
-                            label = "Switcher scroll speed",
-                            detail = switcherSpeedLabel(stepMs),
-                            sub = "at most one row every $stepMs ms. The wheel sends a notch " +
-                                "every 35–60 ms, so without a floor one flick runs the whole " +
-                                "list two or three times over.",
-                            onClick = {
-                                stepMs = when (stepMs) {
-                                    60L -> 120L
-                                    120L -> 200L
-                                    200L -> 320L
-                                    else -> 60L
-                                }
-                                prefs.switcherStepMs = stepMs
-                            },
+                            label = "App switcher",
+                            detail = "\u203a",
+                            sub = "the recent-apps list: how fast it scrolls, and the Home row " +
+                                "pinned to the bottom of it",
+                            onClick = onSwitcher,
                         )
-                        MenuRow(
-                            label = "Show Home",
-                            detail = if (homeRow) "ON" else "OFF",
-                            sub = if (homeRow) {
-                                "a Home row at the bottom of the switcher, always, with a drawn " +
-                                    "house — and the app it opens is left out of the recents " +
-                                    "above it."
-                            } else {
-                                "off, so there is no Home row and your launcher is listed by " +
-                                    "its own name and icon like any other app. The switcher " +
-                                    "only — nothing else in here renames it."
-                            },
-                            onClick = {
-                                homeRow = !homeRow
-                                prefs.switcherHomeRow = homeRow
-                            },
-                        )
-                        // Only when there is a row to point somewhere. A destination for a row
-                        // that is switched off is a setting with nothing behind it.
-                        if (homeRow) {
-                            MenuRow(
-                                label = "Home app",
-                                detail = homeGoesTo.uppercase(),
-                                sub = "what that row opens. Pick it — this used to be worked out " +
-                                    "from the phone and got it wrong twice, because LightOS " +
-                                    "holds the home role here whether you use it or not.",
-                                onClick = onHomeApp,
-                            )
-                        }
                     }
                     MenuRow(
                         label = "Timing the hold takes the key",
@@ -315,10 +270,3 @@ fun appLabel(pm: PackageManager, pkg: String): String = runCatching {
     pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
 }.getOrDefault(pkg)
 
-/** A number of milliseconds, as the word somebody would use for it. */
-private fun switcherSpeedLabel(stepMs: Long): String = when {
-    stepMs <= 80L -> "FAST"
-    stepMs <= 150L -> "NORMAL"
-    stepMs <= 260L -> "SLOW"
-    else -> "SLOWEST"
-}

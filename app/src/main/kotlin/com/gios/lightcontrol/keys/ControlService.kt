@@ -508,6 +508,9 @@ class ControlService : AccessibilityService() {
             runCatching { prefs.setLastFront(pkg, System.currentTimeMillis()) }
             // The app an unlock was aimed at has arrived, so the face has nothing left to hide.
             if (pkg == coverTarget) dropCover()
+            // A switcher pick has landed. The list is still up, deliberately, and comes down now
+            // that there is something behind it worth seeing. See [holdSwitcherThrough].
+            if (switcherHandoff != 0L) endSwitcherHandoff("$pkg is up")
         }
         // Re-asserted on every event rather than only when the package changes, so the screen
         // heals itself. ColorMode.set() writes only on a difference, so for the overwhelmingly
@@ -1601,7 +1604,12 @@ class ControlService : AccessibilityService() {
      */
     private fun openSwitcher(): Boolean {
         if (!awake()) return false
-        if (switcher.showing) return true
+        // A list held up over a handover is on its way out and holds the apps as they were before
+        // the pick. Asking for the switcher again during that window is a request for a fresh one.
+        if (switcher.showing && switcherHandoff == 0L) return true
+        // Any delayed hide still in flight belongs to the list being replaced, not to this one.
+        switcherHandoff = 0L
+        switcherEpoch++
         val front = if (OwnWindow.resumed) packageName else foreground
         // Only what you are looking at is left out. This app used to be excluded outright, which
         // is right while its settings are the front app — `front` already says so — and wrong
@@ -1645,14 +1653,70 @@ class ControlService : AccessibilityService() {
      */
     private fun pickFromSwitcher(entry: SwitcherOverlay.Entry) {
         val action = entry.action
-        if (action != null) {
-            val ok = perform(action)
-            log("switcher → home · ${action.store()}" + if (ok) "" else " · FAILED")
-            return
+        val ok = if (action != null) {
+            perform(action).also { log("switcher → home · ${action.store()}" + if (it) "" else " · FAILED") }
+        } else {
+            log("switcher → ${entry.pkg.substringAfterLast('.')}")
+            launch(entry.pkg)
         }
-        log("switcher → ${entry.pkg.substringAfterLast('.')}")
-        launch(entry.pkg)
+        // Taken down after the start, not before it, and only once the app is actually there.
+        if (ok) holdSwitcherThrough() else runCatching { switcher.hide() }
     }
+
+    /**
+     * Keep the list on screen until the app you picked is in front of it.
+     *
+     * The switcher used to take itself down and *then* start the activity, which is the obvious
+     * order and the wrong one. A start is not instant: for the few frames between the window
+     * coming off and the new app drawing, what is on screen is **the app you were trying to
+     * leave** — reported as switching that "goes a little too quick", which is exactly how it
+     * looks. You see a flash of where you were on the way to where you asked to go.
+     *
+     * This window is a full-screen opaque `TYPE_ACCESSIBILITY_OVERLAY` at layer 31, so leaving it
+     * up costs nothing and hides everything: the app starts behind it and the list lifts off a
+     * screen that is already correct. One cut instead of a flicker.
+     *
+     * Two ways out, and both are needed. The window-state event naming the new app is the real
+     * one; [SWITCHER_HANDOFF_MS] is the guarantee, because a start can be throttled, refused, or
+     * land on something that raises no event this service is allowed to see — and a full-screen
+     * black window with no way off it is the single worst thing this file could ship.
+     * [SWITCHER_SETTLE_MS] is the small pause after the event: the window being up is not the same
+     * as the window having drawn, and removing ours one frame early shows the old app again, which
+     * is the bug rather than the fix.
+     */
+    private fun holdSwitcherThrough() {
+        if (!switcher.showing) return
+        val epoch = ++switcherEpoch
+        switcherHandoff = epoch
+        handler.postDelayed({
+            if (switcherHandoff == epoch) endSwitcherHandoff("nothing came forward")
+        }, SWITCHER_HANDOFF_MS)
+    }
+
+    /**
+     * The handover is over: take the list off, [SWITCHER_SETTLE_MS] from now.
+     *
+     * The epoch is carried through the delay rather than a flag being re-read, because within those
+     * milliseconds the switcher can legitimately be opened again — and a hide belonging to the list
+     * that has already gone must not remove the one that replaced it. That is the same class of bug
+     * as the flicker this whole handover fixes, just pointing the other way.
+     */
+    private fun endSwitcherHandoff(why: String) {
+        val epoch = switcherHandoff
+        if (epoch == 0L) return
+        switcherHandoff = 0L
+        handler.postDelayed({
+            if (switcherEpoch != epoch) return@postDelayed
+            log("switcher handover · $why")
+            runCatching { switcher.hide() }
+        }, SWITCHER_SETTLE_MS)
+    }
+
+    /** Bumped whenever the list is shown or a pick starts. Guards a delayed hide against a re-open. */
+    private var switcherEpoch = 0L
+
+    /** The epoch whose pick is in flight, or zero when no handover is running. */
+    private var switcherHandoff = 0L
 
     /**
      * Ask the platform for its own recents, and be honest about what happened.
@@ -3193,6 +3257,28 @@ class ControlService : AccessibilityService() {
          * button answers inside the moment somebody is still looking at it.
          */
         const val SYSTEM_RECENTS_GRACE_MS = 800L
+
+        /**
+         * The longest the switcher is held up waiting for a picked app to come forward.
+         *
+         * A ceiling, not a delay — the window-state event almost always arrives first and takes it
+         * down early. This exists because a start can be throttled, refused, or land somewhere that
+         * raises no event this service is allowed to see, and a full-screen black window with
+         * nothing to remove it is the worst outcome available. Long enough for a cold start on this
+         * hardware, short enough that a failed one reads as a gesture that did not work rather than
+         * as a phone that has hung.
+         */
+        const val SWITCHER_HANDOFF_MS = 700L
+
+        /**
+         * The pause between "the new app has a window" and taking ours off it.
+         *
+         * A window existing is not a window having drawn. Lifting the list on the event itself
+         * shows the app underneath for a frame, which is the flicker this whole handover was
+         * written to remove — the cost of being early is the bug, and the cost of being late is
+         * nothing anybody can see.
+         */
+        const val SWITCHER_SETTLE_MS = 80L
 
         /**
          * Playback usages that mean something is *demanding* the user — a screen with a dismiss
