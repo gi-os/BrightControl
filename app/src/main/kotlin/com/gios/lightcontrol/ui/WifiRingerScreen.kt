@@ -155,7 +155,7 @@ fun WifiRingerScreen(onBack: () -> Unit, onAdb: () -> Unit) {
             dim = true,
         )
         if (last.isNotBlank()) {
-            MenuRow(label = "Last change", sub = last, dim = true, subMaxLines = 3)
+            MenuRow(label = "Last change", sub = last, dim = true)
         }
         Rule()
 

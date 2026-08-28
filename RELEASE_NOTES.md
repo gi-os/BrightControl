@@ -1,4 +1,4 @@
-## BrightControl v3.98 — Home in the switcher stops resolving to LightOS
+## BrightControl v3.99 — Home in the switcher stops resolving to LightOS
 
 **v3.97 pinned Home to the bottom of the switcher and then sent it to the wrong place.** The row read
 its destination from the home button's tap binding, on the reasoning that home is whatever a single

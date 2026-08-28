@@ -309,6 +309,7 @@ class ControlService : AccessibilityService() {
             wanted = { prefs.enabled && prefs.showVolume },
             pinningAllowed = { prefs.volumePin },
             keyApps = { prefs.volumeKeyApps },
+            hudOffApps = { prefs.volumeHudOffApps() },
         )
         volumeHud.onTap = { volume.openPicker() }
         volumeHud.onPick = { stream -> volume.onPick(stream) }
@@ -813,6 +814,7 @@ class ControlService : AccessibilityService() {
                     longDp = if (prefs.edgeAction(side, EdgeLength.Long).acts) long else 0,
                     slopDp = EDGE_SLOP_DP,
                     showIndicator = indicator,
+                    withHaptics = prefs.edgeHaptics,
                     face = edgeFace(side),
                 )
             }

@@ -127,4 +127,44 @@ class PolicyTest {
         assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.gios.lightauth"))
         assertEquals(ColorRule.Default, Policy.builtInColorRuleFor("com.example.whatever"))
     }
+    // ------------------------------------------------------- where the volume strip may be drawn
+
+    /**
+     * The order between the user's list and the built-in table, which is the whole of this rule.
+     *
+     * Four reports, against four different apps, all of them "the strip is over something that
+     * already has a volume control". The table can only ever know about Light's own screens, so
+     * the list has to be able to say the thing the table cannot — including about a screen the
+     * table has already made an exception for.
+     */
+    @Test
+    fun `an app on the user's list never gets a strip`() {
+        assertFalse(Policy.volumeHudAllowed("com.fenleon.audiobooks", setOf("com.fenleon.audiobooks"), inCall = false))
+        // And in a call, which is the case the table's own exception would otherwise win.
+        assertFalse(Policy.volumeHudAllowed("com.lightos.dialer", setOf("com.lightos.dialer"), inCall = true))
+    }
+
+    @Test
+    fun `Light's own screens are refused by the table, and the dialer only until a call`() {
+        assertFalse(Policy.volumeHudAllowed("com.lightos.dashboard", emptySet(), inCall = false))
+        assertFalse(Policy.volumeHudAllowed("com.thelightphone.notes", emptySet(), inCall = false))
+        // The exception the table exists to make: LightOS's dialer has no volume UI of its own and
+        // is in front for the whole call, so a call that is too quiet needs the strip.
+        assertTrue(Policy.volumeHudAllowed("com.lightos.dialer", emptySet(), inCall = true))
+    }
+
+    @Test
+    fun `everything else keeps the strip, including nothing known in front`() {
+        assertTrue(Policy.volumeHudAllowed("com.gios.brightmusic", emptySet(), inCall = false))
+        // Unlike the edge strips, an unknown package is allowed. Guessing wrong here costs one
+        // readout; guessing wrong there eats the edge of a screen nobody has identified.
+        assertTrue(Policy.volumeHudAllowed(null, emptySet(), inCall = false))
+    }
+
+    @Test
+    fun `the table is asked separately so the settings row can say ALWAYS OFF`() {
+        assertTrue(Policy.volumeHudRefusedByTable("com.lightos.dashboard"))
+        assertFalse(Policy.volumeHudRefusedByTable("com.gios.brightmusic"))
+    }
+
 }

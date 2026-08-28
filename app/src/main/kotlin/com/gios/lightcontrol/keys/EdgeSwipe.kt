@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -131,6 +132,21 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
 
     /** Whether the indicator is drawn at all, and what it says. Read at each stroke. */
     private var indicator = true
+
+    /** Whether crossing a threshold, and firing, are felt. Read at each stroke. */
+    private var haptics = true
+
+    /**
+     * The stage the last touch event left the gesture in.
+     *
+     * Held here rather than asked of [BackGesture], because what the buzz marks is the *crossing*
+     * of a threshold and a gesture only knows where it is now. Without this, every MOVE event past
+     * the trigger is an armed gesture and the strip would hum continuously for the length of the
+     * drag instead of ticking once as it arms. Reset with the stroke, so coming back under a
+     * threshold and crossing it again is felt again — that reversal is the whole point of the
+     * armed states being reversible, and it should be as legible with a thumb as it is on screen.
+     */
+    private var lastStage = BackStage.Idle
     private var face = EdgeFace("", EdgeGlyph.Mark, null, EdgeGlyph.Mark)
 
     private val hideHud = Runnable { detachHud() }
@@ -152,6 +168,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         longDp: Int,
         slopDp: Int,
         showIndicator: Boolean,
+        withHaptics: Boolean,
         face: EdgeFace,
     ) {
         if (!wanted) {
@@ -160,6 +177,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         }
         if (!allowed()) return
         indicator = showIndicator
+        haptics = withHaptics
         // Held rather than baked in, so a rebinding shows up on the next stroke without the window
         // being rebuilt. The thresholds below are the opposite: they are inside the gesture.
         this.face = face
@@ -183,6 +201,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         // case. Reset rather than dropped, because the same object is what the touch listener of a
         // window still being torn down would keep answering from.
         runCatching { gesture?.reset() }
+        lastStage = BackStage.Idle
         strip = null
         gesture = null
         stripShape = ""
@@ -276,6 +295,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 g.down(event.rawX, event.rawY)
+                lastStage = g.stage
                 showHud(g)
             }
             MotionEvent.ACTION_MOVE -> {
@@ -286,12 +306,31 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
                     } else {
                         showHud(g)
                     }
+                    // The tick goes on the transition, not the state: a threshold is crossed once
+                    // and felt once. Both directions, so disarming is as legible as arming — a
+                    // thumb that comes back under the line has changed what a release will do, and
+                    // that is the moment worth telling somebody about.
+                    //
+                    // Compared by what a release *would perform* rather than by the stage itself,
+                    // so Watching -> Cancelled is silent. That transition is a stroke being given
+                    // away as a scroll, and it happens to strokes that were never going to fire;
+                    // buzzing there would put a haptic on ordinary scrolling near the edge, which
+                    // is the one place these gestures must stay out of the way.
+                    if (g.stage != BackStage.Cancelled && g.stage.fires != lastStage.fires) {
+                        buzz(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                    lastStage = g.stage
                 }
             }
             MotionEvent.ACTION_UP -> {
                 val fires = g.up()
+                lastStage = BackStage.Idle
                 if (fires != null) {
                     val ok = runCatching { onFire?.invoke(fires) }.getOrNull() ?: false
+                    // Only when it was accepted. A refused action that buzzed anyway would be the
+                    // gesture claiming to have done something it did not do — and Back is refusable
+                    // by the app in front, so this is a real case and not a defensive one.
+                    if (ok) buzz(HapticFeedbackConstants.LONG_PRESS)
                     flashHud(fires, ok)
                 } else {
                     detachHud()
@@ -299,6 +338,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
             }
             MotionEvent.ACTION_CANCEL -> {
                 g.reset()
+                lastStage = BackStage.Idle
                 detachHud()
             }
         }
@@ -311,6 +351,26 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         runCatching { g.reset() }
         runCatching { detachHud() }
         true
+    }
+
+    /**
+     * One short haptic on the strip's own view.
+     *
+     * `performHapticFeedback` rather than a [android.os.Vibrator]: it goes through the platform's
+     * haptic settings, so the phone's own switch stays the outer one and this app never buzzes a
+     * phone that has been asked not to. It also means no VIBRATE permission and no amplitude
+     * guesswork — the constants are the same ones LightOS's own gestures use, which is the point,
+     * since the complaint was that these felt different from the rest of the phone. Both constants
+     * predate this app's minimum, so neither needs a version guard: CONFIRM would have read better
+     * for the fire than LONG_PRESS but arrived in API 30, and a guard around a buzz is not worth a
+     * branch that cannot be tested on the one phone this runs on.
+     *
+     * Wrapped, like everything else reached from the touch listener: a view detached between the
+     * event and this call must not be the thing that takes the service down.
+     */
+    private fun buzz(constant: Int) {
+        if (!haptics) return
+        runCatching { strip?.performHapticFeedback(constant) }
     }
 
     // ------------------------------------------------------------------ the indicator
