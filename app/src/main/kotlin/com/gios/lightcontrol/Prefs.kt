@@ -142,17 +142,59 @@ class Prefs(context: Context) {
 
     init {
         runCatching { migrateDoubleTaps() }
+        runCatching { dropVolumeGestures() }
+    }
+
+    /**
+     * Forget any hold or double tap ever stored on a volume key.
+     *
+     * [action] already refuses to read them, so this is tidiness rather than the fix — but a stored
+     * value that nothing will ever honour is a trap for the next person to add a code path that
+     * reads the store directly, and there is one of those in this file for every setting.
+     */
+    private fun dropVolumeGestures() {
+        val dead = listOf(Button.VolumeUp, Button.VolumeDown)
+            .flatMap { b -> listOf(Gesture.Hold, Gesture.DoubleTap).map { bindKey(b, it) } }
+            .filter { sp.contains(it) }
+        if (dead.isEmpty()) return
+        sp.edit().apply { dead.forEach { remove(it) } }.apply()
     }
 
     // ---------------------------------------------------------------- button bindings
 
-    fun action(button: Button, gesture: Gesture): Action =
-        Action.parse(sp.getString(bindKey(button, gesture), null))
+    fun action(button: Button, gesture: Gesture): Action {
+        // **The volume keys have a tap and nothing else.** Refused here rather than merely hidden
+        // in the UI, so a value stored by an older build cannot still be read back and acted on.
+        if (!bindable(button, gesture)) return Action.PassThrough
+        return Action.parse(sp.getString(bindKey(button, gesture), null))
             ?: Action.default(button, gesture)
+    }
 
     fun setAction(button: Button, gesture: Gesture, action: Action) {
+        if (!bindable(button, gesture)) return
         sp.edit().putString(bindKey(button, gesture), action.store()).apply()
     }
+
+    /**
+     * Whether this gesture may be bound on this button at all.
+     *
+     * Only the volume keys say no, and only to the hold and the double tap. Both of those have to
+     * be *timed*, and timing a gesture means keeping the press until it is over — on a key whose
+     * ordinary job is a repeating, system-owned function this app cannot reproduce, that means the
+     * volume stops changing while you wait to find out whether you were holding it.
+     *
+     * That is not a hypothetical. It is what happened: any binding on either volume key's hold or
+     * double tap made *every* press on that key vanish, because the press was consumed to time a
+     * gesture that mostly never came. The volume stopped moving and the strip reported the level
+     * that had not moved, which is what four releases were spent chasing.
+     *
+     * A hold on a volume key was never worth much anyway — holding one is how you change the volume
+     * quickly — so the honest fix is that the gesture does not exist here rather than that it is
+     * bound to nothing by default.
+     */
+    fun bindable(button: Button, gesture: Gesture): Boolean =
+        gesture == Gesture.Tap ||
+            (button != Button.VolumeUp && button != Button.VolumeDown)
 
     /**
      * The same two calls addressed by [BindSlot], so the picker does not have to know which kind of

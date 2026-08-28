@@ -2149,14 +2149,49 @@ class ControlService : AccessibilityService() {
         // Nothing bound. Don't touch the key at all — on the volume keys that would be
         // taking away volume control to add nothing.
         val dbl = prefs.action(button, Gesture.DoubleTap)
+
+        /**
+         * **The volume keys never lose a press to a gesture that has not happened.**
+         *
+         * Timing a hold means swallowing the DOWN, and a swallowed key cannot be handed back. That
+         * is a trade worth making on the home button, whose tap this service then owns and
+         * reproduces. It is not one to make on the volume keys, because their "tap" is a
+         * *repeating, system-owned* function that this service cannot reproduce and would not know
+         * when to stop.
+         *
+         * What that cost, until now: binding anything at all to one volume key's hold or double
+         * tap made *every* press on that key disappear — the tail of this method consumes whenever
+         * any of the three gestures is bound, so a hold on VOLUME_DOWN ate every VOLUME_DOWN,
+         * whatever its tap was set to. From the phone it read as the volume keys being dead, and it
+         * left the strip reporting a level that never moved on every press. Four releases were
+         * spent looking at the strip; the strip was telling the truth.
+         *
+         * So on these two keys the press is consumed only when the *tap* is bound to something
+         * that consumes. A hold still fires at its threshold, on top of the volume the system has
+         * been changing meanwhile — both happening is a far better failure than neither.
+         */
+        val volumeKey = button == Button.VolumeUp || button == Button.VolumeDown
+        val consumeGuard = Action.consumesPress(button, tap, hold, dbl)
         // Waiting is what the wheel always did and what home never did, and now it is a setting
         // on every button rather than two different pieces of code. See [Prefs.tapWaitsForDouble].
-        val waits = dbl.acts && prefs.tapWaitsForDouble(button)
+        // Never on the volume keys: waiting means holding the press back, and a volume press held
+        // back for a fifth of a second to see whether a second one is coming is a volume key that
+        // stutters.
+        val waits = dbl.acts && prefs.tapWaitsForDouble(button) && !volumeKey
         if (!tap.acts && !hold.acts && !dbl.acts) return false
+        if (volumeKey && !consumeGuard) {
+            // Said out loud, because a bound volume key that still works is the thing somebody
+            // will be looking for on the diagnostics screen after this release.
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                VolumeSignals.note("${button.name} is bound, and the press was passed on anyway")
+            }
+        }
 
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
-                if (event.repeatCount != 0) return tap.consumes || hold.consumes
+                if (event.repeatCount != 0) {
+                    return if (volumeKey) consumeGuard else tap.consumes || hold.consumes
+                }
                 presses[button] = Press(downAt = SystemClock.uptimeMillis())
                 // **The one hold that goes off in your hand.**
                 //
@@ -2192,7 +2227,9 @@ class ControlService : AccessibilityService() {
                 holdTimers.remove(button)?.let { handler.removeCallbacks(it) }
                 if (holdFired.remove(button)) {
                     presses.remove(button)
-                    return true
+                    // The hold has had the press. On a volume key the system has had it too, and
+                    // is entitled to the release.
+                    return if (volumeKey) consumeGuard else true
                 }
                 val press = presses.remove(button)
                 // A release whose press we never saw. On the home button that means the DOWN was
@@ -2226,14 +2263,16 @@ class ControlService : AccessibilityService() {
                 // Not waiting: the tap has already gone on the first release, and a second one
                 // inside the window puts the double on top of it. On home that is the switcher
                 // drawn over the home screen the first press landed on — see [doubleAfterTap].
-                if (!held && doubleAfterTap(button, dbl)) return true
+                if (!held && doubleAfterTap(button, dbl)) {
+                    return if (volumeKey) consumeGuard else true
+                }
                 val action = if (held) hold else tap
                 if (action.acts) act(button, action)
             }
         }
         // The camera button's first stage is swallowed alongside the second, so the app never
-        // sees half a press.
-        return tap.consumes || hold.consumes || dbl.consumes
+        // sees half a press. The volume keys are the exception, and [consumeGuard] says why.
+        return consumeGuard
     }
 
     /**

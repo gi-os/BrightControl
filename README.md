@@ -470,6 +470,13 @@ per package. So the shutter of a third-party camera is never dead, and "open the
 fires again from inside a camera that is already open. An explicit per-app rule of `OFF` still
 wins over this.
 
+**The volume keys have a tap and nothing else.** Everywhere else, timing a hold or a double tap
+means keeping the DOWN until the gesture is over, and a key kept for one gesture is kept for all
+three. On these two that is the volume not changing while the phone waits to find out what you
+meant — and holding a volume key is *how you change the volume quickly*, so there was nothing on
+the other side of the trade worth having. The hold and double-tap rows are gone from Buttons, and a
+value stored by an older build is refused on the way back out rather than merely hidden.
+
 The volume keys are bindable but pass through by default. They are the one pair that already
 works, so consuming them out of the box would take a function away to add one.
 
@@ -1065,6 +1072,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v3.96 | **The volume keys stopped working if anything was bound to them, and their hold and double tap are gone.** Timing a gesture means swallowing the press, and the button handler consumed whenever *any* of a button's three gestures was bound — so a hold on one volume key ate every press on that key, whatever its tap was set to. The volume stopped changing and the strip dutifully reported the level that had not moved, which is what four releases were spent chasing. These two keys now offer a tap and nothing else: holding a volume key is how you change the volume quickly, so there was nothing there worth the trade |
 | v3.95 | **A button that shows the strip on demand, and says why when it does not.** Four releases were spent guessing which of a dozen silent `return`s was stopping it; Volume → *If the strip is not appearing* now asks the service for one down the same path a key takes, and reports the outcome, whether the service is bound at all, and what is bound to the volume keys. The Volume screen itself is back to being settings |
 | v3.94 | **The bar is a slider.** Drag it and the volume goes there — in the strip and in every row of the panel, which now opens without the key-interception setting, because sliders consume nothing. A ringer row under the ring slider walks normal, vibrate and silent, which a slider cannot express and which had no gesture at all. And a pinned stream this app cannot move now gives the key back instead of swallowing the press and re-arming the pin, which is how the volume keys could stop working entirely |
 | v3.93 | **The strip is back, and the page-turn fix is a list.** Two releases tried to infer a swallowed key from whether the level moved; on this phone the level has already moved by the time an accessibility filter is asked about the key, so every press looked unmoved and the HUD never drew. Replaced with a per-app list, BrightLibrary in it by default. The Volume screen also names the reason the strip last declined to draw — it has nine, and from the phone they all look identical |

@@ -87,13 +87,26 @@ fun ButtonsScreen(
             Button.entries.forEach { button ->
                 SectionLabel(button.label.uppercase())
                 val double = prefs.action(button, Gesture.DoubleTap)
-                Gesture.entries.forEach { gesture ->
+                Gesture.entries.filter { prefs.bindable(button, it) }.forEach { gesture ->
                     val action = prefs.action(button, gesture)
                     MenuRow(
                         label = gesture.label,
                         detail = shortLabel(action),
                         sub = longLabel(context.packageManager, action),
                         onClick = { onPick(button, gesture) },
+                    )
+                }
+                // Said rather than silently absent: two rows that used to be here are gone, and a
+                // setting that vanishes without explanation is its own small bug report.
+                if (!prefs.bindable(button, Gesture.Hold)) {
+                    MenuRow(
+                        label = "Hold and double tap",
+                        detail = "\u2014",
+                        sub = "not offered on the volume keys. Timing either one means keeping the " +
+                            "press until it is over, and on these keys that is the volume not " +
+                            "changing while the phone waits to find out what you meant.",
+                        dim = true,
+                        subMaxLines = 4,
                     )
                 }
                 // Only asked where the answer matters. A button with no double tap bound never

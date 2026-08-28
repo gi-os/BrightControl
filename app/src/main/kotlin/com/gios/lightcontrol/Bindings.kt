@@ -441,6 +441,25 @@ sealed interface Action {
          * The volume keys pass through. They are the one pair that already works, and
          * consuming them by default would be taking away a function to add one.
          */
+        /**
+         * Whether a press on [button] may be swallowed, given what its three gestures are bound to.
+         *
+         * Everywhere but the volume keys the answer is "if any gesture consumes" — timing a hold
+         * means keeping the DOWN, and a key kept for one gesture is kept for all of them.
+         *
+         * **The volume keys answer only for the tap.** Their tap is a repeating, system-owned
+         * function this service cannot reproduce and would not know when to stop; keeping the press
+         * to time a hold takes volume control away to add a binding, which is the one trade this
+         * codebase refuses. Until v3.96 they answered like everything else, so a hold bound on one
+         * volume key made every press on that key vanish — the volume stopped changing, and the
+         * strip dutifully reported the level that had not moved, on every press.
+         */
+        fun consumesPress(button: Button, tap: Action, hold: Action, dbl: Action): Boolean =
+            when (button) {
+                Button.VolumeUp, Button.VolumeDown -> tap.consumes
+                else -> tap.consumes || hold.consumes || dbl.consumes
+            }
+
         fun default(button: Button, gesture: Gesture): Action = when {
             // The two double taps this phone already had, now written as bindings like anything
             // else. Every other button ships without one, which is what keeps its tap immediate:

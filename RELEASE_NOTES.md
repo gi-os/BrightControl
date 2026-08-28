@@ -1,43 +1,35 @@
-## BrightControl v3.95 — a button that shows the strip, and says why when it cannot
+## BrightControl v3.96 — the volume keys get their press back
 
-**If the volume strip is not appearing on your phone, this release answers it in one tap instead of
-in another release.**
+**This is why the volume was not changing, and why the strip kept showing a level that had not
+moved.**
 
-Four releases have now been spent guessing at that from the outside. The strip declines to draw for
-about a dozen reasons — the setting is off, the overlay grant is missing, the key service is not
-actually bound, the screen was off, the app in front has its own volume UI, the app in front is on
-the list that takes the volume keys, the stream reports no scale, the same level arrived twice, the
-panel was open, a finger is on a bar, the window would not attach — and every one of them is a bare
-`return` on a path with nothing on screen. From the phone they are identical: you press a key and
-nothing happens. Two of those guesses took the HUD off the screen entirely.
+Timing a hold means swallowing the press: the DOWN has to be kept until the release, or there is no
+way to tell a tap from a hold, and a key already handed to the system cannot be taken back. That is
+a fair trade on the home button or the wheel click, whose taps this service then owns and reproduces.
 
-**Volume → If the strip is not appearing** now has a button. It asks the service for a strip down
-exactly the path a volume key takes, with every gate left in place. Either one appears over the
-settings screen — in which case the strip works and the *trigger* is at fault — or the line under
-the button names the reason.
+The button handler consumed whenever **any** of a button's three gestures was bound. So binding
+anything to one volume key's hold or double tap made every press on that key disappear — whatever
+its tap was set to, and whether or not you ever held it. The volume stopped changing, and the strip,
+working perfectly, reported the level that had not moved on every single press.
 
-The same screen answers the two questions underneath that one:
+Four releases were spent looking at the strip. The strip was telling the truth.
 
-- **Is the key service actually bound?** Switched on in Android's settings is not the same as
-  running, and nothing here works until it is. The readout is a live callback the service installs,
-  so it cannot report a service that is not there.
-- **What is bound to the volume keys?** A volume key that stopped working is this app's fault more
-  often than not, and there was nowhere on the phone that said what was holding it. Every binding on
-  both keys, with one button to hand them all back.
+### The hold and double tap are gone from both volume keys
 
-Plus counts of presses seen, broadcasts received and strips actually drawn, which is how you tell a
-phone whose volume broadcast never arrives — where the read-back after a key is the whole feature.
+Not defaulted to nothing — **gone**. Holding a volume key is how you change the volume quickly, so
+there was never anything on the other side of that trade worth having, and a gesture that has to be
+timed cannot coexist with a key whose ordinary job is a repeating function this app cannot reproduce.
 
-### The Volume screen is settings again
+Buttons now shows one row for each volume key, and says why the other two are missing. A hold or
+double tap stored by an older build is refused when it is read back, not merely hidden, so an
+upgrade cannot leave one still acting.
 
-It had accumulated every diagnostic added over the last four releases, in a flat list, and read like
-a bug report. It is back to what it is for: the strip, the ringer, calls. Everything diagnostic moved
-behind the one row that names the problem you would be looking for.
+The rule is one function with tests on it, because it is exactly the kind of thing that regresses
+silently somewhere other than where it breaks.
 
-### Also
+### If yours is still not changing
 
-The flag that suspends the strip while a finger is on a slider is now a timestamp checked against
-the window, not a boolean. A touch that never delivers its release — the window taken away
-mid-gesture — would otherwise have left it set for ever, which is a HUD that stops appearing with
-nothing to say why. That is the third time that exact shape of bug has been possible in this file and
-the third one closed off.
+**Volume → If the strip is not appearing** names the cause directly. The *Volume keys* row reads
+`PASSED ON` when nothing is holding them, or lists what is bound with a button to hand them back.
+After this release only a binding on the *tap* can hold a volume key, and that one is an explicit
+choice to spend the press.
