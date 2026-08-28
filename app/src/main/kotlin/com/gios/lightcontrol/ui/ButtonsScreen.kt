@@ -106,7 +106,6 @@ fun ButtonsScreen(
                             "press until it is over, and on these keys that is the volume not " +
                             "changing while the phone waits to find out what you meant.",
                         dim = true,
-                        subMaxLines = 4,
                     )
                 }
                 // Only asked where the answer matters. A button with no double tap bound never

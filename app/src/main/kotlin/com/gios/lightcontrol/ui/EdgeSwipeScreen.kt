@@ -41,6 +41,7 @@ fun EdgeSwipeScreen(
     var trigger by remember { mutableIntStateOf(prefs.edgeTriggerDp) }
     var long by remember { mutableIntStateOf(prefs.edgeLongDp) }
     var hud by remember { mutableStateOf(prefs.edgeIndicator) }
+    var buzz by remember { mutableStateOf(prefs.edgeHaptics) }
     val excluded = prefs.edgeSwipeOffApps().size
     val either = left || right
 
@@ -215,6 +216,22 @@ fun EdgeSwipeScreen(
             onClick = {
                 hud = !hud
                 prefs.edgeIndicator = hud
+                OwnWindow.settingChanged()
+            },
+        )
+        MenuRow(
+            label = "Buzz as it arms",
+            detail = if (buzz) "ON" else "OFF",
+            sub = if (buzz) {
+                "a tick as the drag passes each threshold, and again when the gesture fires. " +
+                    "The same feel LightOS gives its own back gesture, which is the point — a " +
+                    "gesture on this phone that does not buzz reads as one that did not work."
+            } else {
+                "silent. The indicator still says which binding is armed, if it is on."
+            },
+            onClick = {
+                buzz = !buzz
+                prefs.edgeHaptics = buzz
                 OwnWindow.settingChanged()
             },
         )

@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -101,7 +100,6 @@ fun MenuRow(
     sub: String? = null,
     dim: Boolean = false,
     onClick: (() -> Unit)? = null,
-    subMaxLines: Int = 2,
 ) {
     // The wheel's highlight, when the wheel is driving this screen. Drawn as a bar and a shade
     // rather than as a border or a padding change: anything that alters the row's size makes the
@@ -123,20 +121,28 @@ fun MenuRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
+            // Neither of these is line-limited, and that is the fix rather than an oversight.
+            // Both used to be — two lines for the label, two for the sub unless a call site asked
+            // for more — with an ellipsis at the end, and the result was a settings list where the
+            // explanation of a setting stopped mid-sentence. It was reported as text "not wrapping
+            // correctly to fit the screen", which is exactly what a clipped wrap looks like from
+            // the outside: the words are there, the screen has room, and the app cuts them off.
+            //
+            // The limit was being raised one call site at a time — three here, four there, each
+            // one a guess at how tall a particular string renders on a 360dp screen — and every
+            // wording change quietly re-broke whichever rows the guess no longer fitted. A list
+            // that scrolls has no reason to ration lines. So the rows are as tall as their text,
+            // and a longer explanation costs scrolling instead of costing the end of the sentence.
             Text(
                 label,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (dim) Dim else Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
             if (sub != null) {
                 Text(
                     sub,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Dim,
-                    maxLines = subMaxLines,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -232,7 +238,6 @@ fun GrantRow(label: String, ok: Boolean, fix: String, sub: String? = null) {
         },
         dim = !ok,
         onClick = { showing = !showing },
-        subMaxLines = if (showing) 6 else 2,
     )
 }
 

@@ -186,6 +186,7 @@ fun BrightnessScreen(onBack: () -> Unit) {
 fun VolumeScreen(
     onWifiRinger: () -> Unit,
     onVolumeApps: () -> Unit,
+    onVolumeHudApps: () -> Unit,
     onDiagnostics: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -215,7 +216,6 @@ fun VolumeScreen(
                 "needs the overlay grant — see Setup"
             },
             dim = !canOverlay,
-            subMaxLines = 3,
             onClick = {
                 volumeHud = !volumeHud
                 prefs.showVolume = volumeHud
@@ -227,7 +227,6 @@ fun VolumeScreen(
             sub = "tapping a name in the panel hands the hardware volume keys to that stream for " +
                 "a few seconds. The only setting here that lets a volume key be consumed, which " +
                 "is why it is off. Sliders work either way.",
-            subMaxLines = 4,
             onClick = {
                 volumePin = !volumePin
                 prefs.volumePin = volumePin
@@ -238,8 +237,15 @@ fun VolumeScreen(
             detail = "${prefs.volumeKeyApps.size}",
             sub = "an app that turns pages with the volume keys is not changing the volume, so " +
                 "no strip while it is in front. BrightLibrary is listed already.",
-            subMaxLines = 3,
             onClick = onVolumeApps,
+        )
+        MenuRow(
+            label = "Apps the strip stays down for",
+            detail = if (prefs.volumeHudOffApps().isEmpty()) "NONE" else "${prefs.volumeHudOffApps().size}",
+            sub = "for apps that already show a volume control of their own. Nothing is drawn " +
+                "over these at all, whatever moved the level — the list above is the narrower " +
+                "one, for apps whose volume keys are not about volume.",
+            onClick = onVolumeHudApps,
         )
         Rule()
 
@@ -256,7 +262,6 @@ fun VolumeScreen(
             sub = "in the panel, under the ring slider. Three states of one switch, and the " +
                 "bottom of a slider is only the first of them.",
             dim = true,
-            subMaxLines = 3,
         )
         Rule()
 
@@ -271,7 +276,6 @@ fun VolumeScreen(
                 "the call speaker stays wherever it was last left, which on LightOS is a number " +
                     "nothing shows you."
             },
-            subMaxLines = 3,
             onClick = {
                 callBoost = !callBoost
                 prefs.callBoost = callBoost
@@ -282,7 +286,6 @@ fun VolumeScreen(
             sub = "its own screens have their own volume control — except during a call, where " +
                 "the dialer has none and the strip is the only feedback there is",
             dim = true,
-            subMaxLines = 3,
         )
         Rule()
 
@@ -358,7 +361,6 @@ fun VolumeDiagnosticsScreen(onBack: () -> Unit) {
             label = "Last time",
             sub = outcome ?: "nothing has asked for the strip yet",
             dim = true,
-            subMaxLines = 3,
         )
         Rule()
 
@@ -373,7 +375,6 @@ fun VolumeDiagnosticsScreen(onBack: () -> Unit) {
                     "until this says BOUND — see Setup & guide."
             },
             dim = serviceBound,
-            subMaxLines = 3,
         )
         GrantRow(
             label = "Overlay permission",
@@ -398,7 +399,6 @@ fun VolumeDiagnosticsScreen(onBack: () -> Unit) {
                     "each key."
             },
             dim = true,
-            subMaxLines = 4,
         )
         Rule()
 
@@ -417,7 +417,6 @@ fun VolumeDiagnosticsScreen(onBack: () -> Unit) {
                 } + ". That is why the keys are not changing the volume."
             },
             dim = keyBindings.isEmpty(),
-            subMaxLines = 5,
         )
         if (keyBindings.isNotEmpty()) {
             BigButton(

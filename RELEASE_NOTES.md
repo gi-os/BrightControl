@@ -1,35 +1,61 @@
-## BrightControl v3.96 — the volume keys get their press back
+## BrightControl v3.97 — the strip stays out of apps you name, and the edges buzz
 
-**This is why the volume was not changing, and why the strip kept showing a level that had not
-moved.**
+**Four separate reports about four different apps turned out to be one missing list.**
 
-Timing a hold means swallowing the press: the DOWN has to be kept until the release, or there is no
-way to tell a tap from a hold, and a key already handed to the system cannot be taken back. That is
-a fair trade on the home button or the wheel click, whose taps this service then owns and reproduces.
+The volume strip refuses to draw over Light's own screens, because those have a volume control of
+their own and a second one on top is the same number twice. That refusal is a table of package
+prefixes, and a table can only ever know about the software it was written for. It does not know
+that a sideloaded audiobook player draws its own slider, that BrightLibrary is doing something else
+with the keys entirely, or that one person simply does not want an overlay across the dialer while
+a call is running.
 
-The button handler consumed whenever **any** of a button's three gestures was bound. So binding
-anything to one volume key's hold or double tap made every press on that key disappear — whatever
-its tap was set to, and whether or not you ever held it. The volume stopped changing, and the strip,
-working perfectly, reported the level that had not moved on every single press.
+### Volume → Apps the strip stays down for
 
-Four releases were spent looking at the strip. The strip was telling the truth.
+A list you keep, empty out of the box. An app on it gets no strip at all — not from a key, not from
+the app's own slider, not from a headset button.
 
-### The hold and double tap are gone from both volume keys
+That last part is the difference from the list next to it. *Apps with their own volume keys* is
+about a press: it says this app's volume keys turn pages, so a press in it was never a volume
+change. It deliberately leaves the broadcast path alone, because an app that reads a key without
+consuming it really did move the volume. This new list is the blunt one, and it gates both paths.
+It is also checked **before** the built-in table, which is what makes the dialer reachable: the
+table hands the dialer a strip on purpose, since it is the one Light screen with no volume UI of
+its own and it is in front for the whole call, and until now there was no way to say no to that.
 
-Not defaulted to nothing — **gone**. Holding a volume key is how you change the volume quickly, so
-there was never anything on the other side of that trade worth having, and a gesture that has to be
-timed cannot coexist with a key whose ordinary job is a repeating function this app cannot reproduce.
+Light's own screens show ALWAYS OFF in the list rather than a switch that would do nothing —
+except that tapping one still works, for exactly the dialer case above. The two rules that decide
+where the strip may appear now sit together in one function with tests on it, instead of a hundred
+lines apart in the watcher with one of them written inline as a prefix test.
 
-Buttons now shows one row for each volume key, and says why the other two are missing. A hold or
-double tap stored by an older build is refused when it is read back, not merely hidden, so an
-upgrade cannot leave one still acting.
+Fixes [light-reports#74], [light-reports#117], [light-reports#135] and [light-reports#156] — the
+strip drawn over BrightLibrary, over the LightOS phone app, and over an audiobook player's own
+volume UI.
 
-The rule is one function with tests on it, because it is exactly the kind of thing that regresses
-silently somewhere other than where it breaks.
+### The edge gestures are felt, not just seen
 
-### If yours is still not changing
+A tick as the drag passes each threshold, and again when the gesture fires. LightOS buzzes its own
+back gesture, and a gesture on the same phone that does not buzz reads as a gesture that did not
+work — which is what was reported, twice.
 
-**Volume → If the strip is not appearing** names the cause directly. The *Volume keys* row reads
-`PASSED ON` when nothing is holding them, or lists what is bound with a button to hand them back.
-After this release only a binding on the *tap* can hold a volume key, and that one is an explicit
-choice to spend the press.
+It goes on the *crossing*, so a threshold is felt once rather than humming for the length of the
+drag, and it is felt in both directions: pulling back under a threshold changes what a release will
+do, and that is worth knowing without looking. A stroke given away as a scroll stays silent, and so
+does a gesture the app in front refuses, because a buzz there would be the phone claiming to have
+done something it did not do. **Edge gestures → Buzz as it arms** turns it off; the phone's own
+haptics switch still sits outside it.
+
+Fixes [light-reports#124] and [light-reports#133].
+
+### Settings rows are no longer cut off mid-sentence
+
+The explanation under a setting was limited to two lines with an ellipsis, and call sites had been
+raising that limit one at a time — three here, four there, each a guess at how tall a particular
+string renders on a 360dp screen. Every reworded sentence quietly re-broke whichever rows the guess
+no longer fitted. Reported as text "not wrapping correctly to fit the screen", which is what a
+clipped wrap looks like from the outside: the words are there, the screen has room, and the app
+cuts them off anyway.
+
+The limit is gone. A row is as tall as its text, and a longer explanation costs scrolling rather
+than the end of a sentence.
+
+Fixes [light-reports#130].

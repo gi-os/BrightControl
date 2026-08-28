@@ -11,6 +11,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.core.content.ContextCompat
+import com.gios.lightcontrol.Policy
 
 /**
  * Noticing that the volume changed, so [VolumeHud] has something to show.
@@ -43,6 +44,8 @@ class VolumeWatcher(
     private val pinningAllowed: () -> Boolean,
     /** Apps whose volume keys are their own. See [readAndShow]. */
     private val keyApps: () -> Set<String>,
+    /** Apps the strip is not drawn over at all. See [present]. */
+    private val hudOffApps: () -> Set<String>,
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
@@ -191,9 +194,11 @@ class VolumeWatcher(
     /**
      * Show one stream, reading whatever the broadcast didn't say.
      *
-     * Nothing is shown while LightOS is in front. Its dashboard and lock screen have a volume
-     * control of their own, and putting a second one over the top of it would be this app's oldest
-     * mistake in a new place: on Light's own screens, anything added is something duplicated.
+     * Where the strip may appear is [Policy.volumeHudAllowed]'s question, not this one's. Both
+     * paths into the watcher end here, which is why the check is here and not at either entrance:
+     * a rule about *where* that only covered the key path is a rule an app's own slider walks
+     * straight through, and that is exactly how the strip kept appearing over apps that draw their
+     * own volume UI.
      */
     private fun present(stream: Int, note: String?, valueFromBroadcast: Int, force: Boolean = false) {
         if (!wanted()) {
@@ -209,18 +214,21 @@ class VolumeWatcher(
         }
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         val app = front()
-        // The one exception to "not over LightOS", and it is the case the rule was never about.
-        // LightOS's dashboard and lock screen have a volume control of their own; **its dialer has
-        // none**, and the dialer is in front for the whole of a call. So a call whose speaker is
-        // too quiet was a phone where the keys moved a number nothing on the screen would show —
-        // which reads as the keys doing nothing at all.
-        val callUp = inCall(audio)
-        if (app != null && (app.startsWith(LIGHTOS) || app.startsWith(LIGHT_SDK)) && !callUp) {
-            // And a pin cannot outlive the screen it was made on, or the keys would still be being
-            // taken over on a screen showing LightOS's own slider.
+        // Both rules about *where*, asked in one place. The order between them is the behavior —
+        // the user's list is checked ahead of the table and ahead of the call exception — so it
+        // lives in Policy with the rest of the per-app decisions and is exercised by PolicyTest.
+        val offApps = runCatching { hudOffApps() }.getOrDefault(emptySet())
+        if (!Policy.volumeHudAllowed(app, offApps, inCall(audio))) {
+            // A pin cannot outlive the screen it was made on, or the keys would still be being
+            // taken over on a screen this app has just agreed to stay off.
             clearPin()
             hud.dismiss()
-            VolumeSignals.note("not drawn over $app, which has its own")
+            val why = if (app != null && app in offApps) {
+                "$app is on the list of apps the strip stays down for"
+            } else {
+                "not drawn over $app, which has its own"
+            }
+            VolumeSignals.note(why)
             return
         }
         val max = runCatching { audio.getStreamMaxVolume(stream) }.getOrDefault(0)
@@ -533,15 +541,6 @@ class VolumeWatcher(
 
         /** How long a tapped stream keeps the keys. Refreshed by every press that uses it. */
         const val PIN_MS = 4_000L
-
-        /** LightOS's own screens, which have their own volume control. */
-        const val LIGHTOS = "com.lightos"
-
-        /**
-         * The light-sdk namespace. From LightOS v572 these draw their own volume overlay too —
-         * LightOS added its volume UI to SDK apps — so a HUD over the top of one is two overlays.
-         */
-        const val LIGHT_SDK = "com.thelightphone."
 
         /**
          * The streams the selector offers, in the order they are worth reaching for. Media first

@@ -683,6 +683,34 @@ class Prefs(context: Context) {
         return added
     }
 
+    /**
+     * Apps the strip is not drawn over at all.
+     *
+     * A second list, and deliberately not the same one as [volumeKeyApps], because the two answer
+     * different questions and an app can be in either without being in the other. That list says
+     * *this press was not a volume change* — it suppresses the key path only, and the broadcast
+     * path is left alone on purpose, because an app that consumes a key produces no broadcast and
+     * one that merely reads it really did move the volume. This list says something blunter:
+     * **not here, whatever moved it.** It gates both paths.
+     *
+     * It exists because "does this app already show its own volume UI" is another question with no
+     * API behind it. The built-in table knows about LightOS and the SDK tools, which is where the
+     * problem was first found; it cannot know about a sideloaded audiobook player that draws its
+     * own slider, or that a particular person does not want a strip over the dialer during a call.
+     * Reported four separate times against four different apps — light-reports#74, #117, #135 and
+     * #156 — which is the shape of a rule that has to be the user's rather than a table's.
+     *
+     * Empty out of the box. Everything the table already handles keeps working with this untouched.
+     */
+    fun volumeHudOffApps(): Set<String> =
+        sp.getStringSet(VOLUME_HUD_OFF_APPS, emptySet()) ?: emptySet()
+
+    fun toggleVolumeHudOff(pkg: String) {
+        val next = volumeHudOffApps().toMutableSet()
+        if (!next.add(pkg)) next.remove(pkg)
+        sp.edit().putStringSet(VOLUME_HUD_OFF_APPS, next).apply()
+    }
+
     // ------------------------------------------------------------- the ringer, by network
 
     /**
@@ -1269,6 +1297,22 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("back_swipe_hud", v).apply()
 
     /**
+     * Whether crossing a threshold, and firing, are felt as well as seen.
+     *
+     * On. LightOS's own back gesture buzzes when it arms, and a gesture on the same screen that
+     * does not is read as the gesture not having worked — reported twice, as "no haptic feedback
+     * when using gesture navigation" and as an inconsistency with the rest of the phone
+     * (light-reports#124, #133). A setting rather than a constant because a phone kept in a
+     * pocket-quiet state is a real preference, and because the indicator has one.
+     *
+     * The buzz goes through `View.performHapticFeedback`, so the phone's own haptics switch is
+     * still the outer one: off there means nothing here, whatever this says.
+     */
+    var edgeHaptics: Boolean
+        get() = sp.getBoolean("back_swipe_haptics", true)
+        set(v) = sp.edit().putBoolean("back_swipe_haptics", v).apply()
+
+    /**
      * Packages both strips stay down for.
      *
      * An exclusion list rather than an inclusion one, because the gestures are meant to be a
@@ -1496,6 +1540,7 @@ class Prefs(context: Context) {
 
         const val HOTSPOT_SSID = "hotspotSsid"
         const val VOLUME_KEY_APPS = "volumeKeyApps"
+        const val VOLUME_HUD_OFF_APPS = "volume_hud_off_apps"
 
         /** BrightLibrary turns pages with the volume keys. See [volumeKeyApps]. */
         val DEFAULT_VOLUME_KEY_APPS = setOf("com.lightfastread")
@@ -1955,6 +2000,48 @@ object Policy {
      */
     fun edgeSwipeRefusedByTable(pkg: String): Boolean =
         edgeRefusedPrefixes.any { pkg.startsWith(it) }
+
+    /**
+     * Whether the volume strip may be drawn while [pkg] is in front.
+     *
+     * The two rules that decide this used to sit inside the watcher, a hundred lines apart, and
+     * the second of them was a package-prefix test written inline. They are here together because
+     * the *order* between them is the whole answer, and an order cannot be reviewed when its two
+     * halves are in different methods.
+     *
+     *  - **The user's list wins, and wins first.** [Prefs.volumeHudOffApps] is checked before the
+     *    table and before the call exception, so an app on it never gets a strip — including
+     *    LightOS's dialer, which the table would otherwise hand one to for the length of a call.
+     *    That case is the report: someone who does not want a second volume overlay during a call
+     *    had no way to say so.
+     *  - **The table refuses Light's own screens**, which draw a volume UI of their own, so a
+     *    strip over one is two overlays saying the same number.
+     *  - **Except in a call**, because LightOS's dialer is the one Light screen with no volume UI
+     *    at all, and it is in front for the whole call. Without this a call that is too quiet is a
+     *    phone where the keys move a number nothing will show.
+     *
+     * A null package — nothing known in front, for the moment after the service binds — is allowed
+     * the strip. The opposite of the edge strips, and for the opposite reason: guessing wrong here
+     * hides a readout for one press, where guessing wrong there eats the edge of the screen.
+     */
+    fun volumeHudAllowed(pkg: String?, offApps: Set<String>, inCall: Boolean): Boolean {
+        val p = pkg ?: return true
+        if (p in offApps) return false
+        if (inCall) return true
+        return !volumeHudRefusedByTable(p)
+    }
+
+    /** Whether the built-in table refuses [pkg] the strip. Split out for the settings list. */
+    fun volumeHudRefusedByTable(pkg: String): Boolean =
+        volumeHudRefusedPrefixes.any { pkg.startsWith(it) }
+
+    /**
+     * Light's own software, which draws its own volume UI.
+     *
+     * `com.lightos` is the shell — dashboard and lock screen. The light-sdk namespace joined it at
+     * LightOS v572, when Light gave SDK tools the same overlay.
+     */
+    private val volumeHudRefusedPrefixes = listOf("com.lightos", "com.thelightphone.")
 
     fun behaviorFor(prefs: Prefs, pkg: String?): Behavior {
         // LightOS's lock screen and dashboard are one activity, so they are one decision.
