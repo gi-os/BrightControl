@@ -207,21 +207,26 @@ offering, never worth ranking by recency — so it sits below the list behind a 
 app it goes to is taken out of the rows above it. A launcher that appears twice, once as itself and
 once as Home, is the list saying two different things about one press.
 
-**Which app that is: the tap binding first, then the launcher you installed.** A home tap bound to
-a package wins outright — point **Buttons → Home button → Tap** at your launcher and the row follows
-it exactly, and so does the button. Otherwise the shipped tap is a plain `CATEGORY_HOME` intent, and
-that reaches whoever holds the HOME role, which on this phone is **always LightOS** — it has to be,
-or LightOS crash-loops. So when the role holder is LightOS and there is exactly one other launcher
-installed, the row goes there instead. Nobody sideloads a second launcher onto a Light Phone III by
-accident, and the role carries no information here. Two other launchers is a question this cannot
-answer and it falls back to the system's home rather than guessing.
+**You pick which app it opens.** **Buttons → Home button → Home app** is a list; tap one and that is
+the whole rule. Two releases were spent trying to work it out from the phone instead — first from
+the home button's tap binding, then from "the one launcher that is not LightOS" — and both were
+rules with fallbacks in them that handed somebody the wrong app. There is no signal here worth
+deducing from: **LightOS holds the HOME role on every one of these phones**, because it has to or it
+crash-loops, so it says nothing about the launcher you use.
 
-**Buttons → Home button → Home is pinned** names the app it resolved to, rather than saying only ON.
-The rule has a fallback in it, and where Home actually goes is the one fact worth having on the
-screen. It is in the log line the switcher writes, too.
+The list is `CATEGORY_HOME` and `CATEGORY_LAUNCHER` unioned, launchers first. A launcher publishes
+the first and need not publish the second at all — the same trap `Recents.openable` works around —
+and a picker built the usual way would have left Luma off the one screen whose job is choosing a
+launcher. Picking LightOS gets LightOS's own action rather than a launch, so arriving there is still
+a *visit*.
 
-A tap bound to something that is not a home at all — back, the switcher, the torch — leaves the row
-on the same answer, because its promise is that this list always has a way out of it.
+Unset means the system's home, which is what a plain home intent does. A choice pointing at an app
+that has since been uninstalled falls back the same way, so an uninstall cannot leave a dead row
+pinned to the bottom of the list. **Home app** names whatever it resolved to, and so does the log
+line the switcher writes.
+
+**Buttons → Home button → Show Home** hides the row. Off, and your launcher is listed by its own
+name and icon like any other app.
 
 Off under **Buttons → Home button → Home is pinned**. The switcher only: the bindings picker still
 names packages, because a picker that renames its own options is a picker you cannot search.
@@ -1087,6 +1092,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.0 | **Pick the Home app, rather than the phone guessing it.** Two releases tried to deduce which app the switcher's Home row opens — v3.97 from the home button's tap binding, v3.98 from "the one launcher that is not LightOS" — and both handed somebody the wrong app, because LightOS holds the home role here whether you use it or not. It is a list now: **Buttons → Home button → Home app**, launchers first, including the ones that publish no launcher icon and so appear in no other picker. **Show Home** hides the row. An uninstalled choice falls back to the system's home rather than leaving a dead row |
 | v3.99 | **Home in the switcher stops resolving to LightOS.** v3.97 read the pinned row from the home button's tap binding, which is faithful and useless: the shipped tap is a `CATEGORY_HOME` intent and LightOS holds that role on every one of these phones — it has to, or it crash-loops — so Home went to LightOS for everybody using Luma. A tap bound to a package still wins outright; otherwise, when the role holder is LightOS and exactly one other launcher is installed, the row goes to that launcher. **Home is pinned** now names the app it resolved to instead of saying only ON |
 | v3.98 | **The volume strip can be told to stay out of an app, and the edge gestures buzz.** Four reports said the same thing about four different apps: a strip drawn over something that already shows its own volume control. The built-in table only knows Light's own screens, so *Volume → Apps the strip stays down for* is a list you keep — it gates both the key path and the broadcast path, and it beats the table, so the dialer during a call can be silenced too. Edge gestures now tick as each threshold arms and again when one fires, matching LightOS's own back gesture, with a switch. And rows in settings are no longer clipped at two lines: the explanation under a setting wraps as far as it needs to. The report sheet's note field no longer hides under the keyboard as you type |
 | v3.97 | **Home is pinned to the bottom of the switcher, and is not an app in it.** Every other row in the switcher is somewhere you were; Home is where you go to leave wherever you were, so it now sits under its own heading with the drawn house, always present and taken out of the recents above it. Home is read off the Home button's *tap* binding rather than by matching a launcher package, which is why binding the tap to Luma stops Luma being listed as an app — it stopped being one the moment it became the destination of the button |

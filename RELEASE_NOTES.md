@@ -1,37 +1,36 @@
-## BrightControl v3.99 — Home in the switcher stops resolving to LightOS
+## BrightControl v4.0 — pick the Home app, rather than the phone guessing it
 
-**v3.97 pinned Home to the bottom of the switcher and then sent it to the wrong place.** The row read
-its destination from the home button's tap binding, on the reasoning that home is whatever a single
-press reaches. That is true, and it was not enough.
+**Two releases were spent trying to work out which app the switcher's Home row should open. Both got
+it wrong for somebody.** v3.97 read it off the home button's tap binding; v3.98 added a rule on top —
+if the role holder is LightOS and exactly one other launcher is installed, use that one. Each was
+defensible and each was a fallback nobody could see the output of.
 
-The shipped tap is a plain `CATEGORY_HOME` intent, and that reaches whoever holds the HOME role.
-**On this phone the HOME role is always LightOS** — it has to be, or LightOS crash-loops. So for
-everybody who had not deliberately re-bound their home button, which is everybody, Home resolved to
-LightOS. Faithful to the binding, and useless if the launcher you actually use is Luma.
+There was never a signal here worth deducing from. **LightOS holds the HOME role on every one of
+these phones**, because it has to or it crash-loops, so the role says nothing at all about the
+launcher you actually use.
 
-### The launcher you installed is the better signal
+### It is a list
 
-A tap bound to a package still wins outright, and so does one bound to LightOS. Nothing changes for
-anyone who has already answered this question with a binding.
+**Buttons → Home button → Home app.** Tap the app you want. That is the whole rule, and the row on
+the Buttons screen names whatever it resolved to, so where Home goes is never something you find out
+by opening the switcher.
 
-Otherwise: when the role holder is LightOS and there is **exactly one** other launcher installed,
-the row goes to that launcher — and by launching it, not by firing a home intent that would go
-straight back to the role holder. Nobody sideloads a second launcher onto a Light Phone III by
-accident, and on this phone the role carries almost no information.
+The list is launchers first, and it is built from `CATEGORY_HOME` **and** `CATEGORY_LAUNCHER`
+together — a launcher publishes the first and need not publish the second at all, which is why Luma
+appears in no other app picker in this app. On the one screen whose job is choosing a launcher, that
+had to be fixed rather than worked around.
 
-Two other launchers is a question this cannot answer. It falls back to the system's home rather than
-guessing between them, and binding the tap is the way out — that is the only answer that cannot be
-wrong about which launcher a person means.
+Picking LightOS gets LightOS's own action rather than a plain launch, so arriving there is still a
+*visit*: the state where the home button belongs to LightOS while you walk through its menu.
 
-### The setting says where Home is going
+### Show Home
 
-**Buttons → Home button → Home is pinned** names the app it resolved to instead of reading ON. A
-rule with a fallback in it should not leave "where does this actually go" as something you find out
-by opening the switcher — v3.97 shipped resolving to LightOS for nearly everybody, and nothing
-anywhere said so. The switcher's log line carries the same answer.
+**Buttons → Home button → Show Home** is the toggle. Off, and there is no pinned row — your launcher
+is listed by its own name and icon like any other app. On is the default.
 
-### If you want the button to agree with the row
+### Smaller things
 
-Point **Buttons → Home button → Tap** at your launcher. The row follows a named binding exactly, and
-so does the press — which is the configuration where home means one thing rather than two. Holding
-home still reaches LightOS's dashboard, as it always has.
+- **Unset means the system's home**, which is what a plain home intent does. Honest, and one screen
+  away from being changed.
+- **An uninstalled choice falls back** to the system's home. The setting keeps your answer, because
+  a package can go away after you pick it, but the row will not sit there opening nothing.

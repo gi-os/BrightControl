@@ -2,15 +2,16 @@ package com.gios.lightcontrol
 
 import com.gios.lightcontrol.switcher.HomeApp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Where the switcher's pinned Home row goes.
+ * Which app the switcher's pinned Home row opens.
  *
- * The rule is small and the cost of getting it wrong is not: this same answer decides which package
- * disappears from the recents list, so a wrong one here removes the wrong app *and* sends Home
- * somewhere nobody asked for. v3.97 shipped a version of it that resolved to LightOS for everybody
- * who had not re-bound their home button, which is the case these tests exist to pin down.
+ * The rule is a stored choice now, and these tests are mostly here to keep it one. Two releases
+ * were spent deducing this instead — v3.97 from the home button's tap binding, v3.98 from "the one
+ * launcher that is not LightOS" — and both gave somebody the wrong app, silently, because the
+ * answer also decides which package disappears from the recents.
  */
 class SwitcherHomeRowTest {
 
@@ -18,75 +19,53 @@ class SwitcherHomeRowTest {
     private val LUMA = "app.luma"
 
     @Test
-    fun `a launcher bound to the tap wins outright`() {
-        // The user has answered the question already. Nothing looks any further.
-        val t = HomeApp.pick(Action.Launch(LUMA), LIGHTOS, listOf("app.other"))
+    fun `the chosen app is the answer`() {
+        val t = HomeApp.pick(LUMA, chosenInstalled = true, systemHome = LIGHTOS)
         assertEquals(LUMA, t.pkg)
         assertEquals(Action.Launch(LUMA), t.action)
     }
 
     @Test
-    fun `LightOS stays LightOS`() {
-        // Not folded into DefaultHome. Arriving by this action is what makes LightOS a visit
-        // rather than a landing, which is what hands the home button back while you are there.
-        val t = HomeApp.pick(Action.LightOsHome, LIGHTOS, listOf(LUMA))
+    fun `nothing chosen means the system's home`() {
+        for (empty in listOf("", null)) {
+            val t = HomeApp.pick(empty, chosenInstalled = false, systemHome = LIGHTOS)
+            assertEquals(LIGHTOS, t.pkg)
+            assertEquals(Action.DefaultHome, t.action)
+        }
+    }
+
+    @Test
+    fun `an uninstalled choice falls back rather than opening nothing`() {
+        // The setting keeps the package -- it is not validated on write, because an app can go
+        // away after it is picked. So the row has to answer for that here, or an uninstall leaves
+        // a dead entry pinned to the bottom of the switcher.
+        val t = HomeApp.pick(LUMA, chosenInstalled = false, systemHome = LIGHTOS)
+        assertEquals(LIGHTOS, t.pkg)
+        assertEquals(Action.DefaultHome, t.action)
+    }
+
+    @Test
+    fun `picking LightOS gets LightOS's own action`() {
+        // Not a launch. Arriving by LightOsHome is what makes it a *visit* -- the state where the
+        // home button belongs to LightOS so you can walk through its menu.
+        val t = HomeApp.pick(LIGHTOS, chosenInstalled = true, systemHome = LIGHTOS)
         assertEquals(LIGHTOS, t.pkg)
         assertEquals(Action.LightOsHome, t.action)
     }
 
     @Test
-    fun `the role holding LightOS is not an answer when another launcher is installed`() {
-        // The bug. The shipped tap is DefaultHome and LightOS holds the HOME role on every one of
-        // these phones -- it has to, or it crash-loops -- so following the role sent Home to
-        // LightOS for everybody using Luma. Launch, not DefaultHome: a CATEGORY_HOME intent would
-        // go straight back to the role holder.
-        val t = HomeApp.pick(Action.DefaultHome, LIGHTOS, listOf(LUMA))
-        assertEquals(LUMA, t.pkg)
-        assertEquals(Action.Launch(LUMA), t.action)
-    }
-
-    @Test
-    fun `a real default launcher is followed rather than named`() {
-        // If the role holder is your launcher, DefaultHome already reaches it, and following the
-        // system beats pinning a package -- change the default and the row changes with it.
-        val t = HomeApp.pick(Action.DefaultHome, LUMA, listOf(LUMA))
-        assertEquals(LUMA, t.pkg)
-        assertEquals(Action.DefaultHome, t.action)
-    }
-
-    @Test
-    fun `two launchers is a question this cannot answer`() {
-        // Falls back rather than guessing between them. Binding the tap is the way out, and it is
-        // the only one that cannot be wrong about which launcher a person means.
-        val t = HomeApp.pick(Action.DefaultHome, LIGHTOS, listOf(LUMA, "app.other"))
-        assertEquals(LIGHTOS, t.pkg)
-        assertEquals(Action.DefaultHome, t.action)
-    }
-
-    @Test
-    fun `no other launcher leaves the system home alone`() {
-        val t = HomeApp.pick(Action.DefaultHome, LIGHTOS, emptyList())
-        assertEquals(LIGHTOS, t.pkg)
-        assertEquals(Action.DefaultHome, t.action)
-    }
-
-    @Test
     fun `the resolver activity is not an app anybody meant`() {
-        // "android" is the framework's disambiguation screen, which appears when there is no
-        // default. Treated as no answer, so the launcher beside it is still found.
-        val t = HomeApp.pick(Action.DefaultHome, "android", listOf(LUMA))
-        assertEquals(LUMA, t.pkg)
-        assertEquals(Action.Launch(LUMA), t.action)
+        // "android" is the framework's disambiguation screen, shown when there is no default. It
+        // is not something to hide from the recents or open an App info page for.
+        assertNull(HomeApp.pick("", chosenInstalled = false, systemHome = "android").pkg)
+        assertNull(HomeApp.pick("", chosenInstalled = false, systemHome = null).pkg)
+        assertNull(HomeApp.pick("", chosenInstalled = false, systemHome = "  ").pkg)
     }
 
     @Test
-    fun `a tap that is not a home at all still gets a way out`() {
-        // The pinned row's promise is that the list always has an exit. It is not a second copy of
-        // whatever the home button happens to be doing. Resume is the near miss: it goes home only
-        // when there is nothing to resume, so it names no destination this row could promise.
-        for (tap in listOf(Action.Back, Action.Torch, Action.Switcher, Action.PassThrough, Action.Resume, null)) {
-            assertEquals(Action.Launch(LUMA), HomeApp.pick(tap, LIGHTOS, listOf(LUMA)).action)
-            assertEquals(Action.DefaultHome, HomeApp.pick(tap, LIGHTOS, emptyList()).action)
-        }
+    fun `a home with no package still acts`() {
+        // pkg null costs the row its App info hold and hides nothing from the recents. It must
+        // still open something: a pinned row that does nothing is worse than no pinned row.
+        assertEquals(Action.DefaultHome, HomeApp.pick(null, false, null).action)
     }
 }

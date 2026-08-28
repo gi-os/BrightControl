@@ -45,6 +45,7 @@ import com.gios.lightcontrol.ui.theme.Dim
 fun ButtonsScreen(
     onPick: (Button, Gesture) -> Unit,
     onResumeApps: () -> Unit,
+    onHomeApp: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -62,10 +63,9 @@ fun ButtonsScreen(
         Button.entries.any { b -> Gesture.entries.any { prefs.action(b, it) == Action.Resume } }
     var stepMs by remember { mutableLongStateOf(prefs.switcherStepMs) }
     var homeRow by remember { mutableStateOf(prefs.switcherHomeRow) }
-    // Read on every composition rather than remembered: it depends on the tap binding, which is
-    // changed on the picker screen this one is recomposed on the way back from. A remembered answer
-    // would be the one from before the change, which on this particular row is the whole bug -- the
-    // setting exists to say where Home is going.
+    // Read on every composition rather than remembered: it is set on another screen, and this one
+    // is recomposed on the way back from it. A remembered answer would be the one from before the
+    // change, which on this particular row is the whole point -- it exists to say where Home goes.
     val homeGoesTo = if (homeRow) {
         runCatching { HomeApp.label(prefs, context.packageManager) { appName(context, it) } }
             .getOrDefault("the system's home")
@@ -155,16 +155,14 @@ fun ButtonsScreen(
                             },
                         )
                         MenuRow(
-                            label = "Home is pinned",
-                            detail = if (homeRow) homeGoesTo.uppercase() else "OFF",
+                            label = "Show Home",
+                            detail = if (homeRow) "ON" else "OFF",
                             sub = if (homeRow) {
-                                "Home sits at the bottom of the switcher, always, with a drawn " +
-                                    "house — and $homeGoesTo is left out of the recents above " +
-                                    "it. It follows the tap binding when that names an app, and " +
-                                    "otherwise finds the launcher you installed: the HOME role " +
-                                    "is always LightOS on this phone whether you use it or not."
+                                "a Home row at the bottom of the switcher, always, with a drawn " +
+                                    "house — and the app it opens is left out of the recents " +
+                                    "above it."
                             } else {
-                                "off, so there is no pinned row and your launcher is listed by " +
+                                "off, so there is no Home row and your launcher is listed by " +
                                     "its own name and icon like any other app. The switcher " +
                                     "only — nothing else in here renames it."
                             },
@@ -173,6 +171,18 @@ fun ButtonsScreen(
                                 prefs.switcherHomeRow = homeRow
                             },
                         )
+                        // Only when there is a row to point somewhere. A destination for a row
+                        // that is switched off is a setting with nothing behind it.
+                        if (homeRow) {
+                            MenuRow(
+                                label = "Home app",
+                                detail = homeGoesTo.uppercase(),
+                                sub = "what that row opens. Pick it — this used to be worked out " +
+                                    "from the phone and got it wrong twice, because LightOS " +
+                                    "holds the home role here whether you use it or not.",
+                                onClick = onHomeApp,
+                            )
+                        }
                     }
                     MenuRow(
                         label = "Timing the hold takes the key",

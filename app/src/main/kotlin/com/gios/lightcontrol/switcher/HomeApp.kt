@@ -3,96 +3,79 @@ package com.gios.lightcontrol.switcher
 import android.content.Intent
 import android.content.pm.PackageManager
 import com.gios.lightcontrol.Action
-import com.gios.lightcontrol.Button
-import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
 
 /**
- * Where home goes, and why it is not a row like the others.
+ * Which app the switcher's pinned **Home** row opens.
  *
  * Every other row in the switcher is somewhere you *were*. Home is where you go to leave wherever
- * you were, which makes it the one entry that is always worth offering and never worth ranking by
- * recency — so it is pinned to the bottom of the list, drawn as **Home** with a house, and taken
- * out of the recents above it. A launcher that appears twice, once as itself and once as Home, is
- * the list telling you two different things about one press.
+ * you were, which makes it the one entry always worth offering and never worth ranking by recency —
+ * so it is pinned to the bottom, drawn as Home with a house, and taken out of the recents above it.
  *
- * ### The HOME role is not an answer on this phone
+ * ### It is a choice, not a deduction
  *
- * v3.97 resolved this from the [Button.Home] [Gesture.Tap] binding, on the reasoning that home is
- * whatever a single press reaches. That is true and it was not enough. The shipped tap is
- * [Action.DefaultHome], which fires a `CATEGORY_HOME` intent, and **LightOS holds that role on
- * every one of these phones** — it has to, or it crash-loops. So the row resolved to LightOS for
- * anybody who had not deliberately re-bound their home button, including everyone using Luma.
- * Faithful to the binding, and useless.
+ * Two releases were spent trying to work this out from the phone. v3.97 read it off the home
+ * button's tap binding, which is faithful and useless: the shipped tap fires a `CATEGORY_HOME`
+ * intent, and **LightOS holds that role on every one of these phones** — it has to, or it
+ * crash-loops — so Home resolved to LightOS for everybody using Luma. v3.98 added a rule on top:
+ * if the role holder is LightOS and exactly one other launcher is installed, use that one instead.
+ * It gave the right answer on most phones and it was three rules deep, with a fallback nobody could
+ * see the output of.
  *
- * So when the tap names nothing of its own and the system's answer is LightOS, this looks for a
- * launcher that is not LightOS and uses that instead. The signal is stronger than it sounds: on
- * this phone the HOME role carries almost no information, and nobody sideloads a second launcher
- * onto a Light Phone III by accident. **Exactly one** — two installed launchers is a question this
- * cannot answer, and it falls back to the system's home rather than guessing between them.
+ * So it is a setting. **Buttons → Home button → Home app** is a list, you pick the app, and that is
+ * the whole rule. Unset means the system's home, which is the honest default: it is what a home
+ * intent does, and anybody it is wrong for is one screen away from saying so.
  *
- * ### The binding is still the override
- *
- * A tap bound to a package wins outright, and so does one bound to LightOS. Point **Buttons → Home
- * button → Tap** at your launcher and the row follows it exactly — and so does the button, which is
- * the configuration where the two finally agree.
- *
- * A tap bound to something that is not a home at all — Back, the switcher, the torch — still lands
- * on [Action.DefaultHome] or on the launcher found beside it. The pinned row's promise is that
- * there is always a way out of the list; it is not a second copy of whatever the button is doing.
+ * The one thing still decided here is that a choice pointing at an app that is no longer installed
+ * falls back rather than opening nothing — an uninstall must not leave a dead row at the bottom of
+ * the switcher.
  */
 object HomeApp {
 
-    /** LightOS's dashboard. Named, not resolved — see the class note. */
+    /** LightOS's dashboard. Named, not resolved. */
     const val LIGHTOS = "com.lightos"
 
     /** The framework's disambiguation activity, which is not an app anybody meant. */
     private const val RESOLVER = "android"
 
+    /** Stored to mean "no app chosen — follow the system's home". */
+    const val SYSTEM = ""
+
     /**
      * The pinned row: what it does, and which package it lands on.
      *
      * [pkg] is null only when nothing could be resolved, which costs the row its App info hold and
-     * nothing else. It is the package taken *out* of the recents list, so a null here means the
-     * list is left exactly as it was — the honest answer when we do not know where home is.
+     * nothing else. It is also the package taken *out* of the recents list, so a null there leaves
+     * the list exactly as it was — the honest answer when we do not know where home is.
      */
     data class Target(val pkg: String?, val action: Action)
 
     fun target(prefs: Prefs, pm: PackageManager): Target {
-        val tap = runCatching { prefs.action(Button.Home, Gesture.Tap) }.getOrNull()
-        return pick(tap, systemHome(pm), otherLaunchers(pm))
+        val chosen = runCatching { prefs.switcherHomePkg }.getOrDefault(SYSTEM)
+        return pick(chosen, installed(pm, chosen), systemHome(pm))
     }
 
     /**
-     * The whole rule, as arithmetic on three facts.
+     * The whole rule, as arithmetic on three facts. Pure, and tested.
      *
-     * Pure and tested on purpose. Everything else in this file is package lookups that only exist
-     * on a phone, and the part that can be wrong in a way nobody notices is this one — a bad answer
-     * here does not throw, it silently removes the wrong app from the switcher and sends Home to
-     * the wrong place.
-     *
-     * [otherLaunchers] is expected to arrive already stripped of LightOS and of this app.
+     * A bad answer here does not throw. It silently removes the wrong app from the switcher and
+     * sends Home somewhere nobody asked for, which is exactly how the last two releases went.
      */
-    fun pick(tap: Action?, systemHome: String?, otherLaunchers: List<String>): Target = when (tap) {
-        // A named destination is the user having answered this question already.
-        is Action.Launch -> Target(tap.pkg, tap)
-        Action.LightOsHome -> Target(LIGHTOS, Action.LightOsHome)
-        else -> {
-            val system = systemHome?.takeIf { it.isNotBlank() && it != RESOLVER }
-            // Only when the system's answer is the one that carries no information. If the default
-            // home really is your launcher, DefaultHome already reaches it and following the system
-            // beats naming a package -- change the default and the row changes with it.
-            val roleIsMeaningless = system == null || system.startsWith(LIGHTOS)
-            val only = otherLaunchers.singleOrNull()
-            if (roleIsMeaningless && only != null) {
-                // Launch, not DefaultHome: a CATEGORY_HOME intent would go straight back to
-                // whoever holds the role, which is the thing being worked around.
-                Target(only, Action.Launch(only))
-            } else {
-                Target(system, Action.DefaultHome)
-            }
+    fun pick(chosen: String?, chosenInstalled: Boolean, systemHome: String?): Target {
+        val pkg = chosen?.takeIf { it.isNotBlank() && chosenInstalled }
+        return when {
+            pkg == null -> Target(systemHome?.takeIf { it.isNotBlank() && it != RESOLVER }, Action.DefaultHome)
+            // Picking LightOS from the list gets LightOS's own action rather than a launch, because
+            // arriving that way is what makes it a *visit* -- the state where the home button
+            // belongs to LightOS so you can walk through its menu. See ControlService.visitHome.
+            pkg.startsWith(LIGHTOS) -> Target(pkg, Action.LightOsHome)
+            else -> Target(pkg, Action.Launch(pkg))
         }
     }
+
+    /** Whether a chosen package is still on the phone. An uninstall must not leave a dead row. */
+    private fun installed(pm: PackageManager, pkg: String): Boolean =
+        pkg.isNotBlank() && runCatching { pm.getApplicationInfo(pkg, 0); true }.getOrDefault(false)
 
     /** Whoever holds the HOME role. On this phone, always LightOS — see the class note. */
     private fun systemHome(pm: PackageManager): String? = runCatching {
@@ -101,30 +84,14 @@ object HomeApp {
             ?.packageName
     }.getOrNull()
 
-    /**
-     * Every installed launcher that is neither LightOS nor this app.
-     *
-     * `queryIntentActivities` rather than a list of known launcher packages, so a launcher nobody
-     * here has heard of counts the same as Luma. It needs `QUERY_ALL_PACKAGES`, which this app
-     * already holds for the per-app override list.
-     */
-    private fun otherLaunchers(pm: PackageManager): List<String> = runCatching {
-        pm.queryIntentActivities(homeProbe(), 0)
-            .map { it.activityInfo.packageName }
-            .filter { it.isNotBlank() && it != RESOLVER && !it.startsWith(LIGHTOS) }
-            .filter { it != "com.gios.lightcontrol" }
-            .distinct()
-    }.getOrDefault(emptyList())
-
     private fun homeProbe(): Intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
 
     /**
-     * The name to show beside the **Home is pinned** setting.
+     * The name to show beside the **Home app** setting.
      *
-     * The setting used to say only ON or OFF, which left "where does Home actually go" as something
-     * you found out by opening the switcher. On a rule with a fallback in it, that is the one fact
-     * worth putting on the screen — v3.97 shipped resolving to LightOS for nearly everybody and
-     * nothing anywhere said so.
+     * A setting that reads only ON leaves "where does Home actually go" as something you find out
+     * by opening the switcher. v3.97 shipped resolving to LightOS for nearly everybody with nothing
+     * anywhere saying so, and that is the fix that outlives the rule it was written for.
      */
     fun label(prefs: Prefs, pm: PackageManager, name: (String) -> String): String {
         val pkg = target(prefs, pm).pkg ?: return "the system's home"

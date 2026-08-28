@@ -39,6 +39,7 @@ import com.gios.lightcontrol.ui.ColorAppListScreen
 import com.gios.lightcontrol.ui.ColorScreen
 import com.gios.lightcontrol.ui.DiagnosticsScreen
 import com.gios.lightcontrol.ui.GrantRequestScreen
+import com.gios.lightcontrol.ui.HomeAppScreen
 import com.gios.lightcontrol.ui.HomeScreen
 import com.gios.lightcontrol.ui.IntroScreen
 import com.gios.lightcontrol.ui.LockAppsScreen
@@ -93,6 +94,9 @@ private sealed interface Screen {
     data object Lock : Screen
     data object Background : Screen
     data object ResumeApps : Screen
+
+    /** Which app the switcher's pinned Home row opens. Hangs off Buttons. */
+    data object SwitcherHomeApp : Screen
     data object ResumeFallback : Screen
     data object Adb : Screen
     data object WifiLogin : Screen
@@ -275,7 +279,12 @@ class MainActivity : ComponentActivity() {
                                 screen = Screen.Pick(BindSlot.Key(button, gesture), Screen.Buttons)
                             },
                             onResumeApps = { screen = Screen.ResumeApps },
+                            onHomeApp = { screen = Screen.SwitcherHomeApp },
                             onBack = home,
+                        )
+
+                        Screen.SwitcherHomeApp -> HomeAppScreen(
+                            onBack = { screen = Screen.Buttons },
                         )
 
                         Screen.Wheel -> WheelScreen(
@@ -484,6 +493,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     is Screen.Notifications -> screen.back
     Screen.Background -> Screen.Lock
     Screen.ResumeFallback -> Screen.ResumeApps
+    Screen.SwitcherHomeApp -> Screen.Buttons
     is Screen.Pick -> screen.back
     else -> Screen.Home
 }
