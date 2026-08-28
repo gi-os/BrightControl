@@ -345,7 +345,7 @@ class ControlService : AccessibilityService() {
         rightStrip.onCancelled = { log("right edge · stroke was a scroll, dropped") }
         // The list picks; the service launches. Every activity start in this app goes through one
         // throttle and one log line, and a window that started its own would be outside both.
-        switcher.onPick = { pkg -> runCatching { log("switcher → ${pkg.substringAfterLast('.')}"); launch(pkg) } }
+        switcher.onPick = { entry -> runCatching { pickFromSwitcher(entry) } }
         switcher.onSystem = { runCatching { openSystemSwitcher() } }
         switcher.onAppInfo = { pkg -> runCatching { openAppInfo(pkg) } }
         // A full-screen window above the strip. See [SwitcherOverlay.onVisibilityChanged].
@@ -1613,14 +1613,39 @@ class ControlService : AccessibilityService() {
         val list = runCatching {
             // As many as fit, asked of the window rather than fixed here: the row that does not
             // fit is the one furthest back, which is the one a switcher exists for.
-            recents.entries(packageManager, skip, switcher.capacity()) { appName(this, it) }
+            recents.entries(packageManager, skip, switcher.capacity(prefs.switcherHomeRow)) {
+                appName(this, it)
+            }
         }.getOrDefault(emptyList())
         // Anything the lock face is holding up has to come down first, the same as for a launch:
         // layer 31 is layer 31, and two windows there is a coin toss nobody wins.
         if (lockFace.showing) runCatching { lockFace.dismiss() }
         val up = runCatching { switcher.show(list) }.getOrDefault(false)
-        log("HOME double · switcher ${if (up) "${list.size} apps" else "FAILED"}")
+        // Counted without the pinned Home row. It is always there, so including it would add one
+        // to every reading and make an empty switcher log as though it had found something.
+        log("HOME double · switcher ${if (up) "${list.count { !it.home }} apps" else "FAILED"}")
         return up
+    }
+
+    /**
+     * Open what the switcher's selection points at.
+     *
+     * Two kinds of row, and the difference is not cosmetic. A recent app is a package to launch.
+     * The pinned Home row is an [Action] — whatever the home button's tap is bound to — because
+     * home is not always a package: `DefaultHome` is a global action that follows the system's own
+     * choice, and `LightOsHome` has to be a visit rather than a landing or the home button stops
+     * working while you are there. Routing it through [perform] is what keeps all of that in the
+     * one place that already knows it.
+     */
+    private fun pickFromSwitcher(entry: SwitcherOverlay.Entry) {
+        val action = entry.action
+        if (action != null) {
+            val ok = perform(action)
+            log("switcher → home · ${action.store()}" + if (ok) "" else " · FAILED")
+            return
+        }
+        log("switcher → ${entry.pkg.substringAfterLast('.')}")
+        launch(entry.pkg)
     }
 
     /**

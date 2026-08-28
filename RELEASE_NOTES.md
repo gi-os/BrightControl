@@ -1,4 +1,4 @@
-## BrightControl v3.97 — the strip stays out of apps you name, and the edges buzz
+## BrightControl v3.98 — the strip stays out of apps you name, and the edges buzz
 
 **Four separate reports about four different apps turned out to be one missing list.**
 
