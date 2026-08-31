@@ -1699,13 +1699,17 @@ object Policy {
      *
      * What is here, and why each one already has a way back:
      *
-     *  - `com.lightos` -- LightOS itself, which has a gesture-navigation switch in its own
-     *    settings. A strip over the top would be two gestures on one edge and ours is the weaker.
      *  - `com.thelightphone.` -- the light-sdk namespace. An SDK tool subclasses `LightScreen` and
      *    navigates with `navigateTo`, so **the SDK draws its own back button and the Android back
      *    stack is not what it moves through**. `GLOBAL_ACTION_BACK` there would cost an edge and
      *    do nothing.
      *  - The keyboard, SystemUI, the AOSP launcher and camera, unchanged.
+     *
+     * **`com.lightos` used to be here** -- LightOS has a gesture-navigation switch in its own
+     * settings, so a strip would have been two gestures on one edge -- but Giovanni wants the
+     * BrightControls back swipe to work inside LightOS's tools too, so it is gone. The strip now
+     * stands in front of LightOS's built-in apps, and LightOS's own gesture switch and this
+     * service's strip are simply both available.
      *
      * **`com.lightphone.` is deliberately absent, and that was the bug.** No software of Light's
      * ships under it -- Light's tools are all inside `com.lightos` and its keyboard is
@@ -1716,7 +1720,6 @@ object Policy {
      * strength of a Light-looking id.
      */
     private val edgeRefusedPrefixes = listOf(
-        "com.lightos",
         "com.thelightphone.",
         "app.lightphonekeyboard",
         "com.android.systemui",
@@ -2002,13 +2005,14 @@ object Policy {
      * wheel", which says nothing at all about its edges. Roll and BrightRecorder are Off for the
      * wheel and both want a way back like anything else.
      *
-     * Three refusals, and they are all about a gesture that already exists:
+     * Two refusals, and they are both about a gesture that already exists:
      *
-     *  - **Light's own software and the SDK tools**, on [edgeRefusedPrefixes] -- which is *not*
-     *    the wheel's hands-off list, because that list refuses a Light-looking package id and a
-     *    Light-looking package id is not Light's software. Both of those already have a back
-     *    button: LightOS has a gesture-navigation switch in its own settings, and an SDK tool has
-     *    one drawn for it.
+     *  - **The SDK tools**, on [edgeRefusedPrefixes] -- which is *not* the wheel's hands-off list,
+     *    because that list refuses a Light-looking package id and a Light-looking package id is
+     *    not Light's software. An SDK tool has a back button drawn for it. LightOS's own tools
+     *    (`com.lightos`) used to be here too, on the strength of its gesture-navigation switch;
+     *    Giovanni asked for the BrightControls back swipe to work inside them, so the table no
+     *    longer refuses them.
      *  - **The keyboard**, and anything else drawing over an app rather than replacing it, is
      *    never the front package by the time this is asked -- see [isTransientWindow] -- so the
      *    strip stays as the app underneath left it. Stated here because it is the reason no test

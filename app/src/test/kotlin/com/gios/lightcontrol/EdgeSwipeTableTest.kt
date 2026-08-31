@@ -16,8 +16,11 @@ class EdgeSwipeTableTest {
 
     @Test
     fun `Light's own software is refused`() {
-        assertTrue(Policy.edgeSwipeRefusedByTable("com.lightos"))
-        assertTrue(Policy.edgeSwipeRefusedByTable("com.lightos.launcher"))
+        // LightOS itself used to be here too, refused on the strength of its gesture-navigation
+        // switch. Giovanni asked for the BrightControls back swipe to work inside LightOS's tools,
+        // so the table no longer refuses them; see the table's own documentation.
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightos"))
+        assertFalse(Policy.edgeSwipeRefusedByTable("com.lightos.launcher"))
         assertTrue(Policy.edgeSwipeRefusedByTable("app.lightphonekeyboard"))
         assertTrue(Policy.edgeSwipeRefusedByTable("com.android.systemui"))
     }

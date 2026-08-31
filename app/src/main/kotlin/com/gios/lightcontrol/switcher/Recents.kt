@@ -43,12 +43,19 @@ class Recents(private val prefs: Prefs) {
     }
 
     /**
-     * The switcher's list: openable apps, most recent first, with Home pinned to the bottom.
+     * The switcher's list: the app you are in now at the head, then openable apps most recent
+     * first, with Home pinned to the bottom.
      *
-     * The current app is left out because the switcher exists to leave it — an entry that lands
-     * you where you already are is a row that can only waste a press. Anything with no way in is
-     * left out too, resolved the same way `ControlService.launch` resolves it, so the list can
-     * never offer a row that does nothing.
+     * **The current app is pinned first**, deliberately. It used to be left out — the switcher
+     * exists to leave it, so a row that lands you where you already are looked like a wasted
+     * press — but a switcher is read in the instant it opens, and a list that starts anywhere
+     * else reads as if it had lost the app you were just in. It is pinned rather than trusted
+     * to the recents order because it is not always in the recents: a LightOS tool is never
+     * noted, and a fresh service's guess can predate the list. Pinning it covers both, and
+     * the row always does something — see `ControlService.pickFromSwitcher`.
+     *
+     * Anything with no way in is left out, resolved the same way `ControlService.launch`
+     * resolves it, so the list can never offer a row that does nothing.
      *
      * **Home is not one of the recents.** It is appended last, always, whether or not you have
      * been there, and the package it lands on is taken out of the rows above — see [HomeApp]. The
@@ -59,7 +66,7 @@ class Recents(private val prefs: Prefs) {
     @Synchronized
     fun entries(
         pm: PackageManager,
-        excluding: Set<String>,
+        front: String?,
         limit: Int,
         label: (String) -> String,
     ): List<SwitcherOverlay.Entry> {
@@ -67,12 +74,19 @@ class Recents(private val prefs: Prefs) {
         // Only the resolved home package is hidden. An unresolved home hides nothing, which is the
         // honest failure: a list missing a row for a reason nobody can see is worse than a list
         // with the launcher still in it.
-        val hidden = excluding + setOfNotNull(target?.pkg)
+        val hidden = setOfNotNull(target?.pkg)
         val room = if (target == null) limit else (limit - 1).coerceAtLeast(1)
+        // The head is the current app, unless it is also home (sitting on the dashboard when you
+        // open the switcher is already covered by the pinned row) or it has no way in.
+        val head = if (front != null && front !in hidden && openable(pm, front)) {
+            listOf(SwitcherOverlay.Entry(front, label(front)))
+        } else {
+            emptyList()
+        }
         val recents = order.asSequence()
-            .filter { it !in hidden }
+            .filter { it !in hidden && it != front }
             .filter { openable(pm, it) }
-            .take(room)
+            .take((room - head.size).coerceAtLeast(0))
             .map { pkg -> SwitcherOverlay.Entry(pkg, label(pkg)) }
             .toList()
         val home = target?.let {
@@ -83,7 +97,7 @@ class Recents(private val prefs: Prefs) {
                 action = it.action,
             )
         }
-        return recents + listOfNotNull(home)
+        return head + recents + listOfNotNull(home)
     }
 
     private fun openable(pm: PackageManager, pkg: String): Boolean = runCatching {

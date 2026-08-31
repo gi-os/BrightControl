@@ -46,6 +46,7 @@ import com.gios.lightcontrol.lock.LockOverlay
 import com.gios.lightcontrol.notify.BannerWake
 import com.gios.lightcontrol.notify.Banners
 import com.gios.lightcontrol.notify.NoteBanner
+import com.gios.lightcontrol.switcher.HomeApp
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
 import com.gios.lightcontrol.switcher.appName
@@ -1522,8 +1523,9 @@ class ControlService : AccessibilityService() {
      * show. LightOS sees both presses — its menu flickers once on the way out, which is the price
      * of a key that two owners can read.
      *
-     * A hold's release is deliberately not a tap here: holding home mid-visit stays LightOS's,
-     * whatever it makes of it.
+     * A hold's release ends the visit: it is the mirror of the hold that started it — see
+     * [Action.LightOsHome]. The launcher is where a visit goes home to, and it is the same
+     * resolution the switcher's Home row uses, because *that* is the launcher the user asked for.
      */
     private fun visitHome(event: KeyEvent, tap: Action): Boolean {
         presses.remove(Button.Home)
@@ -1535,7 +1537,18 @@ class ControlService : AccessibilityService() {
                 val started = visitDownAt
                 visitDownAt = 0L
                 val now = SystemClock.uptimeMillis()
-                if (started == 0L || now - started >= HOLD_MS) return false
+                // Holding home mid-visit leaves for the launcher — the mirror of the hold that
+                // brought you here. [goHome] is the wrong door for it: LightOS holds the HOME
+                // role on this phone, so a home intent would land right back where you started.
+                if (started != 0L && now - started >= HOLD_MS) {
+                    visitingLightOs = false
+                    visitTapAt = 0L
+                    val home = runCatching { HomeApp.target(prefs, packageManager).action }
+                        .getOrDefault(Action.DefaultHome)
+                    log("HOME hold · visit over")
+                    return home.acts && perform(home)
+                }
+                if (started == 0L) return false
                 if (visitTapAt != 0L && now - visitTapAt < HOME_DOUBLE_MS) {
                     visitTapAt = 0L
                     visitingLightOs = false
@@ -1611,17 +1624,13 @@ class ControlService : AccessibilityService() {
         switcherHandoff = 0L
         switcherEpoch++
         val front = if (OwnWindow.resumed) packageName else foreground
-        // Only what you are looking at is left out. This app used to be excluded outright, which
-        // is right while its settings are the front app — `front` already says so — and wrong
-        // every other time: light-reports#47 asks for the row, and a switcher that cannot switch
-        // back to the app you switched away from is missing the obvious entry.
-        val skip = setOfNotNull(front)
+        // The app in front is the head of the list now, not the one left out. See [Recents.entries].
         // The first notch after the list opens always lands. See [moveSwitcher].
         lastSwitcherMoveAt = 0L
         val list = runCatching {
             // As many as fit, asked of the window rather than fixed here: the row that does not
             // fit is the one furthest back, which is the one a switcher exists for.
-            recents.entries(packageManager, skip, switcher.capacity(prefs.switcherHomeRow)) {
+            recents.entries(packageManager, front, switcher.capacity(prefs.switcherHomeRow)) {
                 appName(this, it)
             }
         }.getOrDefault(emptyList())
