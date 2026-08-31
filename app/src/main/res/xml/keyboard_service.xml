@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The keyboard-replace service, scoped as tightly as the platform allows while still covering
+  LightOS's built-in tools.
+
+  packageNames is left empty on purpose: LightOS's tools live under the "com.lightos" and
+  "com.thelightphone." prefixes (see Policy.handsOffPrefixes), and android:packageNames only
+  accepts exact package names, not prefixes. So the prefix gate happens in code, in
+  KeyboardService.onAccessibilityEvent, exactly as ControlService gates the front package.
+
+  Unlike ControlService this one must see the window content — that is the entire feature: it
+  reads which field has focus so it can put its own keyboard over LightOS's and type into the
+  field. The trade is documented in KeyboardService.kt; the service only ever reads a node whose
+  window belongs to a LightOS package.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/keyboard_service_description"
+    android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="50" />

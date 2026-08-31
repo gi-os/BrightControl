@@ -92,6 +92,14 @@ object SelfGrant {
                 "$PKG/$PKG.keys.ControlService",
             ),
         ),
+        Step(
+            "Keyboard replace (accessibility)",
+            enableComponentCommand("$PKG/$PKG.keys.KeyboardService"),
+            GrantCheck.SecureListHas(
+                "enabled_accessibility_services",
+                "$PKG/$PKG.keys.KeyboardService",
+            ),
+        ),
     )
 
     /**
@@ -100,14 +108,13 @@ object SelfGrant {
      * shell — the daemon gives each command its own process, so a value read in one and written
      * in the next would not see intervening state.
      */
-    private fun enableServiceCommand(): String {
-        val component = "$PKG/$PKG.keys.ControlService"
-        return "sh -c '" +
-            "cur=\$(settings get secure enabled_accessibility_services); " +
-            "case \":\$cur:\" in *:$component:*) echo already;; " +
-            "*) if [ \"\$cur\" = null ] || [ -z \"\$cur\" ]; then " +
-            "settings put secure enabled_accessibility_services $component; " +
-            "else settings put secure enabled_accessibility_services \"\$cur:$component\"; fi; " +
-            "settings put secure accessibility_enabled 1; echo done;; esac'"
-    }
+    private fun enableServiceCommand(): String = enableComponentCommand("$PKG/$PKG.keys.ControlService")
+
+    private fun enableComponentCommand(component: String): String = "sh -c '" +
+        "cur=\$(settings get secure enabled_accessibility_services); " +
+        "case \":\$cur:\" in *:$component:*) echo already;; " +
+        "*) if [ \"\$cur\" = null ] || [ -z \"\$cur\" ]; then " +
+        "settings put secure enabled_accessibility_services $component; " +
+        "else settings put secure enabled_accessibility_services \"\$cur:$component\"; fi; " +
+        "settings put secure accessibility_enabled 1; echo done;; esac'"
 }

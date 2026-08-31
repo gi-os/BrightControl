@@ -42,6 +42,7 @@ fun HomeScreen(
     onBrightness: () -> Unit,
     onColor: () -> Unit,
     onLock: () -> Unit,
+    onKeyboard: () -> Unit,
     onNotifications: () -> Unit,
     onVolume: () -> Unit,
     onAdb: () -> Unit,
@@ -188,6 +189,12 @@ fun HomeScreen(
                 detail = if (prefs.lockScreen) "ON" else "›",
                 sub = "a Light-style face over the stock lock screen",
                 onClick = onLock,
+            )
+            MenuRow(
+                label = "Keyboard replace",
+                detail = if (prefs.keyboardReplace) "ON" else "›",
+                sub = "PROTOTYPE · our own keyboard over LightOS apps, off by default",
+                onClick = onKeyboard,
             )
             Rule()
 

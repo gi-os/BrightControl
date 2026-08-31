@@ -125,6 +125,11 @@ fun PickerScreen(
                     "between brightness and scrolling, and says which",
                 ),
                 Choice(Action.ShowLock, "Lock face", "put it up over whatever is on screen"),
+                Choice(
+                    Action.Keyboard,
+                    "Keyboard replace",
+                    "our own keys over a LightOS app, or away",
+                ),
                 Choice(Action.Hotspot, "Hotspot", "up or down, with the name already saved"),
             ),
         ),

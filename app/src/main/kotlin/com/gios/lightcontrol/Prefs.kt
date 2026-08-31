@@ -463,6 +463,28 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("camera_on_lightos", v).apply()
 
     /**
+     * Whether the keyboard-replace prototype is armed: put our own keyboard band over LightOS
+     * apps' built-in keyboard and type into the focused field.
+     *
+     * Off by default — it is a prototype, it needs a second accessibility service enabled, and it
+     * is the one feature in this app that deliberately reads which field is focused.
+     */
+    var keyboardReplace: Boolean
+        get() = sp.getBoolean("keyboard_replace", false)
+        set(v) = sp.edit().putBoolean("keyboard_replace", v).apply()
+
+    /**
+     * Whether keyboard replace simulates presses on the underlying LightOS keyboard (finding its
+     * key nodes and clicking them) instead of injecting text into the field.
+     *
+     * Off by default: text injection is the cleaner path. The simulate mode is the fallback for
+     * fields that refuse text actions — password prompts, custom editors.
+     */
+    var keyboardReplaceSimulate: Boolean
+        get() = sp.getBoolean("keyboard_replace_simulate", false)
+        set(v) = sp.edit().putBoolean("keyboard_replace_simulate", v).apply()
+
+    /**
      * Whether either camera gesture names an app of its own.
      *
      * The gate on [cameraOnLightOs], and it exists because of what the *default* binding does on

@@ -42,6 +42,7 @@ import com.gios.lightcontrol.ui.GrantRequestScreen
 import com.gios.lightcontrol.ui.HomeAppScreen
 import com.gios.lightcontrol.ui.HomeScreen
 import com.gios.lightcontrol.ui.IntroScreen
+import com.gios.lightcontrol.ui.KeyboardScreen
 import com.gios.lightcontrol.ui.LockAppsScreen
 import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.LockScreenScreen
@@ -93,6 +94,7 @@ private sealed interface Screen {
     data object Color : Screen
     data object PerAppColor : Screen
     data object Lock : Screen
+    data object Keyboard : Screen
     data object Background : Screen
     data object ResumeApps : Screen
 
@@ -265,6 +267,7 @@ class MainActivity : ComponentActivity() {
                             onBrightness = { screen = Screen.Brightness },
                             onColor = { screen = Screen.Color },
                             onLock = { screen = Screen.Lock },
+                            onKeyboard = { screen = Screen.Keyboard },
                             onNotifications = { screen = Screen.Notifications(Screen.Home) },
                             onVolume = { screen = Screen.Volume },
                             onAdb = { screen = Screen.Adb },
@@ -359,6 +362,8 @@ class MainActivity : ComponentActivity() {
                             onNotifications = { screen = Screen.Notifications(Screen.Lock) },
                             onBack = home,
                         )
+
+                        Screen.Keyboard -> KeyboardScreen(onBack = home)
 
                         is Screen.Notifications -> NotificationsScreen(
                             // Back from the list returns to *this* screen, not a fresh one, so the

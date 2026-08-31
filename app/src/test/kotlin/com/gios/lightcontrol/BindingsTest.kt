@@ -36,6 +36,7 @@ class BindingsTest {
         Action.ColorFlip,
         Action.SwitchTurn,
         Action.ShowLock,
+        Action.Keyboard,
         Action.Hotspot,
         Action.VolumeUp,
         Action.VolumeDown,

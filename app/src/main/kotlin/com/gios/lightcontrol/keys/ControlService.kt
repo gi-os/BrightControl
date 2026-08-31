@@ -2480,6 +2480,11 @@ class ControlService : AccessibilityService() {
             showLockFace()
             lockFace.showing
         }
+        Action.Keyboard -> {
+            // The band is the keyboard service's own window; this just summons or dismisses it.
+            KeyboardService.toggleFromButton()
+            true
+        }
         Action.Hotspot -> toggleHotspot()
         Action.VolumeUp -> stepVolume(up = true)
         Action.VolumeDown -> stepVolume(up = false)

@@ -325,5 +325,25 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/adb_pair_service" />
         </service>
+
+        <!--
+          The keyboard-replace prototype. A second window-content reader, scoped to LightOS
+          tools in code (prefixes "com.lightos" / "com.thelightphone." — the platform's
+          packageNames cannot express a prefix). Separate from ControlService so that service
+          can keep its canRetrieveWindowContent="false". Inert unless the user switches
+          keyboard replace on.
+        -->
+        <service
+            android:name=".keys.KeyboardService"
+            android:exported="true"
+            android:label="@string/keyboard_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/keyboard_service" />
+        </service>
     </application>
 </manifest>

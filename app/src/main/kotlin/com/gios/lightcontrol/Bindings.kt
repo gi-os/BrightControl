@@ -258,6 +258,15 @@ sealed interface Action {
     /** Put this app's lock face up over whatever is on screen. */
     data object ShowLock : Action
 
+    /**
+     * Pop the keyboard-replace band up over a LightOS app, or put it away.
+     *
+     * The manual fallback for keyboard replace: even when the service's focus detection misses
+     * the field, a key bound to this summons the band, and pressing it types into whatever
+     * field is under it. See `keys/KeyboardService.kt`.
+     */
+    data object Keyboard : Action
+
     /** Raise or drop the hotspot, using the network name and password already saved. */
     data object Hotspot : Action
 
@@ -334,6 +343,7 @@ sealed interface Action {
         ColorFlip -> "colorflip"
         SwitchTurn -> "switchturn"
         ShowLock -> "showlock"
+        Keyboard -> "keyboard"
         Hotspot -> "hotspot"
         VolumeUp -> "volup"
         VolumeDown -> "voldown"
@@ -367,6 +377,7 @@ sealed interface Action {
             ColorFlip -> "COLOUR"
             SwitchTurn -> "TURN"
             ShowLock -> "FACE"
+            Keyboard -> "KEYS"
             Hotspot -> "HOTSPOT"
             VolumeUp -> "VOL +"
             VolumeDown -> "VOL -"
@@ -404,6 +415,7 @@ sealed interface Action {
             raw == "colorflip" -> ColorFlip
             raw == "switchturn" -> SwitchTurn
             raw == "showlock" -> ShowLock
+            raw == "keyboard" -> Keyboard
             raw == "hotspot" -> Hotspot
             raw == "volup" -> VolumeUp
             raw == "voldown" -> VolumeDown
