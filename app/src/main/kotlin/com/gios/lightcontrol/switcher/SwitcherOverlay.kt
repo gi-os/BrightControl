@@ -179,11 +179,11 @@ class SwitcherOverlay(private val context: Context) {
         val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
         val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
         val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
-        // The way-out button, one line plus the air above it. Counted here for the same reason the
-        // header and the hint are: a row this arithmetic forgets about is a row drawn below the
-        // fold of a list that cannot be scrolled by finger, and it is always the app furthest back
-        // -- the one a switcher is for.
-        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
+        // The way-out button, one line plus the air above and below it. Counted here for the same
+        // reason the header and the hint are: a row this arithmetic forgets about is a row drawn
+        // below the fold of a list that cannot be scrolled by finger, and it is always the app
+        // furthest back -- the one a switcher is for.
+        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f) * 2f
         // The HOME heading over the pinned row, and the air around it. Counted for the same reason
         // as everything else here: the row this arithmetic forgets is the app furthest back. Zero
         // when the row is switched off, because charging a screen for something it is not drawing
@@ -483,7 +483,12 @@ class SwitcherOverlay(private val context: Context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
         typeface = type.medium
         letterSpacing = type.buttonTracking
-        setPadding(0, type.gridPx(2f), 0, 0)
+        // A full line of air above and below the text, not just the text itself: this is the
+        // control at the very bottom of the screen, where a thumb is reaching, and a clickable
+        // strip only as tall as the superfine type was a tap that missed and closed the list.
+        // The bottom padding is counted in [capacity], so a taller button costs a row there
+        // rather than pushing the last app below the fold.
+        setPadding(0, type.gridPx(2f), 0, type.gridPx(2f))
         isClickable = true
         // Tap only. It briefly carried App info on a hold as well, which put two answers on the
         // one control furthest from the app they were about -- the app is the row, and the gesture
