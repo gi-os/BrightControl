@@ -155,6 +155,19 @@ data class Behavior(
      * unstable.
      */
     val cameraActive: Boolean = false,
+    /**
+     * Whether the *wheel click* fires anyway, to time a hold bound to the app switcher.
+     *
+     * The second exception to hands-off, shaped exactly like the camera's. A hold that opens the
+     * switcher exists to be pressed *between* apps, and between apps is LightOS's dashboard —
+     * which is precisely where the hands-off gate ate the press before the switcher-hold special
+     * case was ever reached, so the binding worked everywhere except the screen it was set for
+     * (light-reports#136). Only the click is claimed: the turns stay LightOS's, because turns are
+     * what once made it unstable, and [Prefs.lightOsScreens] already claims this same click
+     * wholesale without trouble. Gated on the hold actually being the switcher
+     * ([Prefs.wheelHoldOpensSwitcher]), so with nothing bound it changes nothing.
+     */
+    val switcherActive: Boolean = false,
 )
 
 /**
@@ -497,6 +510,30 @@ class Prefs(context: Context) {
     var cameraOnLightOs: Boolean
         get() = sp.getBoolean("camera_on_lightos", true)
         set(v) = sp.edit().putBoolean("camera_on_lightos", v).apply()
+
+    /**
+     * Whether a wheel hold bound to the app switcher applies on LightOS's own screens.
+     *
+     * The camera button's reasoning, applied to the one other gesture that exists to be pressed
+     * from the home screen: the switcher is for standing *between* apps, and between apps is the
+     * dashboard. Without this, the hands-off gate ate the press before the switcher-hold special
+     * case was reached, so the binding worked everywhere except the screen it was set for
+     * (light-reports#136).
+     *
+     * Claiming the click there is known safe — [lightOsScreens] already takes it wholesale, and
+     * the instability that made these screens hands-off came from claiming the *turns*. On by
+     * default, and gated on [wheelHoldOpensSwitcher], so it does nothing until that binding
+     * exists — the same shape as [cameraNamesApp] gating [cameraOnLightOs].
+     */
+    var switcherOnLightOs: Boolean
+        get() = sp.getBoolean("switcher_on_lightos", true)
+        set(v) = sp.edit().putBoolean("switcher_on_lightos", v).apply()
+
+    /** Whether the wheel's hold is bound to the app switcher — the gate on [switcherOnLightOs]. */
+    fun wheelHoldOpensSwitcher(): Boolean {
+        val hold = action(Button.WheelClick, Gesture.Hold)
+        return hold is Action.Switcher && hold.acts
+    }
 
     /**
      * Whether the keyboard-replace prototype is armed: put our own keyboard band over LightOS
@@ -1698,6 +1735,25 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean(AUTO_SEND, v).apply()
 
     /**
+     * Fault families this install has already reported by itself, one entry per `Failure.what`.
+     *
+     * The flood control [com.gios.lightcontrol.report.Trouble] cannot provide on its own: its
+     * memory lives in the process, so every restart made the same failure a first offence again —
+     * and pairing is exactly the flow people retry across restarts. Seventeen issues about
+     * reading the pairing code, eleven about the dialog never appearing, each filed an hour or a
+     * reboot apart, all describing one problem. An automatic report goes out **once per family
+     * per install**; after that the failure still shows its line on the phone, and a shake still
+     * files a fresh report on purpose. The tally of repeats belongs on the one open issue.
+     */
+    fun failureAutoReported(what: String): Boolean =
+        sp.getStringSet(AUTO_REPORTED, emptySet())!!.contains(what)
+
+    fun noteFailureAutoReported(what: String) {
+        val current = sp.getStringSet(AUTO_REPORTED, emptySet())!!
+        sp.edit().putStringSet(AUTO_REPORTED, current + what).apply()
+    }
+
+    /**
      * What the last automatic pairing attempt did, one line per step, oldest first.
      *
      * ### Why this is on disk
@@ -1731,6 +1787,7 @@ class Prefs(context: Context) {
         const val PAIR_TRAIL = "pairTrail"
         const val PAIR_TRAIL_MAX = 24
         const val AUTO_SEND = "autoSendFailures"
+        const val AUTO_REPORTED = "autoReportedFailures"
         const val PENDING_PKG = "pendingGrantPkg"
         const val PENDING_LINES = "pendingGrantLines"
         const val PENDING_AT = "pendingGrantAt"
@@ -2262,8 +2319,14 @@ object Policy {
             // else, which is what the table would have said anyway.
             // Only when a gesture names an app. See [Prefs.cameraNamesApp].
             val camera = prefs.cameraOnLightOs && prefs.cameraNamesApp()
-            if (turn == TurnAction.Consume || camera) {
-                return Behavior(bareTurn = turn, buttonsActive = false, cameraActive = camera)
+            val switcher = prefs.switcherOnLightOs && prefs.wheelHoldOpensSwitcher()
+            if (turn == TurnAction.Consume || camera || switcher) {
+                return Behavior(
+                    bareTurn = turn,
+                    buttonsActive = false,
+                    cameraActive = camera,
+                    switcherActive = switcher,
+                )
             }
         }
         val rule = if (pkg == null) AppRule.Default else ruleFor(prefs, pkg)

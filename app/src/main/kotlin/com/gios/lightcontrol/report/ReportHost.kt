@@ -116,6 +116,20 @@ fun ReportOverlay() {
             if (reason == null) reason = ReportReason.Failed
             return@LaunchedEffect
         }
+        // Once per family per install. [Trouble]'s throttle is per-process, and pairing is the
+        // flow people retry across restarts — every relaunch made the same failure a first
+        // offence again, and four families filed forty issues describing four problems. The
+        // first automatic report is the one that carries information; a repeat only adds to a
+        // tally, and the tally belongs on the open issue. The line below still shows, so the
+        // failure is never silent — and a shake still files a fresh report on purpose.
+        if (prefs.failureAutoReported(found.what)) {
+            Trouble.clear()
+            sent = "Already reported: could not ${found.what}"
+            kotlinx.coroutines.delay(SENT_MS)
+            sent = null
+            return@LaunchedEffect
+        }
+        prefs.noteFailureAutoReported(found.what)
         val report = Reports.compose(
             context = context,
             symptom = Symptom.Other,

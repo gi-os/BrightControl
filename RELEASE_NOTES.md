@@ -1,52 +1,45 @@
-## BrightControl v4.6 — directions and the calendar, on the lock face
+## BrightControl v4.7 — the switcher where you stand, and a reporter that says it once
 
-Two new lines on the Light face, each absent until it has something to say, and a fix for the one
-way a well-formed reminder could still be kept off it.
+**A wheel hold bound to the app switcher now works on LightOS's own screens — which is where you
+actually press it — and the automatic failure reporter files one issue per problem instead of one
+per retry.**
 
-### The turn you are on
+### The switcher hold, on the dashboard
 
-While BrightWay is navigating, the face carries the current instruction with the numbers under it
-— `450 FT · 12 MIN · 3/8`: distance to the turn, minutes left in the whole trip, and which step of
-how many. Metres arrive metric off the route and are said in feet and miles, because street signs
-here are. The row is greyscale like everything else on this face; where a subway line matters,
-BrightWay's instruction already names it.
+Bind the wheel's hold to the app switcher and it worked everywhere except LightOS's home screen —
+the one place you are standing when you want to switch apps. The mechanism was the hands-off gate:
+LightOS's screens keep their keys unless `lightOsScreens` says otherwise, and that gate sits
+*before* the switcher-hold special case in the key filter, so the press was eaten upstream of the
+code that would have timed it. The setting saved, and then never applied where the thumb was.
 
-No polling. BrightWay announces every update on
-`content://com.gios.brightway.nav/current` and the face observes that URI for exactly as long as
-the window is up — the same lifecycle as the now-playing row. While the panel is dark the pings
-are ignored and the face re-asks the moment it lights, so an hour underground costs nothing and
-the first glance is never stale. An empty answer is the trip ending, and the row goes with it.
+The camera button hit this exact shape a year of releases ago, and the answer is the same answer:
+one key gets an exception, with its own switch, gated on the binding actually existing. When the
+wheel's hold opens the switcher, the click — and only the click — is claimed on LightOS's screens.
+The turns stay LightOS's, because claiming turns there is what once made LightOS unstable, and
+`lightOsScreens` already claims this same click wholesale without trouble. With nothing bound to
+the switcher, nothing changes at all.
 
-The row is deliberately not touchable and not dismissable — a turn you are mid-way through is not
-a notification to wave off. Swipe up for the keypad and hold-to-enter work over it unchanged.
+The switch lives under **Buttons → wheel click → On LightOS screens**, on by default, and only
+appears once a wheel hold actually opens the switcher. The cost, spelled out on the row: a short
+press of the wheel there fires your tap binding instead of reaching LightOS.
 
-### NEXT UP
+Fixes [light-reports#136] — app switcher set as toggle from holding wheel does not present
+switcher when on LightOS home.
 
-One quiet line under the date: `NEXT UP · 9:30 DENTIST`. BrightNotebook offers its next calendar
-entry — event, reminder or ticket, over the coming 48 hours — at
-`content://com.gios.lightnotebook.nextup/next`, and the face asks on every show and every wake,
-with an observer on top because its change notice is best-effort. A timed entry shows its time,
-tomorrow's says `TOMORROW` first, an all-day one names the day and skips the midnight. Nothing in
-the 48 hours, no Notebook installed, or a Notebook from before the provider shipped: the line is
-simply not there. No version is checked anywhere.
+### One report per problem
 
-### Reminders that never made the face
+The ADB plumbing reports its own failures, and that is right — a grant that fails silently is an
+evening of reading logs over someone's shoulder. What was wrong was the arithmetic of *again*. The
+throttle that keeps one problem from filing twice lives in process memory, and pairing is exactly
+the flow people retry across restarts: relaunch, retry, fail, report, each time a first offence as
+far as the throttle could remember. Seventeen issues about reading the pairing code. Eleven about
+the dialog never appearing. Four problems, forty issues, and somebody has to read forty to learn
+there were four.
 
-Reported from a real phone: BrightNotebook reminders buzzed and did not show on the face. The
-whole pipeline was audited — the Notebook's channel is IMPORTANCE_HIGH, its title and text are
-filled, every flag on it is clearable, and the face's reading of styled notifications has been
-robust since v3.87. The one gate left that could drop it was the importance test itself: the
-ranked figure arrives *as adjusted* by the platform, and LightOS has no notification-settings
-screen, so an adjustment down is invisible and permanent. A reminder, an alarm or a calendar
-event now passes the face's filter on its merits once every persistence check has already passed.
-A demoted chat can wait in the shade; a demoted reminder for the 9:00 is worthless at 9:05.
-BrightWay's ongoing low-importance navigation notification stays ignored — ongoing is ruled out
-before the exception is ever consulted.
+An automatic report now goes out **once per fault family per install**. The ledger is on disk, so
+a restart changes nothing. A repeat still shows its line on the phone — the failure is never
+silent — and a shake still files a fresh report deliberately, because a person deciding to report
+is a different thing from plumbing deciding to repeat itself.
 
-While in there, the last blank-line case went too: a notification whose only words are in
-`EXTRA_SUB_TEXT` now shows them, dead last in the order, instead of an app name over nothing.
-
-### Notes
-
-Swiping a notification off the face, and everything about how that respects un-clearable rows,
-shipped long ago and is unchanged here. New this release is only what is listed above.
+Fixes the [light-reports] pairing-report flood — the four families now tallied on #217, #220,
+#211 and #206.

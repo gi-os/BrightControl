@@ -1360,7 +1360,13 @@ class ControlService : AccessibilityService() {
         // nobody presses it. "I rebound the camera button and it refuses to acknowledge my
         // change" is the report this exists for, and it was right — the setting saved, and then
         // never applied where the thumb was. See [Behavior.cameraActive].
-        if (!behavior.buttonsActive && !(button == Button.Camera && behavior.cameraActive)) {
+        // The wheel click gets the same shaped exception for the switcher hold, and for the same
+        // shaped reason: a hold bound to the switcher is pressed *between* apps, which is LightOS's
+        // dashboard, which is exactly where this gate ate it. See [Behavior.switcherActive].
+        if (!behavior.buttonsActive &&
+            !(button == Button.Camera && behavior.cameraActive) &&
+            !(button == Button.WheelClick && behavior.switcherActive)
+        ) {
             if (fresh) log("${button.name} hands off")
             return false
         }

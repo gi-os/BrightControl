@@ -196,6 +196,33 @@ fun ButtonsScreen(
                         dim = true,
                     )
                 }
+                // Same door the camera button gets, for the same reason, and it only appears
+                // when the hold actually opens the switcher — without that binding the row
+                // would be a setting with nothing behind it.
+                if (button == Button.WheelClick &&
+                    prefs.action(button, Gesture.Hold) is Action.Switcher
+                ) {
+                    var switcherLightOs by remember(button) {
+                        mutableStateOf(prefs.switcherOnLightOs)
+                    }
+                    MenuRow(
+                        label = "On LightOS screens",
+                        detail = if (switcherLightOs) "ON" else "OFF",
+                        sub = if (switcherLightOs) {
+                            "the held wheel opens the switcher on Light's home and lock " +
+                                "screens too — where you actually stand between apps. The " +
+                                "click is claimed there to time the hold, so a short press " +
+                                "fires the tap binding instead of reaching LightOS."
+                        } else {
+                            "off, so LightOS keeps its wheel click and the switcher hold " +
+                                "only works inside other apps."
+                        },
+                        onClick = {
+                            switcherLightOs = !switcherLightOs
+                            prefs.switcherOnLightOs = switcherLightOs
+                        },
+                    )
+                }
                 Rule()
             }
             Gap(16)
