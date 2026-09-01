@@ -63,10 +63,20 @@ object Banners {
     @Volatile
     private var connected = 0L
 
-    // Main thread only, all four. [sync] is called from the listener's thread and posts; nothing
-    // else here touches them without doing the same.
-    private var pending: Note? = null
-    private var pendingRun: Runnable? = null
+    // Main thread only, this and [armedThrough] both. [sync] is called from the listener's
+    // thread and posts; nothing else here touches them without doing the same.
+    /**
+     * Every banner still waiting out its grace, keyed the way the shade keys notifications.
+     *
+     * A map rather than one pending/pendingRun slot, because two *different* keys arriving inside
+     * the same two seconds are both news and both show ([NoteBanner.show] swaps the text of a box
+     * already up). One slot meant the second arrival overwrote the first's record while the
+     * first's runnable stayed queued -- and when that runnable fired it nulled the slot
+     * unconditionally, orphaning the second: still due to draw, but invisible to the withdrawal
+     * sweep below and to the setting switching off. Per key, a runnable can only ever clear its
+     * own entry.
+     */
+    private val queued = mutableMapOf<String, Pair<Note, Runnable>>()
 
     /**
      * The newest `postTime` this has ever armed for. A high-water mark, not a memory of one note.
@@ -93,14 +103,14 @@ object Banners {
     fun listenerConnected() {
         connected = System.currentTimeMillis()
         handler.post {
-            cancelPending()
+            cancelAll()
             armedThrough = 0L
         }
     }
 
     fun listenerDisconnected() {
         connected = 0L
-        handler.post { cancelPending() }
+        handler.post { cancelAll() }
     }
 
     /**
@@ -114,12 +124,13 @@ object Banners {
         handler.post {
             // Switched off mid-wait. Nothing half-armed should survive the setting changing.
             if (!enabled || connected == 0L) {
-                cancelPending()
+                cancelAll()
                 return@post
             }
             // The app withdrew it inside the grace window -- read somewhere else, cancelled,
-            // superseded. This is the whole point of waiting. See the header.
-            pending?.let { if (it.key !in live) cancelPending() }
+            // superseded. This is the whole point of waiting. See the header. Swept over every
+            // queued key, not just the newest: a withdrawal can land for the older of two waiting.
+            queued.keys.filter { it !in live }.forEach { cancelQueued(it) }
 
             val note = candidate ?: return@post
             if (note.postedAt <= connected) return@post
@@ -129,24 +140,28 @@ object Banners {
             // mid-wait must not cancel the first: [NoteBanner.show] swaps the text of a box already
             // up, and throwing the earlier one away here meant the first of two notifications a
             // second apart was never seen at all.
-            if (pending?.key == note.key) cancelPending()
+            cancelQueued(note.key)
             armedThrough = note.postedAt
-            pending = note
             val run = Runnable {
-                pending = null
-                pendingRun = null
+                // Its own entry and nothing else's: another key still inside its grace stays
+                // queued, cancellable, and due.
+                queued.remove(note.key)
                 runCatching { onShow?.invoke(note, dwellMs) }
             }
-            pendingRun = run
+            queued[note.key] = note to run
             handler.postDelayed(run, GRACE_MS)
         }
     }
 
+    /** One key is no longer waiting after this. Main thread only. */
+    private fun cancelQueued(key: String) {
+        queued.remove(key)?.let { (_, run) -> handler.removeCallbacks(run) }
+    }
+
     /** Nothing is waiting after this. Main thread only; every caller here is already on it. */
-    private fun cancelPending() {
-        pendingRun?.let { handler.removeCallbacks(it) }
-        pendingRun = null
-        pending = null
+    private fun cancelAll() {
+        queued.values.forEach { (_, run) -> handler.removeCallbacks(run) }
+        queued.clear()
     }
 
     /**

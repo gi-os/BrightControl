@@ -1,26 +1,49 @@
-## BrightControl v4.8 — settings that travel
+## BrightControl v4.9 — four fixes in the seams
 
-**Everything this app knows can now leave the phone as one file, and come back.**
+No new features. Four bugs, all found by reading the code rather than reported from a phone, and
+all in the seams between things that separately worked: banners, the service's own restart, the
+lock face at night, and the last press before a pocket.
 
-Two rows at the bottom of the home screen. **Save settings to a file** writes every stored
-setting — bindings, gestures, edge swipes, colour rules, lock-face choices, ringer networks, all
-of it — as one JSON document, through the system file picker. **Load settings from a file** reads
-one back. Keep the file in Downloads and an update, a reinstall, or a new phone costs you nothing
-but the two taps.
+### A withdrawn banner stays withdrawn
 
-Why a file and not a cloud: this app deliberately has no account and no backend, and the one
-file picker this phone actually has — the system document picker — already works (LightOCR leans
-on the same one). A file the person placed in Downloads also survives the uninstall that wipes
-everything else the app knows, which is the exact moment a backup earns its keep.
+Banners wait two seconds before drawing, so an alert already read at a desk can be cancelled by
+its app before it lights the phone. That wait kept one record for everything: when a second app's
+notification arrived inside the first one's two seconds, the record only remembered the second —
+and when the first drew, its timer wiped the record entirely, orphaning the second. Still due to
+draw, but invisible to every check: the app withdrawing it could no longer stop it, and neither
+could switching banners off. Each waiting banner now has its own record. A withdrawal cancels
+exactly the banner withdrawn, the off switch cancels everything queued, and two different apps
+arriving close together still both show — that part was always deliberate. A single notification
+behaves exactly as before, two seconds and all.
 
-The shape of the file is deliberate in two ways. Every key carries its type, because
-SharedPreferences will happily store the same name as a different type tomorrow, and an untyped
-import that guessed wrong would corrupt exactly the setting somebody went to the trouble of
-carrying over. And an import is a **merge, never a wipe**: keys absent from the file keep their
-current value, so loading last month's export cannot delete a setting that did not exist when it
-was saved.
+### A fast toggle no longer disconnects anything
 
-Most of the app reads its settings live, so an import applies as it lands; a screen already open
-may show its old numbers until reopened.
+Toggling the key filter off and on lands the old service's teardown *after* the new one's setup,
+and the teardown cleared shared hooks the new instance had just claimed. Banners and colour
+requests were already guarded against exactly this; now every process-wide hook is cleared only
+by the instance that owns it. Before the fix, a fast toggle could silently disconnect the
+edge-strip setting, the settings screen's recents noting and volume test button, the lock face's
+shade updates, the keyboard button, and the app an unlock resumes to — each until the next full
+restart, with nothing on the phone to say why.
 
-Fixes [light-reports#137] — no option to export/import settings from BrightControl.
+### The lock face sleeps when you do
+
+The face rebuilt its notification rows and re-rendered media, navigation, NEXT UP and the call
+card on every minute tick, every battery report and every shade change, all night, against a
+panel that was off — and worse on a charger, which reports battery constantly. It now follows the
+rule its own navigation and calendar rows already had: an update against a dark panel is ignored,
+and the face repaints once, in full, the moment the panel lights. Nothing visible changes; the
+first glance after a wake is as current as it ever was.
+
+### The torch stays off in your pocket
+
+The wheel holds a tap back for a fifth of a second to see whether a double tap is coming. A tap
+released just before the screen went off left that timer running, and it fired after — and the
+wheel's default tap is Torch. Click the wheel, pocket the phone, flashlight on in the pocket.
+Screen-off now sweeps every pending tap and hold timer, the same way a fault already did.
+
+### Notes
+
+The screen-off sweep sits inside the key filter itself. It is deliberately three lines, but the
+filter is the one piece of this app every press passes through, so give the buttons a minute
+after updating: a tap, a double tap and a hold should all land exactly as before.

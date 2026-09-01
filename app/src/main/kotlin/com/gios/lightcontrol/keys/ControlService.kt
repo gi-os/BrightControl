@@ -208,6 +208,16 @@ class ControlService : AccessibilityService() {
     /** This instance's banner callback, kept only so [onUnbind] can check it is still the live one. */
     private var bannerShow: ((Banners.Note, Long) -> Unit)? = null
 
+    /** This instance's settings-screen callbacks. Same reason as the banner one above. */
+    private var ownResumed: (() -> Unit)? = null
+    private var ownSettingChanged: (() -> Unit)? = null
+
+    /** This instance's volume-test hook. Same reason as the banner one above. */
+    private var volumeTest: (() -> Unit)? = null
+
+    /** What this instance last wrote to [Lock.pending], so [onUnbind] clears only its own. */
+    private var lockPendingMine: String? = null
+
     /**
      * The strip down the left edge. Off unless [Prefs.leftEdgeOn] is on, and never up over a
      * hands-off app or a locked phone. See [refreshEdges].
@@ -333,8 +343,9 @@ class ControlService : AccessibilityService() {
         volumeHud.onPick = { stream -> volume.onPick(stream) }
         volumeHud.onSetLevel = { stream, level -> volume.onSetLevel(stream, level) }
         // The settings screen's "show it now" button, and the one honest signal that this service
-        // is bound rather than merely switched on. Cleared in [onUnbind].
-        VolumeSignals.test = { volume.testStrip() }
+        // is bound rather than merely switched on. Cleared in [onUnbind], only if still ours.
+        volumeTest = { volume.testStrip() }
+        VolumeSignals.test = volumeTest
         volumeHud.onCycleRinger = { volume.cycleRinger() }
         volume.start()
         // Not gated on `prefs.enabled`. The master switch is about keys — "this app touches no
@@ -430,10 +441,12 @@ class ControlService : AccessibilityService() {
         // Our own settings screen, onto the recents list. Nothing else can put it there: window
         // events from this package are transient by policy, because the overlays this service
         // owns raise them too. See [OwnWindow.onResumed].
-        OwnWindow.onResumed = { runCatching { recents.note(packageName) } }
+        ownResumed = { runCatching { recents.note(packageName) }; Unit }
+        OwnWindow.onResumed = ownResumed
         // The back strip is a window, so a setting that switches it on has to be acted on while
         // the settings screen is still in front. Nothing else in this app needs telling.
-        OwnWindow.onSettingChanged = { runCatching { handler.post { refreshEdges() } } }
+        ownSettingChanged = { runCatching { handler.post { refreshEdges() } }; Unit }
+        OwnWindow.onSettingChanged = ownSettingChanged
         recoverForeground()
         runCatching { colorMode.applyFor(foreground) }
         scheduleColorReasserts()
@@ -605,6 +618,12 @@ class ControlService : AccessibilityService() {
         visitingLightOs = false
         armedHomeConsuming = false
         lastTapAt.clear()
+        // A tap timer that survives the screen going off fires in a pocket — the wheel's default
+        // tap is Torch, so click-then-pocket lit the flashlight. Same sweep as [recordFault]'s.
+        pendingTaps.values.forEach(handler::removeCallbacks)
+        pendingTaps.clear()
+        holdTimers.values.forEach(handler::removeCallbacks)
+        holdTimers.clear()
         // A switcher that survives the screen going off is a black window an unlock lands on.
         runCatching { switcher.hide() }
         handler.removeCallbacks(lockWatch)
@@ -613,7 +632,9 @@ class ControlService : AccessibilityService() {
         log("screen off · ${slept?.substringAfterLast('.') ?: "nothing to resume"}")
         // Strictly after the snapshot. The face reads it to say what unlocking will open, and a
         // face that raised its own window first would be reading the value it had just changed.
+        // Remembered per instance so [onUnbind] can tell this write from a newer instance's.
         Lock.pending = slept
+        lockPendingMine = slept
         // Immediately, with no delay to tune. v2.6 had to wait 900 ms for LightOS's lock screen to
         // finish coming up, because an activity would otherwise have been started underneath it.
         // A window at layer 31 is above anything LightOS can put on screen whenever it arrives, so
@@ -2190,9 +2211,12 @@ class ControlService : AccessibilityService() {
             colorObserver = null
             runCatching { contentResolver.unregisterContentObserver(observer) }
         }
-        Lock.pending = null
-        OwnWindow.onResumed = null
-        OwnWindow.onSettingChanged = null
+        // Only if each is still ours — the same fast-toggle race as [Banners.onShow] below: a
+        // rebind's create runs before this unbind lands, and clearing these unconditionally here
+        // disconnected the new instance's resume target, recents noting and edge-strip setting.
+        if (Lock.pending === lockPendingMine) Lock.pending = null
+        if (OwnWindow.onResumed === ownResumed) OwnWindow.onResumed = null
+        if (OwnWindow.onSettingChanged === ownSettingChanged) OwnWindow.onSettingChanged = null
         // Only if it is still ours; see [colorRequestChanged]. Requests stay recorded either way,
         // so a rebind picks up whatever is being asked for without any app asking again.
         if (ColorRequests.onChanged === colorRequestChanged) ColorRequests.onChanged = null
@@ -2238,7 +2262,9 @@ class ControlService : AccessibilityService() {
         // to finish taking it down.
         runCatching { banner.dismiss(animated = false) }
         volume.stop()
-        VolumeSignals.test = null
+        // Only if it is still ours; same fast-toggle race as [Banners.onShow] above. Cleared
+        // unconditionally, a rebind left the settings screen's test button doing nothing.
+        if (VolumeSignals.test === volumeTest) VolumeSignals.test = null
         wifiRinger.stop()
         // Deliberately not unwound here. An unbind is a rebind on this phone far more often than
         // it is a shutdown, and putting the ring level back on every service restart would undo a
@@ -3276,10 +3302,10 @@ class ControlService : AccessibilityService() {
         /** One refusal line per reason per this window. See [logRefusal]. */
         const val REFUSAL_LOG_MS = 5_000L
 
-        /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
         /** One line per turn gesture, not per notch. See [logTurn]. */
         const val TURN_LOG_MS = 1_500L
 
+        /** Minimum gap between two starts aimed at the *same* destination. See [start]. */
         const val START_INTERVAL_MS = 1_000L
 
         /** Minimum gap between starts aimed at different destinations. See [start]. */

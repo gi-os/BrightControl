@@ -18,6 +18,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.telephony.TelephonyManager
 import android.text.TextUtils
 import android.view.Gravity
@@ -234,10 +235,21 @@ class LockOverlay(private val context: Context) {
 
     private val ticker = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
+            // A tick against a dark panel is work for nobody -- the wake repaints. Same rule as
+            // the nav and next-up watchers, and for the same reason: TIME_TICK is every minute
+            // and BATTERY_CHANGED is constant on a charger, so this ran the rebuild all night.
+            if (!interactive()) return
             runCatching { refresh() }
         }
     }
     private var tickerOn = false
+
+    /** The shade callback this face registered, so [hide] never clears a newer face's. */
+    private var notesChange: (() -> Unit)? = null
+
+    private fun interactive(): Boolean = runCatching {
+        context.getSystemService(PowerManager::class.java)?.isInteractive == true
+    }.getOrDefault(true)
 
     /**
      * The panel just lit. Hold the black, then fade the face in.
@@ -263,6 +275,9 @@ class LockOverlay(private val context: Context) {
         // and skipped against a dark panel on both, and this is the moment staleness would show.
         nav.requery()
         nextUp.requery()
+        // And repaint everything once, now. Every tick, battery report and shade change that
+        // arrived against the dark panel was ignored; this is the re-ask that rule promised.
+        runCatching { refresh() }
     }
 
     /**
@@ -278,6 +293,8 @@ class LockOverlay(private val context: Context) {
         handler.removeCallbacks(fadeIn)
         content.animate().cancel()
         content.animate().alpha(1f).setDuration(FADE_MS).start()
+        // Same repaint as [wake]: everything ignored against the dark panel is re-asked here.
+        runCatching { refresh() }
     }
 
     private val fadeIn = Runnable {
@@ -361,8 +378,11 @@ class LockOverlay(private val context: Context) {
         // 10:00:05 used to be on screen at 10:01, and a row swiped away sat there until the same
         // tick. Registered with the face and dropped in [hide], so nothing posts to a main thread
         // on behalf of a window that is not up. Set before the early return below, because a
-        // window that survived the last cycle is up and still needs telling.
-        LockNotes.onChange = { handler.post { runCatching { fillNotes() } } }
+        // window that survived the last cycle is up and still needs telling. A change against a
+        // dark panel is ignored like the ticker's -- [wake]'s refresh repaints the rows anyway.
+        val change: () -> Unit = { handler.post { if (interactive()) runCatching { fillNotes() } } }
+        notesChange = change
+        LockNotes.onChange = change
         if (root != null) {
             // Back to black. The phone is asleep at this point, so nothing is lost, and it means a
             // window that survived a lock cycle wakes the same way a fresh one does.
@@ -424,7 +444,11 @@ class LockOverlay(private val context: Context) {
         media.stop()
         nav.stop()
         nextUp.stop()
-        LockNotes.onChange = null
+        // Only if it is still ours -- the same fast-toggle race as the service's [Banners.onShow]
+        // guard: the old service's hide() lands after the new service's face has registered its
+        // own closure, and clearing unconditionally here froze the new face's shade updates.
+        if (LockNotes.onChange === notesChange) LockNotes.onChange = null
+        notesChange = null
         handler.removeCallbacks(fadeIn)
         handler.removeCallbacks(holdEnter)
         holdAnimator?.cancel()
@@ -1349,7 +1373,7 @@ class LockOverlay(private val context: Context) {
     }
 
     private fun refresh() {
-        val frame = root ?: return
+        root ?: return
         val now = System.currentTimeMillis()
         clock?.text = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now))
         date?.text = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(now))

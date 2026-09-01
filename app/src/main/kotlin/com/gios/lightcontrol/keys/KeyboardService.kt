@@ -106,7 +106,10 @@ class KeyboardService : AccessibilityService() {
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         hide()
         overlay = null
-        instance = null
+        // Only if it is still this instance. A fast toggle of the service lands the old
+        // instance's unbind after the new one's onServiceConnected, and clearing this
+        // unconditionally here left the keyboard button reaching nothing.
+        if (instance === this) instance = null
         return super.onUnbind(intent)
     }
 

@@ -12,11 +12,13 @@ import com.gios.lightcontrol.Prefs
  * Lollipop and `UsageStatsManager` needs a special-access grant with a Settings screen LightOS
  * does not ship — so on this phone the honest source is the one signal this service already
  * receives for free: the window-state event that names the app coming to the front. The list is
- * therefore built from the moment the service starts, holds nothing across a reboot, and is
- * exactly as long as the phone has been awake. That is the right trade for a switcher; a
- * switcher is about the last few minutes, not the last few weeks.
+ * only ever what this process has itself seen come to the front — nothing privileged is read.
+ * That is the right trade for a switcher; a switcher is about the last few minutes, not the last
+ * few weeks.
  *
- * Nothing is stored. This lives in the service's process and dies with it.
+ * The order *is* stored — in [Prefs], written on every change and read back at construction —
+ * because every release rebinds the service, and a list held only in memory came up empty for
+ * exactly the minutes after an update when somebody tries the gesture. See [order].
  */
 class Recents(private val prefs: Prefs) {
 
