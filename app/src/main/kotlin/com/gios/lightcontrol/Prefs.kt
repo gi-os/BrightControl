@@ -3,6 +3,8 @@ package com.gios.lightcontrol
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** What a bare wheel turn does in an app. */
 enum class TurnAction {
@@ -1751,6 +1753,71 @@ class Prefs(context: Context) {
     fun noteFailureAutoReported(what: String) {
         val current = sp.getStringSet(AUTO_REPORTED, emptySet())!!
         sp.edit().putStringSet(AUTO_REPORTED, current + what).apply()
+    }
+
+    /**
+     * Every stored setting, as one typed JSON document (light-reports#137).
+     *
+     * The whole app lives in one SharedPreferences file, so one dump is genuinely everything:
+     * bindings, gestures, edges, colour rules, lock-face choices, ringer networks, the lot.
+     * Types are tagged per key because SharedPreferences will happily store the same name as a
+     * different type tomorrow, and an untyped import that guessed wrong would corrupt exactly
+     * the setting somebody went to the trouble of carrying over.
+     */
+    fun exportJson(): String {
+        val values = JSONObject()
+        for ((key, value) in sp.all) {
+            val cell = JSONObject()
+            when (value) {
+                is Boolean -> cell.put("t", "b").put("v", value)
+                is Int -> cell.put("t", "i").put("v", value)
+                is Long -> cell.put("t", "l").put("v", value)
+                is Float -> cell.put("t", "f").put("v", value.toDouble())
+                is String -> cell.put("t", "s").put("v", value)
+                is Set<*> -> cell.put("t", "ss").put("v", JSONArray(value.toList()))
+                else -> continue
+            }
+            values.put(key, cell)
+        }
+        return JSONObject()
+            .put("app", "brightcontrol")
+            .put("format", 1)
+            .put("values", values)
+            .toString(2)
+    }
+
+    /**
+     * Apply a settings file. Returns how many keys landed, or -1 when the file is not ours.
+     *
+     * A merge, not a wipe: keys absent from the file keep their current value, so loading an
+     * old export never deletes a setting that did not exist when it was saved. Most of the app
+     * reads the prefs file live, so an import applies as it lands; a screen already open may
+     * show its old numbers until reopened.
+     */
+    fun importJson(text: String): Int {
+        val root = runCatching { JSONObject(text) }.getOrNull() ?: return -1
+        if (root.optString("app") != "brightcontrol") return -1
+        val values = root.optJSONObject("values") ?: return -1
+        val edit = sp.edit()
+        var landed = 0
+        for (key in values.keys()) {
+            val cell = values.optJSONObject(key) ?: continue
+            when (cell.optString("t")) {
+                "b" -> edit.putBoolean(key, cell.optBoolean("v"))
+                "i" -> edit.putInt(key, cell.optInt("v"))
+                "l" -> edit.putLong(key, cell.optLong("v"))
+                "f" -> edit.putFloat(key, cell.optDouble("v").toFloat())
+                "s" -> edit.putString(key, cell.optString("v"))
+                "ss" -> {
+                    val arr = cell.optJSONArray("v") ?: continue
+                    edit.putStringSet(key, (0 until arr.length()).map { arr.optString(it) }.toSet())
+                }
+                else -> continue
+            }
+            landed += 1
+        }
+        edit.apply()
+        return landed
     }
 
     /**

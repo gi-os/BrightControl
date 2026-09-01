@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.7.** See [Version history](#version-history).
+**Current version: v4.8.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1180,6 +1180,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.8 | **Settings travel as a file.** Two rows on the home screen: save everything the app knows — bindings, gestures, edges, colour rules, lock-face choices, ringer networks — as one typed JSON file, and load one back. SAF both ways, so a file kept in Downloads survives the uninstall that wipes everything else. Import is a merge, never a wipe: an old export can't delete a setting that didn't exist when it was saved |
 | v4.7 | **The switcher hold works where you stand, and the reporter says a thing once.** A wheel hold bound to the app switcher now fires on LightOS's home and lock screens — the hands-off gate ate the press there before the switcher-hold ever saw it, so the binding worked everywhere except the screen it was set for. Same shaped exception as the camera button, claiming only the click and never the turns, with its own switch under Buttons. And an automatic failure report now goes out once per fault family per install: the throttle's memory lived in the process, so every restart made the same pairing failure a first offence again — four families filed forty issues. Repeats show their line on the phone and add nothing to GitHub; a shake still files fresh on purpose |
 | v4.6 | **Directions and the calendar, on the lock face.** While BrightWay navigates, the face carries the current instruction with `450 FT · 12 MIN · 3/8` under it, observed off BrightWay's `nav/current` provider for exactly as long as the window is up — no polling, pings ignored while the panel is dark, re-asked on every wake. A quiet `NEXT UP · 9:30 DENTIST` line under the date reads BrightNotebook's next-entry provider the same way, and is simply absent until that release lands. And a well-formed reminder can no longer be dropped by the importance gate: a ranked importance arrives *as adjusted*, LightOS has no screen to undo an adjustment on, so reminders, alarms and calendar events pass on their merits once every persistence check has passed |
 | v4.5 | **Calls apart.** A call and a text message at different loudness, on a phone whose ROM aliases the two streams into one number. Two ways, both off by default: silent notifications with calls ringing through, or two levels swapped on the ring. See `RELEASE_NOTES.md` history |

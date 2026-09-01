@@ -1,5 +1,8 @@
 package com.gios.lightcontrol.ui
 
+import android.text.format.DateFormat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -65,6 +68,37 @@ fun HomeScreen(
     val total = granted.size
 
     var enabled by remember { mutableStateOf(prefs.enabled) }
+
+    // The settings file (light-reports#137). SAF both ways, because it is the one file picker
+    // this phone actually has — LightOCR already leans on it — and a file the person placed in
+    // Downloads survives the uninstall that wipes everything else this app knows.
+    var transferNote by remember { mutableStateOf<String?>(null) }
+    val exporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        transferNote = runCatching {
+            context.contentResolver.openOutputStream(uri)!!.use {
+                it.write(prefs.exportJson().toByteArray(Charsets.UTF_8))
+            }
+            "SAVED"
+        }.getOrElse { "COULD NOT WRITE THE FILE" }
+    }
+    val importer = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        transferNote = runCatching {
+            val text = context.contentResolver.openInputStream(uri)!!.use {
+                it.readBytes().toString(Charsets.UTF_8)
+            }
+            when (val landed = prefs.importJson(text)) {
+                -1 -> "NOT A BRIGHTCONTROL SETTINGS FILE"
+                else -> "LOADED $landed SETTINGS"
+            }
+        }.getOrElse { "COULD NOT READ THE FILE" }
+        enabled = prefs.enabled
+    }
     val fault = remember { prefs.fault() }
     val crash = remember { CrashLog.read(context) }
     val homeFault = remember { prefs.homeFault() }
@@ -234,6 +268,23 @@ fun HomeScreen(
                 sub = "faults, the last crash, and the key log",
                 detail = "›",
                 onClick = onDiagnostics,
+            )
+            MenuRow(
+                label = "Save settings to a file",
+                sub = transferNote ?: "everything — bindings, gestures, colors, the lot — as one " +
+                    "file. Keep it in Downloads and an update or reinstall costs nothing",
+                onClick = {
+                    exporter.launch(
+                        "brightcontrol-settings-" +
+                            DateFormat.format("yyyyMMdd", System.currentTimeMillis()) + ".json",
+                    )
+                },
+            )
+            MenuRow(
+                label = "Load settings from a file",
+                sub = "applies as it lands; a screen already open may show old numbers until " +
+                    "reopened",
+                onClick = { importer.launch(arrayOf("application/json", "text/*", "*/*")) },
             )
             Gap(20)
         }
