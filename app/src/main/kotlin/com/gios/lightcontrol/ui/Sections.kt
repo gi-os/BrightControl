@@ -16,6 +16,7 @@ import com.gios.lightcontrol.Action
 import com.gios.lightcontrol.Button
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.SplitMode
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.keys.Brightness
 import com.gios.lightcontrol.keys.Grants
@@ -185,6 +186,7 @@ fun BrightnessScreen(onBack: () -> Unit) {
 @Composable
 fun VolumeScreen(
     onWifiRinger: () -> Unit,
+    onRingerSplit: () -> Unit,
     onVolumeApps: () -> Unit,
     onVolumeHudApps: () -> Unit,
     onDac: () -> Unit,
@@ -257,6 +259,13 @@ fun VolumeScreen(
             sub = "silent on some networks, loud on others — the office and the flat are " +
                 "different places and this phone knows which one it is on",
             onClick = onWifiRinger,
+        )
+        MenuRow(
+            label = "Calls apart",
+            detail = if (prefs.splitMode == SplitMode.Off) "›" else prefs.splitMode.label,
+            sub = "this phone gives a call and a text message the same loudness, because Android " +
+                "ties the two together in the ROM. Two ways round it, and neither is a slider.",
+            onClick = onRingerSplit,
         )
         MenuRow(
             label = "Vibrate, silent",

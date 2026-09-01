@@ -1,75 +1,88 @@
-## BrightControl v4.4 — wired headphones, 23.5 dB louder (experimental)
+## BrightControl v4.5 — a call and a text message, at last, at different volumes
 
-**Volume → Wired headphones. Off by default, and read the caveats before switching it on.**
+**Volume → Calls apart.** Off by default. Two ways to do it, and you pick one.
 
-Someone on the Light forum measured what everyone using a USB-C to 3.5 mm adapter already suspected.
-1 kHz sine tones at three levels, an LPIII and an iPhone 16 Pro Max, the same Apple adapter and the
-same cable into the same interface, both phones at maximum: the LPIII came out **23.5 dB quieter, at
-every level**, reproducing the steps between the test files to a tenth of a decibel. Not a limiter,
-not compression — a fixed attenuation of about fourteen fifteenths of the voltage.
-See lightphone/light-sdk#186 for the raw numbers.
+This phone gives an incoming call and an incoming text the same loudness, and there is no setting
+anywhere that separates them. Not on LightOS, and not on stock Android either. Turn the ringer down
+far enough that a work Slack at 11pm does not wake the room and you have also turned down the thing
+that is supposed to wake you when somebody calls.
 
-The Android side of that has nothing left to give, which the same investigation established: media
-volume already at its top index, master and track gains at unity, and the HAL's signal-power history
-matching the source sample for sample. Full-level audio is reaching the USB port. A digital pre-gain
-in an app just clips.
+### Why there is no slider for this
 
-**The missing decibels are in the adapter.** A USB-C headphone adapter is a DAC with a volume control
-of its own — a standard USB Audio Class Feature Unit — and hosts are expected to set it. macOS,
-Windows and iOS all drive it to the top and mix in software underneath, which is why the same adapter
-on an iPhone is loud. Android never touches it, so it sits at whatever its firmware powers up with.
+Android maps `STREAM_NOTIFICATION` onto `STREAM_RING` on any device that has a radio in it. It is a
+resource compiled into the ROM — `config_alias_ring_notif_stream_types` — and it is not a setting, a
+secure setting, or anything reachable from an app. This one already grants itself
+`WRITE_SECURE_SETTINGS` over its own adb shell and it cannot touch it either. The two names refer to
+one number.
 
-So this release sets it. Plug an adapter in and BrightControl asks the device where its volume control
-is, reads the maximum the device itself reports, writes that, and reads it back to confirm the write
-landed. The level lives in the adapter's RAM and is forgotten the moment you unplug it, so this
-happens on every single connect — which is the argument for it living here, in something already
-running, rather than in a utility you have to remember to open.
+This app had already tripped over it from the other side and not noticed: the volume strip has been
+dropping duplicate broadcasts since v1.8 because "a notification volume mirrors the ringer". That
+duplicate is the alias.
 
-### What it costs, stated plainly
+So a notification volume control would be a second handle on the ring volume, which is worse than
+having none. What can be separated is not the number but when it applies.
 
-- **It needs the microphone permission.** Android hides any USB device with an audio interface from
-  apps that lack `RECORD_AUDIO`, and refuses to open it — a USB audio device is a microphone as often
-  as it is a speaker, and the platform is right to gate it. This app records nothing, has no
-  `AudioRecord` or `MediaRecorder` anywhere in it, and asks for the permission only from the DAC
-  screen after you have switched the feature on. It is deliberately **not** in the ADB screen's
-  run-every-grant list: a button that grants everything at once must not be how this app gets a
-  microphone.
-- **The first connect asks which app should handle the adapter.** Answer with this app and tick
-  "use by default". That dialog *is* the permission — answering "just once" means the next connect
-  asks again.
-- **Audio stops for a moment while it runs.** The kernel driver has the adapter's interface, and
-  taking it back for the length of a few control transfers is the only way to reach the control. On
-  a fresh connect nothing is playing yet, so nobody hears the seam. The "raise it now" button on the
-  DAC screen is the one place it can happen mid-song, and it says so.
-- **It can turn your phone down, once, on purpose.** About 23 dB arriving in headphones already in
-  your ears at full volume is the one way this could hurt somebody, and plugging an adapter in while
-  a podcast plays is the normal way to use one. So when the unlock lands while audio is playing and
-  media volume is high, media volume drops to roughly two thirds — once, on that connect, never
-  re-asserted. Turn it back up and it stays up. Nothing playing means nothing is moved. Toggleable.
+### Calls ring, the rest is silent
 
-### Why experimental
+Do Not Disturb, with calls on the allow list. Notifications still arrive, still appear in the shade
+and still draw on the lock face — they make no sound. Calls ring at the normal ring volume. Nothing
+is turned down, so there is nothing to put back, and no timing to get wrong.
 
-The mechanism is proven: the same trick works from a standalone app
-([polhdez/usbDacVolumeAndroid](https://github.com/polhdez/usbDacVolumeAndroid)), and a second person
-in the thread has since reproduced the underlying fault across three different adapters. What is not
-proven is this implementation against adapters other than the Apple one.
+It runs as a **Do Not Disturb rule this app owns**, added through `addAutomaticZenRule`, rather than
+by writing the phone's global Do Not Disturb switch. The framework combines rules, so a Do Not
+Disturb you turned on yourself is not silently overwritten by this one turning off. Where a build
+refuses the rule, the global switch is the fallback, and then the four numbers of the policy it
+displaced are saved and put back on the way out.
 
-The Apple adapter enumerates as UAC3 BADD, a profile whose topology is defined by the spec rather
-than described in the device's own descriptors — so there is frequently no Feature Unit descriptor to
-parse, and the unit has to be found by asking the device and seeing what answers. That works, and it
-is a guess with a verification step rather than a certainty. Adapters that leave the control out
-entirely, or that already power up at full, both read as "no volume control found" on the DAC screen,
-which is honest but not informative.
+**Alarms, media and system sounds are on the allow list.** A zen policy is a whitelist, and a policy
+written to silence text messages and nothing else silences the alarm clock and BrightMusic with them.
 
-The screen therefore reports what actually happened on the last connect, in words: which unit
-answered, what it was set to, and whether the device read the value back. A verified write is proof
-the control took the bytes. It is not proof of how much louder anything got — only a measurement is
-that, and if you have an interface and a test tone, that measurement would be worth having.
+Needs `cmd notification allow_dnd`, the same grant the Wi-Fi ringer rules use. The ADB screen has it.
 
-**Calls are not affected and cannot be.** A call's audio comes off the modem and its gain lives in
-the phone's own audio HAL, nowhere near the adapter's volume. Music, podcasts and video go through
-this; a phone call does not. "Loud speakerphone", one screen up, is still the only lever there.
+### Two levels
 
-Not a fix for the platform bug — LightOS should be setting this control itself, on every route, for
-every adapter, and this app should not need to exist for it. Filed upstream; this is what can be done
-from a sideloaded APK in the meantime.
+For when notifications should be quieter rather than silent. Two remembered levels: the ring level
+goes on when the phone starts ringing, and the other one comes back when the call ends.
+
+**There is nothing to type in.** The volume keys already set this number and always have. All this
+adds is remembering which of the two you meant, which the phone can work out from whether it was
+ringing at the time. Press them mid-ring and you have set the ring. Press them at any other moment
+and you have set everything else. Both numbers are on the screen so you can watch which one follows
+the keys.
+
+Three things it will not do:
+
+- **Raise a ringer that is down.** A phone on vibrate or silent is somebody's decision, and writing
+  a level into it would unmute it. The feature stands down completely.
+- **Argue with the Wi-Fi ringer.** A network marked silent means silent, calls included. A claim
+  held by `WifiRinger` outranks a call, and a claim arriving mid-ring unwinds the boost.
+- **Re-assert a level you moved.** Turn the ring down while it is ringing and it stays down, and
+  that new number is what the next ring uses. Same rule as the speakerphone boost.
+
+**The first moment of a ring can be quiet.** The telephony broadcast and the ringtone start at about
+the same instant, so there is a fraction of a second where the old level is still playing. It cannot
+be removed from an app — the only earlier hook is a `CallScreeningService`, and LightOS's own dialer
+holds that role. It is small, because a volume change applies to a ringtone that is already playing:
+the ring comes up to level before the first repeat, which is roughly what a ramping ringer does on
+purpose.
+
+### The failure this was built around
+
+A process killed between raising the level and putting it back leaves the phone loud for ever, and
+LightOS has no volume screen to discover that on. So the marker is in `SharedPreferences` rather than
+in a field, every service bind reconciles it, and a ring that nothing ever ended unwinds itself after
+three minutes. The same care is taken with the other mode for the same reason: LightOS ships no Do
+Not Disturb screen either, so a phone left in Do Not Disturb by a crashed process could not be got
+out of it by any other means. Every bind re-asserts the off state as firmly as the on state.
+
+### Under it
+
+`audio/SplitDecision.kt` is the rule engine, pure Kotlin with 22 tests, in the same shape as
+`RingerDecision` — because the interesting cases here are the ones nobody hits until the phone is in
+a pocket. `audio/RingerSplit.kt` is the Android side and `audio/QuietNotes.kt` owns the zen rule. The
+call state comes from `LockCall`, which this app already runs unconditionally and which reads
+telephony, the audio mode and the call notification together, because on this phone no one of the
+three is reliable on its own.
+
+Answered is not ringing: a picked-up call puts the level straight back, so a notification arriving
+mid-conversation is at the notification level.

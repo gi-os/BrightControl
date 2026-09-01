@@ -57,6 +57,7 @@ import com.gios.lightcontrol.ui.VolumeAppListScreen
 import com.gios.lightcontrol.ui.VolumeHudAppListScreen
 import com.gios.lightcontrol.ui.VolumeDiagnosticsScreen
 import com.gios.lightcontrol.ui.DacScreen
+import com.gios.lightcontrol.ui.RingerSplitScreen
 import com.gios.lightcontrol.ui.WifiRingerScreen
 import com.gios.lightcontrol.ui.LocalCursor
 import com.gios.lightcontrol.ui.WheelCursor
@@ -89,6 +90,9 @@ private sealed interface Screen {
     data object Brightness : Screen
     data object Volume : Screen
     data object WifiRinger : Screen
+
+    /** Calls apart from everything else, under Volume. See [com.gios.lightcontrol.SplitMode]. */
+    data object RingerSplit : Screen
     data object VolumeApps : Screen
     data object VolumeHudApps : Screen
     data object VolumeDiagnostics : Screen
@@ -326,6 +330,7 @@ class MainActivity : ComponentActivity() {
 
                         Screen.Volume -> VolumeScreen(
                             onWifiRinger = { screen = Screen.WifiRinger },
+                            onRingerSplit = { screen = Screen.RingerSplit },
                             onVolumeApps = { screen = Screen.VolumeApps },
                             onVolumeHudApps = { screen = Screen.VolumeHudApps },
                             onDac = { screen = Screen.Dac },
@@ -350,6 +355,11 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Screen.WifiRinger -> WifiRingerScreen(
+                            onBack = { screen = Screen.Volume },
+                            onAdb = { screen = Screen.Adb },
+                        )
+
+                        Screen.RingerSplit -> RingerSplitScreen(
                             onBack = { screen = Screen.Volume },
                             onAdb = { screen = Screen.Adb },
                         )
@@ -508,6 +518,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.PerAppEdges -> Screen.Edges
     Screen.PerAppColor -> Screen.Color
     Screen.WifiRinger -> Screen.Volume
+    Screen.RingerSplit -> Screen.Volume
     Screen.VolumeApps -> Screen.Volume
     Screen.VolumeHudApps -> Screen.Volume
     Screen.VolumeDiagnostics -> Screen.Volume

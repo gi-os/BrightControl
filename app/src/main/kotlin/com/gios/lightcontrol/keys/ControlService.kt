@@ -34,6 +34,9 @@ import com.gios.lightcontrol.EdgeSide
 import com.gios.lightcontrol.Gesture
 import com.gios.lightcontrol.Policy
 import com.gios.lightcontrol.Prefs
+import com.gios.lightcontrol.SplitMode
+import com.gios.lightcontrol.audio.QuietNotes
+import com.gios.lightcontrol.audio.RingerSplit
 import com.gios.lightcontrol.audio.WifiRinger
 import com.gios.lightcontrol.color.ColorRequests
 import com.gios.lightcontrol.hotspot.SoftAp
@@ -76,6 +79,12 @@ class ControlService : AccessibilityService() {
     private lateinit var volumeHud: VolumeHud
     private lateinit var volume: VolumeWatcher
     private lateinit var wifiRinger: WifiRinger
+
+    /** A ring and a notification at two levels, on a phone that has one. See [RingerSplit]. */
+    private lateinit var ringerSplit: RingerSplit
+
+    /** Silent notifications through a Do Not Disturb rule this app owns. See [QuietNotes]. */
+    private lateinit var quietNotes: QuietNotes
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -333,6 +342,14 @@ class ControlService : AccessibilityService() {
         // has its own switch, off by default, and it reads it on every event.
         wifiRinger = WifiRinger(this, prefs)
         wifiRinger.start()
+        // Same argument, and one more: this one can leave a phone loud, or leave it in a Do Not
+        // Disturb that LightOS has no screen to get out of. Every bind therefore re-asserts the
+        // state the setting asks for, including the off state -- see [RingerSplit.start] and
+        // [QuietNotes.sync].
+        ringerSplit = RingerSplit(this, prefs) { line -> log(line) }
+        ringerSplit.start()
+        quietNotes = QuietNotes(this, prefs)
+        runCatching { quietNotes.sync(prefs.splitMode == SplitMode.Quiet) }
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
         banner = NoteBanner(this)
@@ -2217,6 +2234,11 @@ class ControlService : AccessibilityService() {
         volume.stop()
         VolumeSignals.test = null
         wifiRinger.stop()
+        // Deliberately not unwound here. An unbind is a rebind on this phone far more often than
+        // it is a shutdown, and putting the ring level back on every service restart would undo a
+        // boost in the middle of the call that raised it. The marker survives, and [start] is what
+        // reconciles it -- see [RingerSplit].
+        ringerSplit.stop()
         swipe.cancel()
         pendingTaps.clear()
         presses.clear()
@@ -2802,6 +2824,10 @@ class ControlService : AccessibilityService() {
      */
     private fun onCallChanged(state: LockCallState?) {
         callAudio.onCall(state)
+        // Before every early return below. The ring level has nothing to do with the lock face, and
+        // the two settings that gate the face are not the setting that gates this -- a person who
+        // turned the call card off did not turn the ringer off.
+        runCatching { ringerSplit.onCall(state) }
         if (!prefs.enabled || !prefs.lockScreen || !prefs.lockCalls) {
             runCatching { lockFace.setCall(null) }
             // With the card switched off, the face still cannot be allowed to sit on top of a

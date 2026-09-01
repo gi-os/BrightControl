@@ -48,6 +48,42 @@ enum class RingerRule {
     val label: String get() = if (this == Silent) "SILENT" else "RING"
 }
 
+/**
+ * What to do about a phone that gives a call and a text message the same voice.
+ *
+ * The two answers are not two settings because they are not compatible: [Quiet] says notifications
+ * make no sound at all, [TwoLevels] says they make a quieter one, and a phone cannot be told both.
+ * Presenting them as one choice is also the honest shape of the problem — there is one loudness on
+ * this phone and this is the question of what to do about that.
+ *
+ * See `audio.SplitDecision` for why there is no third option where the two volumes are simply set
+ * separately.
+ */
+enum class SplitMode {
+    /** Nothing. One volume for both, which is what the phone does on its own. */
+    Off,
+
+    /**
+     * Calls ring, everything else is silent. Do Not Disturb with calls on the allow list, applied
+     * through a rule this app owns — see `audio.QuietNotes`.
+     */
+    Quiet,
+
+    /**
+     * Two remembered levels, swapped on the ring and put back at the end of the call.
+     * See `audio.RingerSplit`.
+     */
+    TwoLevels,
+    ;
+
+    val label: String
+        get() = when (this) {
+            Off -> "OFF"
+            Quiet -> "SILENT"
+            TwoLevels -> "TWO LEVELS"
+        }
+}
+
 /** How one app is treated. */
 enum class AppRule {
     /** Whatever [Policy] decides from the built-in table. */
@@ -898,6 +934,102 @@ class Prefs(context: Context) {
     var wifiRingerLast: String
         get() = sp.getString("wifi_ringer_last", "").orEmpty()
         set(value) { sp.edit().putString("wifi_ringer_last", value).apply() }
+
+    // ------------------------------------------------- calls apart from everything else
+
+    /**
+     * Whether a call and a text message are allowed to sound different, and how.
+     *
+     * **Off.** Two of the three answers write to something the user can hear and one of them writes
+     * to Do Not Disturb, which on a phone with no Do Not Disturb screen is a state only this app can
+     * get you out of. Neither is a thing to arrive switched on.
+     *
+     * See [SplitMode] for what the three mean and `audio.SplitDecision` for why the obvious fourth —
+     * set the two volumes separately — does not exist on any phone with a radio in it.
+     */
+    var splitMode: SplitMode
+        get() = runCatching {
+            SplitMode.valueOf(sp.getString("split_mode", SplitMode.Off.name) ?: SplitMode.Off.name)
+        }.getOrDefault(SplitMode.Off)
+        set(v) = sp.edit().putString("split_mode", v.name).apply()
+
+    /**
+     * The level a ring is put to, and the level everything else is left at.
+     *
+     * Both start at zero, which means "nothing has been learned yet" and which the rules read as a
+     * feature that does nothing: two equal levels is the one case `audio.SplitDecision` refuses to
+     * act on. `audio.RingerSplit.seed` fills them in the first time the mode is chosen, and the
+     * hardware volume keys move them from then on. There is no screen to type them into on purpose —
+     * the keys already set this number and always have, and the only thing this app adds is
+     * remembering which of the two you meant.
+     */
+    var splitRingLevel: Int
+        get() = sp.getInt("split_ring_level", 0)
+        set(v) = sp.edit().putInt("split_ring_level", v.coerceIn(0, 100)).apply()
+
+    var splitNotifyLevel: Int
+        get() = sp.getInt("split_notify_level", 0)
+        set(v) = sp.edit().putInt("split_notify_level", v.coerceIn(0, 100)).apply()
+
+    /**
+     * Whether this app raised the ring level and has not put it back.
+     *
+     * In `SharedPreferences` rather than in a field, and that is the whole point of it. The failure
+     * this feature can produce is a phone left loud by a process that died between the two writes,
+     * on an OS with no volume screen to fix it from. A marker that dies with the process would be
+     * no marker at all: `audio.RingerSplit.start` asks this question on every bind.
+     */
+    var splitBoosted: Boolean
+        get() = sp.getBoolean("split_boosted", false)
+        set(v) = sp.edit().putBoolean("split_boosted", v).apply()
+
+    /** The two learned numbers as one line, for the settings screen. */
+    var splitLast: String
+        get() = sp.getString("split_last", "").orEmpty()
+        set(value) { sp.edit().putString("split_last", value).apply() }
+
+    /** The Do Not Disturb rule this app owns, by id. See `audio.QuietNotes`. */
+    var quietRuleId: String
+        get() = sp.getString("quiet_rule_id", "").orEmpty()
+        set(value) { sp.edit().putString("quiet_rule_id", value).apply() }
+
+    /**
+     * Which of the two routes the silence is going through, named in [audio.QuietNotes.Route].
+     *
+     * Recorded rather than re-derived because the two are unwound differently, and a build that
+     * managed the rule yesterday and fell back to the global filter today must put back whichever
+     * one it actually took.
+     */
+    var quietRoute: String
+        get() = sp.getString("quiet_route", "None").orEmpty()
+        set(value) { sp.edit().putString("quiet_route", value).apply() }
+
+    /**
+     * The Do Not Disturb policy this app displaced, kept as the four numbers a `Policy` is.
+     *
+     * Only the fallback route touches the global policy, and a policy overwritten and not put back
+     * is somebody's Do Not Disturb configuration gone with no way to notice. A `Policy` is not
+     * something to write into `SharedPreferences`; its four ints are.
+     */
+    var quietHeldPolicy: Boolean
+        get() = sp.getBoolean("quiet_held_policy", false)
+        set(v) = sp.edit().putBoolean("quiet_held_policy", v).apply()
+
+    var quietPolicyCategories: Int
+        get() = sp.getInt("quiet_policy_categories", 0)
+        set(v) = sp.edit().putInt("quiet_policy_categories", v).apply()
+
+    var quietPolicyCallSenders: Int
+        get() = sp.getInt("quiet_policy_call_senders", 0)
+        set(v) = sp.edit().putInt("quiet_policy_call_senders", v).apply()
+
+    var quietPolicyMessageSenders: Int
+        get() = sp.getInt("quiet_policy_message_senders", 0)
+        set(v) = sp.edit().putInt("quiet_policy_message_senders", v).apply()
+
+    var quietPolicyVisual: Int
+        get() = sp.getInt("quiet_policy_visual", 0)
+        set(v) = sp.edit().putInt("quiet_policy_visual", v).apply()
 
     /** How far one notch drags the screen, in dp, when a turn is scrolling by swipe. */
     var swipeDp: Int

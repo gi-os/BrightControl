@@ -32,6 +32,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without, and a selector for every stream the hardware cannot otherwise reach |
 | **Ringer** | Silent on some Wi-Fi networks, loud on others. The office and the flat are different places |
+| **Calls apart** | A call and a text message at different loudness, on a phone that gives them one number. Silent notifications, or two levels swapped on the ring. **Off by default** |
 | **Wired headphones** | Sets the USB-C adapter's own volume, which Android never does — measured at 23.5 dB below an iPhone through the same Apple adapter. **Experimental, and off by default** |
 | **ADB and grants** | The phone grants itself every permission it needs, over its own wireless debugging |
 | **Wi-Fi login** | A captive-portal sign-in page. **In development. It may not work** |
@@ -854,6 +855,72 @@ and the screen says which is missing. Location must also be switched on: with it
 redacted from a permitted app exactly as it is from an unpermitted one, and the two are
 indistinguishable from inside the app.
 
+### Calls apart from everything else
+
+This phone plays an incoming call and an incoming text message at the same loudness. No setting on
+the phone changes that. Android maps the notification stream onto the ring stream on every device
+that has a radio in it. The map is a value compiled into the ROM. It is not a setting, and no
+permission changes it. This app grants itself `WRITE_SECURE_SETTINGS` and still cannot reach it.
+
+The volume strip found the same fact from the other side and nobody noticed. It has dropped
+duplicate broadcasts since v1.8, because a notification volume mirrors the ringer. That duplicate is
+the map.
+
+So there is no notification volume to set, and a slider for one would be a second control for the
+ring volume. What you can separate is when the one number applies. **Volume → Calls apart** gives
+two ways to do that. Choose one. Off by default.
+
+**Calls ring, the rest is silent.** Do Not Disturb, with calls on the allow list. Notifications
+still arrive. They still show in the shade and on the lock face. They make no sound. Calls ring at
+the normal ring volume. This mode turns nothing down, so it has nothing to put back and no timing to
+get wrong.
+
+The silence runs as a Do Not Disturb rule this app owns rather than as a write to the phone's global
+Do Not Disturb switch. The framework combines rules. A Do Not Disturb you set yourself therefore
+survives this one switching off. If a build refuses the rule, the app writes the global switch
+instead, and it saves the four numbers of the policy it displaced and puts them back afterwards.
+
+Alarms, media and system sounds stay on the allow list. A Do Not Disturb policy is a list of what
+may still make a sound. A policy that names only text messages silences the alarm clock and
+BrightMusic with them.
+
+**Two levels.** For notifications that should be quieter and not silent. The app remembers two
+levels. The ring level applies when the phone starts to ring. The other level comes back when the
+call ends.
+
+There is no field to type the levels into. The volume keys already set this number. The app adds one
+thing, which is remembering which of the two you meant, and the phone knows that from whether it was
+ringing at the time. Press the keys during a ring and you set the ring level. Press them at any
+other moment and you set the other one. The screen shows both numbers, so you can watch which one
+follows the keys.
+
+Three rules bound it:
+
+- It never raises a ringer that is down. A phone on vibrate or silent is your decision, and an index
+  written into it would unmute it. The feature stands down.
+- A Wi-Fi silence outranks a call. A network marked silent means silent. A claim held by the rules
+  above stops this mode, and a claim that arrives during a ring unwinds the raise.
+- It asserts the level once. Turn the ring down during a ring and it stays down, and the next ring
+  uses that number. This is the rule the speakerphone boost uses.
+
+The first moment of a ring can be quiet. The telephony broadcast and the ringtone start at about the
+same instant. An app cannot get in front of that. The only earlier hook is a `CallScreeningService`,
+and the LightOS dialer holds that role. The gap is small, because a volume change applies to a
+ringtone that is already playing. The ring reaches the level before the first repeat.
+
+Only the first mode needs a grant, and it is one the ringer rules above already ask for:
+
+```bash
+# silencing notifications is a Do Not Disturb operation as far as Android is concerned
+adb shell cmd notification allow_dnd com.gios.lightcontrol
+```
+
+Both modes are built around one failure. A process killed between the two writes leaves the phone
+loud, and LightOS has no volume screen to find that on. The marker therefore lives in
+`SharedPreferences` and not in a field, every service bind reconciles it, and a ring that nothing
+ended unwinds itself after three minutes. LightOS ships no Do Not Disturb screen either, so the same
+care applies to the other mode. Every bind asserts the off state as firmly as the on state.
+
 ## System
 
 ### Wi-Fi login. In development
@@ -1017,6 +1084,9 @@ keys/Readout.kt            the brightness level, as one reused overlay window
 keys/VolumeHud.kt          the volume level, reported and never adjusted
 audio/RingerDecision.kt    should this network silence the phone; no Android in it
 audio/WifiRinger.kt        the ringer rules, and the two grants that make them real
+audio/SplitDecision.kt     which of the two levels applies now, and which one you just set
+audio/RingerSplit.kt       the level swapped on the ring, and the marker that survives a kill
+audio/QuietNotes.kt        silent notifications, through a Do Not Disturb rule this app owns
 keys/CallAudio.kt          the call speaker, put to maximum once per speaker route
 keys/Grants.kt             what is granted, and the volatile own-window flag
 
