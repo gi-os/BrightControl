@@ -44,11 +44,14 @@ object NoteText {
         lines: List<String> = emptyList(),
         messages: List<Message> = emptyList(),
         summary: String? = null,
+        subText: String? = null,
         ticker: String? = null,
     ): Content {
         conversation(conversationTitle, contentTitle, messages)?.let { return it }
         val title = firstReal(contentTitle, bigTitle, conversationTitle)
-        val text = firstReal(contentText, bigText, lines.firstOrNull(), summary)
+        // `subText` is dead last among the named fields: it is the qualifier apps put an account
+        // name or a folder in, worth drawing only when nothing else was written at all.
+        val text = firstReal(contentText, bigText, lines.firstOrNull(), summary, subText)
         if (title.isNotEmpty() || text.isNotEmpty()) return Content(title, text)
         // Nothing named. The ticker is a poor line -- it is written for a screen reader and often
         // runs the title into the text -- but a box with one real sentence in it beats a box with

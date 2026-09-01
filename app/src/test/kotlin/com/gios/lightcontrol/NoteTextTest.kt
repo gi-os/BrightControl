@@ -116,4 +116,15 @@ class NoteTextTest {
         )
         assertEquals("Ops", said.title)
     }
+
+    /** The app-level qualifier is worth drawing only when nothing else was written at all. */
+    @Test
+    fun subTextIsTheLastNamedResort() {
+        val said = NoteText.of(contentTitle = "Mail", subText = "work account")
+        assertEquals("Mail", said.title)
+        assertEquals("work account", said.text)
+
+        val outranked = NoteText.of(contentTitle = "Mail", contentText = "Invoice", subText = "work account")
+        assertEquals("Invoice", outranked.text)
+    }
 }

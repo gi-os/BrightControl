@@ -60,4 +60,29 @@ class NoteFilterTest {
         // move in here later.
         assertFalse(NoteFilter.isPersistent(0, "transport"))
     }
+
+    @Test
+    fun `a reminder, an alarm and an event are time-critical`() {
+        // The face's one exception to its importance gate: a well-formed BrightNotebook reminder
+        // must not be droppable by an importance adjustment the user has no screen to undo.
+        assertTrue(NoteFilter.isTimeCritical("reminder"))
+        assertTrue(NoteFilter.isTimeCritical("alarm"))
+        assertTrue(NoteFilter.isTimeCritical("event"))
+    }
+
+    @Test
+    fun `nothing else is`() {
+        // A demoted chat can wait in the shade. The exception is three categories, not a mood.
+        assertFalse(NoteFilter.isTimeCritical("msg"))
+        assertFalse(NoteFilter.isTimeCritical("transport"))
+        assertFalse(NoteFilter.isTimeCritical(null))
+    }
+
+    @Test
+    fun `time-critical does not soften persistence`() {
+        // BrightWay's nav notification is CATEGORY_NAVIGATION and ongoing; a hypothetical ongoing
+        // reminder would still be permanent. The importance exception runs after this test in the
+        // caller, never instead of it.
+        assertTrue(NoteFilter.isPersistent(ONGOING, "reminder"))
+    }
 }

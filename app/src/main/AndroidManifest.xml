@@ -195,6 +195,19 @@
     -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!--
+      The two providers the lock face reads: BrightWay's current turn and BrightNotebook's next
+      calendar entry. QUERY_ALL_PACKAGES above already grants visibility; the contracts are named
+      here anyway, so the dependency is written down where a manifest reader looks for it and the
+      face keeps working if that blunt permission is ever narrowed.
+    -->
+    <queries>
+        <package android:name="com.gios.brightway" />
+        <package android:name="com.gios.lightnotebook" />
+        <provider android:authorities="com.gios.brightway.nav" />
+        <provider android:authorities="com.gios.lightnotebook.nextup" />
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"

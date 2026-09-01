@@ -1,88 +1,52 @@
-## BrightControl v4.5 — a call and a text message, at last, at different volumes
+## BrightControl v4.6 — directions and the calendar, on the lock face
 
-**Volume → Calls apart.** Off by default. Two ways to do it, and you pick one.
+Two new lines on the Light face, each absent until it has something to say, and a fix for the one
+way a well-formed reminder could still be kept off it.
 
-This phone gives an incoming call and an incoming text the same loudness, and there is no setting
-anywhere that separates them. Not on LightOS, and not on stock Android either. Turn the ringer down
-far enough that a work Slack at 11pm does not wake the room and you have also turned down the thing
-that is supposed to wake you when somebody calls.
+### The turn you are on
 
-### Why there is no slider for this
+While BrightWay is navigating, the face carries the current instruction with the numbers under it
+— `450 FT · 12 MIN · 3/8`: distance to the turn, minutes left in the whole trip, and which step of
+how many. Metres arrive metric off the route and are said in feet and miles, because street signs
+here are. The row is greyscale like everything else on this face; where a subway line matters,
+BrightWay's instruction already names it.
 
-Android maps `STREAM_NOTIFICATION` onto `STREAM_RING` on any device that has a radio in it. It is a
-resource compiled into the ROM — `config_alias_ring_notif_stream_types` — and it is not a setting, a
-secure setting, or anything reachable from an app. This one already grants itself
-`WRITE_SECURE_SETTINGS` over its own adb shell and it cannot touch it either. The two names refer to
-one number.
+No polling. BrightWay announces every update on
+`content://com.gios.brightway.nav/current` and the face observes that URI for exactly as long as
+the window is up — the same lifecycle as the now-playing row. While the panel is dark the pings
+are ignored and the face re-asks the moment it lights, so an hour underground costs nothing and
+the first glance is never stale. An empty answer is the trip ending, and the row goes with it.
 
-This app had already tripped over it from the other side and not noticed: the volume strip has been
-dropping duplicate broadcasts since v1.8 because "a notification volume mirrors the ringer". That
-duplicate is the alias.
+The row is deliberately not touchable and not dismissable — a turn you are mid-way through is not
+a notification to wave off. Swipe up for the keypad and hold-to-enter work over it unchanged.
 
-So a notification volume control would be a second handle on the ring volume, which is worse than
-having none. What can be separated is not the number but when it applies.
+### NEXT UP
 
-### Calls ring, the rest is silent
+One quiet line under the date: `NEXT UP · 9:30 DENTIST`. BrightNotebook offers its next calendar
+entry — event, reminder or ticket, over the coming 48 hours — at
+`content://com.gios.lightnotebook.nextup/next`, and the face asks on every show and every wake,
+with an observer on top because its change notice is best-effort. A timed entry shows its time,
+tomorrow's says `TOMORROW` first, an all-day one names the day and skips the midnight. Nothing in
+the 48 hours, no Notebook installed, or a Notebook from before the provider shipped: the line is
+simply not there. No version is checked anywhere.
 
-Do Not Disturb, with calls on the allow list. Notifications still arrive, still appear in the shade
-and still draw on the lock face — they make no sound. Calls ring at the normal ring volume. Nothing
-is turned down, so there is nothing to put back, and no timing to get wrong.
+### Reminders that never made the face
 
-It runs as a **Do Not Disturb rule this app owns**, added through `addAutomaticZenRule`, rather than
-by writing the phone's global Do Not Disturb switch. The framework combines rules, so a Do Not
-Disturb you turned on yourself is not silently overwritten by this one turning off. Where a build
-refuses the rule, the global switch is the fallback, and then the four numbers of the policy it
-displaced are saved and put back on the way out.
+Reported from a real phone: BrightNotebook reminders buzzed and did not show on the face. The
+whole pipeline was audited — the Notebook's channel is IMPORTANCE_HIGH, its title and text are
+filled, every flag on it is clearable, and the face's reading of styled notifications has been
+robust since v3.87. The one gate left that could drop it was the importance test itself: the
+ranked figure arrives *as adjusted* by the platform, and LightOS has no notification-settings
+screen, so an adjustment down is invisible and permanent. A reminder, an alarm or a calendar
+event now passes the face's filter on its merits once every persistence check has already passed.
+A demoted chat can wait in the shade; a demoted reminder for the 9:00 is worthless at 9:05.
+BrightWay's ongoing low-importance navigation notification stays ignored — ongoing is ruled out
+before the exception is ever consulted.
 
-**Alarms, media and system sounds are on the allow list.** A zen policy is a whitelist, and a policy
-written to silence text messages and nothing else silences the alarm clock and BrightMusic with them.
+While in there, the last blank-line case went too: a notification whose only words are in
+`EXTRA_SUB_TEXT` now shows them, dead last in the order, instead of an app name over nothing.
 
-Needs `cmd notification allow_dnd`, the same grant the Wi-Fi ringer rules use. The ADB screen has it.
+### Notes
 
-### Two levels
-
-For when notifications should be quieter rather than silent. Two remembered levels: the ring level
-goes on when the phone starts ringing, and the other one comes back when the call ends.
-
-**There is nothing to type in.** The volume keys already set this number and always have. All this
-adds is remembering which of the two you meant, which the phone can work out from whether it was
-ringing at the time. Press them mid-ring and you have set the ring. Press them at any other moment
-and you have set everything else. Both numbers are on the screen so you can watch which one follows
-the keys.
-
-Three things it will not do:
-
-- **Raise a ringer that is down.** A phone on vibrate or silent is somebody's decision, and writing
-  a level into it would unmute it. The feature stands down completely.
-- **Argue with the Wi-Fi ringer.** A network marked silent means silent, calls included. A claim
-  held by `WifiRinger` outranks a call, and a claim arriving mid-ring unwinds the boost.
-- **Re-assert a level you moved.** Turn the ring down while it is ringing and it stays down, and
-  that new number is what the next ring uses. Same rule as the speakerphone boost.
-
-**The first moment of a ring can be quiet.** The telephony broadcast and the ringtone start at about
-the same instant, so there is a fraction of a second where the old level is still playing. It cannot
-be removed from an app — the only earlier hook is a `CallScreeningService`, and LightOS's own dialer
-holds that role. It is small, because a volume change applies to a ringtone that is already playing:
-the ring comes up to level before the first repeat, which is roughly what a ramping ringer does on
-purpose.
-
-### The failure this was built around
-
-A process killed between raising the level and putting it back leaves the phone loud for ever, and
-LightOS has no volume screen to discover that on. So the marker is in `SharedPreferences` rather than
-in a field, every service bind reconciles it, and a ring that nothing ever ended unwinds itself after
-three minutes. The same care is taken with the other mode for the same reason: LightOS ships no Do
-Not Disturb screen either, so a phone left in Do Not Disturb by a crashed process could not be got
-out of it by any other means. Every bind re-asserts the off state as firmly as the on state.
-
-### Under it
-
-`audio/SplitDecision.kt` is the rule engine, pure Kotlin with 22 tests, in the same shape as
-`RingerDecision` — because the interesting cases here are the ones nobody hits until the phone is in
-a pocket. `audio/RingerSplit.kt` is the Android side and `audio/QuietNotes.kt` owns the zen rule. The
-call state comes from `LockCall`, which this app already runs unconditionally and which reads
-telephony, the audio mode and the call notification together, because on this phone no one of the
-three is reliable on its own.
-
-Answered is not ringing: a picked-up call puts the level straight back, so a notification arriving
-mid-conversation is at the notification level.
+Swiping a notification off the face, and everything about how that respects un-clearable rows,
+shipped long ago and is unchanged here. New this release is only what is listed above.

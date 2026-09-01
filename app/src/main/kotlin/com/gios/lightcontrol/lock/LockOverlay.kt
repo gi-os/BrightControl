@@ -122,6 +122,16 @@ class LockOverlay(private val context: Context) {
     private var mediaLeft: MediaGlyph? = null
     private var mediaRight: MediaGlyph? = null
 
+    // ---- directions. See [LockNav] for the contract with BrightWay's provider.
+    private val nav = LockNav(context)
+    private var navRow: LinearLayout? = null
+    private var navInstruction: TextView? = null
+    private var navSecondary: TextView? = null
+
+    // ---- the next thing on the calendar. See [LockNextUp] for the Notebook contract.
+    private val nextUp = LockNextUp(context)
+    private var nextUpLine: TextView? = null
+
     // ---- the call card. See [LockCall] for why the face has to draw this itself.
     private var callRow: LinearLayout? = null
     private var callLabel: TextView? = null
@@ -163,6 +173,9 @@ class LockOverlay(private val context: Context) {
         // The row is driven by the session, not by the minute ticker -- a track changes when it
         // changes, and repainting the clock is no reason to redraw a cover.
         media.onChange = { track -> runCatching { renderMedia(track) } }
+        // Same shape for the two providers: driven by their own changes, not by the ticker.
+        nav.onChange = { step -> runCatching { renderNav(step) } }
+        nextUp.onChange = { entry -> runCatching { renderNextUp(entry) } }
     }
 
     /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
@@ -246,6 +259,10 @@ class LockOverlay(private val context: Context) {
         content.alpha = 0f
         handler.removeCallbacks(fadeIn)
         handler.postDelayed(fadeIn, HOLD_DARK_MS)
+        // The panel is lighting: ask both providers again. notifyChange is best-effort on one
+        // and skipped against a dark panel on both, and this is the moment staleness would show.
+        nav.requery()
+        nextUp.requery()
     }
 
     /**
@@ -353,6 +370,10 @@ class LockOverlay(private val context: Context) {
             face?.animate()?.cancel()
             face?.alpha = 0f
             resetEnter()
+            // A window that survived the cycle kept its watchers; a fresh lock cycle still
+            // re-asks the two providers, which is the "query on face show" half of the contract.
+            nav.requery()
+            nextUp.requery()
             refresh()
             return
         }
@@ -382,6 +403,9 @@ class LockOverlay(private val context: Context) {
                 // and a session callback firing all day for a face that is not up is exactly the
                 // battery bug the screen-on poll already had once.
                 if (mediaRow != null) media.start()
+                // Same rule as the media session: watchers belong to the window, not the service.
+                if (navRow != null) nav.start()
+                if (nextUpLine != null) nextUp.start()
                 runCatching { refresh() }
             }
     }
@@ -398,6 +422,8 @@ class LockOverlay(private val context: Context) {
     fun hide(): Boolean {
         stopTicking()
         media.stop()
+        nav.stop()
+        nextUp.stop()
         LockNotes.onChange = null
         handler.removeCallbacks(fadeIn)
         handler.removeCallbacks(holdEnter)
@@ -417,6 +443,10 @@ class LockOverlay(private val context: Context) {
         mediaTitle = null
         mediaArtist = null
         mediaPlay = null
+        navRow = null
+        navInstruction = null
+        navSecondary = null
+        nextUpLine = null
         callRow = null
         callLabel = null
         callWho = null
@@ -542,9 +572,26 @@ class LockOverlay(private val context: Context) {
         }
         middle.addView(time)
         middle.addView(day)
+        // One quiet line under the date: the next thing on the calendar. Built once and GONE,
+        // never inserted; hidden is the ordinary case and must cost no layout.
+        val next = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(DIM)
+            textSize = type.superfine
+            letterSpacing = type.subheadingTracking
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
+            setPadding(0, type.gridPx(0.5f), 0, 0)
+        }
+        middle.addView(next)
         // Above the shade and under the clock. A ringing phone is the most important thing this
         // screen can be saying, and it is the one thing on it with buttons.
         middle.addView(buildCall())
+        // The turn you are on, when BrightWay is navigating. Above the notes: mid-trip the next
+        // street matters more than the shade, and mid-trip is the only time the row exists.
+        middle.addView(buildNav())
         middle.addView(noteList)
         column.addView(middle)
 
@@ -611,6 +658,7 @@ class LockOverlay(private val context: Context) {
         // [LockFrame], which is where all of it is read.
 
         face = content
+        nextUpLine = next
         enterHint = enter
         progressLine = progress
         clock = time
@@ -1147,6 +1195,87 @@ class LockOverlay(private val context: Context) {
         mediaArt?.setImageBitmap(track.art)
     }
 
+    // ------------------------------------------------------------------------ directions
+
+    /**
+     * The nav row: the instruction, and one line of numbers under it.
+     *
+     * Built once and hidden, like every other row on this face. Deliberately **not** touchable
+     * and deliberately not dismissable: it has no children with listeners, so a hold or a swipe
+     * that starts on it still belongs to the frame, and [LockFrame.rowAt] does not offer it to
+     * the sideways drag -- a turn you are mid-way through is not a notification to wave off. It
+     * goes away when the trip does, which the empty cursor announces.
+     *
+     * Greyscale by design, like the cover art: `lineColor` never reaches this row. The
+     * instruction BrightWay writes already names the line where one matters.
+     */
+    private fun buildNav(): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, type.gridPx(1f), 0, type.gridPx(0.5f))
+        }
+        val instruction = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(Color.WHITE)
+            textSize = type.copy
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val secondary = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(DIM)
+            textSize = type.superfine
+            letterSpacing = type.subheadingTracking
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setPadding(0, type.gridPx(0.3f), 0, 0)
+        }
+        row.addView(instruction)
+        row.addView(secondary)
+        navRow = row
+        navInstruction = instruction
+        navSecondary = secondary
+        return row
+    }
+
+    /** Put the turn on screen, or take the row away when the trip is over. */
+    private fun renderNav(step: LockNavStep?) {
+        val row = navRow ?: return
+        if (step == null || step.instruction.isBlank()) {
+            row.visibility = View.GONE
+            return
+        }
+        navInstruction?.text = step.instruction
+        navSecondary?.text =
+            NavText.secondary(step.distanceM, step.etaMinutes, step.stepIndex, step.stepCount)
+        row.visibility = View.VISIBLE
+    }
+
+    // ------------------------------------------------------------------------ next up
+
+    /**
+     * The quiet line under the date, or nothing -- which is the ordinary case and must look
+     * deliberate. The label is rebuilt on every repaint rather than cached, because "TODAY"
+     * becomes wrong at midnight and the minute ticker is already paying for the clock.
+     */
+    private fun renderNextUp(entry: LockNextUpEntry?) {
+        val line = nextUpLine ?: return
+        if (entry == null || entry.title.isBlank()) {
+            line.visibility = View.GONE
+            return
+        }
+        line.text = NextUpText.label(
+            startAt = entry.startAt,
+            allDay = entry.allDay,
+            now = System.currentTimeMillis(),
+            zone = java.time.ZoneId.systemDefault(),
+            title = entry.title,
+        )
+        line.visibility = View.VISIBLE
+    }
+
     /** `superfine` — the top bar is glanced at, not read. */
     private fun barLabel(pad: Int = 0) = TextView(context).apply {
         typeface = type.medium
@@ -1232,6 +1361,8 @@ class LockOverlay(private val context: Context) {
         }
         fillNotes(now)
         renderMedia(media.track)
+        renderNav(nav.state)
+        renderNextUp(nextUp.state)
         renderCall(callState)
     }
 

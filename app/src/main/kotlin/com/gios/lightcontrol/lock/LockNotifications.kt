@@ -435,6 +435,7 @@ class LockNotifications : NotificationListenerService() {
             }.getOrDefault(emptyList()),
             messages = messages(extras),
             summary = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString(),
+            subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
             ticker = n.tickerText?.toString(),
         )
     }
@@ -617,7 +618,18 @@ class LockNotifications : NotificationListenerService() {
         // hide exactly the notification that just arrived.
         val ranked = ranking?.getRanking(sbn.key, scratch) ?: false
         if (!ranked) return true
-        return scratch.importance >= NotificationManager.IMPORTANCE_DEFAULT
+        if (scratch.importance >= NotificationManager.IMPORTANCE_DEFAULT) return true
+        // The one exception to the importance gate. The ranked figure is the channel's importance
+        // *as adjusted* -- by the ranker, by an assistant, by anything on the platform that has
+        // decided an app is quiet -- and LightOS ships no notification-settings screen, so an
+        // adjustment down is one the user can neither see nor undo. BrightNotebook's reminders
+        // were audited end to end when they were reported missing here: the channel is
+        // IMPORTANCE_HIGH, the extras are filled, every flag is clearable -- this line was the
+        // one gate left that could drop a well-formed reminder. A demoted chat can wait in the
+        // shade; a demoted reminder for the 9:00 is worthless at 9:05. Everything persistent,
+        // grouped, hidden-by-name or already-a-call was taken out above, so nothing noisy rides
+        // in on this.
+        return NoteFilter.isTimeCritical(n.category)
     }
 
     private companion object {
@@ -655,6 +667,20 @@ object NoteFilter {
         if (flags and Notification.FLAG_NO_CLEAR != 0) return true
         return category == Notification.CATEGORY_SERVICE
     }
+
+    /**
+     * The categories whose whole point is a moment: a reminder, an alarm, a calendar event.
+     *
+     * The face's one exception to its importance gate, and only after every persistence check has
+     * already passed -- see the caller. BrightWay's ongoing IMPORTANCE_LOW navigation notification
+     * never reaches this test, because ongoing was ruled out first; what this admits is the
+     * clearable, well-formed reminder that something upstream has quietly demoted on a phone
+     * whose user has no screen to undo it on.
+     */
+    fun isTimeCritical(category: String?): Boolean =
+        category == Notification.CATEGORY_REMINDER ||
+            category == Notification.CATEGORY_ALARM ||
+            category == Notification.CATEGORY_EVENT
 }
 
 /**

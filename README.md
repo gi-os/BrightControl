@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.3.** See [Version history](#version-history).
+**Current version: v4.6.** See [Version history](#version-history).
 
 ## What it does
 
@@ -29,7 +29,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
 | **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. The left edge goes back and is on out of the box, because this phone has no back button; the right edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
-| **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
+| **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background. While BrightWay navigates it shows the current turn; when BrightNotebook has something in the next 48 hours, one quiet NEXT UP line under the date |
 | **Volume** | The on-screen volume level LightOS ships without, and a selector for every stream the hardware cannot otherwise reach |
 | **Ringer** | Silent on some Wi-Fi networks, loud on others. The office and the flat are different places |
 | **Calls apart** | A call and a text message at different loudness, on a phone that gives them one number. Silent notifications, or two levels swapped on the ring. **Off by default** |
@@ -1180,6 +1180,9 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.6 | **Directions and the calendar, on the lock face.** While BrightWay navigates, the face carries the current instruction with `450 FT · 12 MIN · 3/8` under it, observed off BrightWay's `nav/current` provider for exactly as long as the window is up — no polling, pings ignored while the panel is dark, re-asked on every wake. A quiet `NEXT UP · 9:30 DENTIST` line under the date reads BrightNotebook's next-entry provider the same way, and is simply absent until that release lands. And a well-formed reminder can no longer be dropped by the importance gate: a ranked importance arrives *as adjusted*, LightOS has no screen to undo an adjustment on, so reminders, alarms and calendar events pass on their merits once every persistence check has passed |
+| v4.5 | **Calls apart.** A call and a text message at different loudness, on a phone whose ROM aliases the two streams into one number. Two ways, both off by default: silent notifications with calls ringing through, or two levels swapped on the ring. See `RELEASE_NOTES.md` history |
+| v4.4 | **The USB adapter's own volume, raised on connect.** Experimental and off by default; the missing 23.5 dB lives in the dongle's own UAC volume unit, which Android never touches |
 | v4.3 | **The system switcher button gets a real tap target.** The "SYSTEM SWITCHER" line at the bottom of the switcher was clickable only across the thin strip of its own text, so a thumb that landed just under it dismissed the list instead of opening the platform's recents. It now carries a full line of air below the text as well as above, and the row budget counts the extra height so no app falls below the fold |
 | v4.2 | **The pairing reader stops mistaking its own screen for the dialog.** The helper that reads the six digits off the Settings pairing dialog was reading the app's own ADB screen too, because that screen's help text says "Pair device with pairing code" and the reader was offered every window regardless of package. It filed a false "could not read the pairing code" report against the setup screen. It now skips any window whose package is not `com.android.settings` before reading it |
 | v4.1 | **One screen for the switcher, and no flash of the app you are leaving.** Every recent-apps setting now sits under *App switcher* on the main menu instead of under Buttons → Home button, where they hung off one gesture on one button and disappeared if you moved the binding. The screen also names which gestures open the list. And picking an app no longer shows the previous one for a few frames on the way: the list used to hide *before* starting the activity, so the gap between the two was the app you were trying to leave — it now stays up until the new app is actually behind it |
