@@ -206,6 +206,8 @@
         <package android:name="com.gios.lightnotebook" />
         <provider android:authorities="com.gios.brightway.nav" />
         <provider android:authorities="com.gios.lightnotebook.nextup" />
+        <package android:name="com.gios.lightfog" />
+        <provider android:authorities="com.gios.lightfog.weather" />
     </queries>
 
     <application

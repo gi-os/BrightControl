@@ -133,6 +133,10 @@ class LockOverlay(private val context: Context) {
     private val nextUp = LockNextUp(context)
     private var nextUpLine: TextView? = null
 
+    // ---- today's weather. See [LockWeather] for the contract with LightFog's provider.
+    private val weather = LockWeather(context)
+    private var weatherLine: TextView? = null
+
     // ---- the call card. See [LockCall] for why the face has to draw this itself.
     private var callRow: LinearLayout? = null
     private var callLabel: TextView? = null
@@ -177,6 +181,7 @@ class LockOverlay(private val context: Context) {
         // Same shape for the two providers: driven by their own changes, not by the ticker.
         nav.onChange = { step -> runCatching { renderNav(step) } }
         nextUp.onChange = { entry -> runCatching { renderNextUp(entry) } }
+        weather.onChange = { entry -> runCatching { renderWeather(entry) } }
     }
 
     /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
@@ -275,6 +280,7 @@ class LockOverlay(private val context: Context) {
         // and skipped against a dark panel on both, and this is the moment staleness would show.
         nav.requery()
         nextUp.requery()
+        weather.requery()
         // And repaint everything once, now. Every tick, battery report and shade change that
         // arrived against the dark panel was ignored; this is the re-ask that rule promised.
         runCatching { refresh() }
@@ -394,6 +400,7 @@ class LockOverlay(private val context: Context) {
             // re-asks the two providers, which is the "query on face show" half of the contract.
             nav.requery()
             nextUp.requery()
+            weather.requery()
             refresh()
             return
         }
@@ -426,6 +433,7 @@ class LockOverlay(private val context: Context) {
                 // Same rule as the media session: watchers belong to the window, not the service.
                 if (navRow != null) nav.start()
                 if (nextUpLine != null) nextUp.start()
+                if (weatherLine != null) weather.start()
                 runCatching { refresh() }
             }
     }
@@ -444,6 +452,7 @@ class LockOverlay(private val context: Context) {
         media.stop()
         nav.stop()
         nextUp.stop()
+        weather.stop()
         // Only if it is still ours -- the same fast-toggle race as the service's [Banners.onShow]
         // guard: the old service's hide() lands after the new service's face has registered its
         // own closure, and clearing unconditionally here froze the new face's shade updates.
@@ -471,6 +480,7 @@ class LockOverlay(private val context: Context) {
         navInstruction = null
         navSecondary = null
         nextUpLine = null
+        weatherLine = null
         callRow = null
         callLabel = null
         callWho = null
@@ -564,6 +574,23 @@ class LockOverlay(private val context: Context) {
         bar.addView(alarmView)
         bar.addView(battery)
         column.addView(bar)
+
+        // One dim line under the status bar: today's weather, when LightFog knows it and knew
+        // it recently. Built once and GONE, never inserted; on a phone without LightFog this
+        // view simply never becomes visible, which costs nothing and claims nothing. Deliberately
+        // not touchable and not dismissable -- it is a status glyph in the shape of a sentence.
+        val wx = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(DIM)
+            textSize = type.superfine
+            letterSpacing = type.subheadingTracking
+            gravity = Gravity.END
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
+            setPadding(0, type.gridPx(0.55f), 0, 0)
+        }
+        column.addView(wx)
 
         val middle = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -683,6 +710,7 @@ class LockOverlay(private val context: Context) {
 
         face = content
         nextUpLine = next
+        weatherLine = wx
         enterHint = enter
         progressLine = progress
         clock = time
@@ -1300,6 +1328,25 @@ class LockOverlay(private val context: Context) {
         line.visibility = View.VISIBLE
     }
 
+    // ------------------------------------------------------------------------ weather
+
+    /**
+     * The dim line under the status bar, or nothing. Empty cursor, absent provider, a fetch
+     * older than [WeatherText.MAX_AGE_MS] -- all the same hidden line, on purpose: stale
+     * weather presented as current is the one way this line could lie. Rebuilt on every
+     * repaint like the next-up line, because the three-hour cutoff moves with the clock.
+     */
+    private fun renderWeather(entry: LockWeatherEntry?) {
+        val line = weatherLine ?: return
+        val text = entry?.let { WeatherText.label(it, System.currentTimeMillis()) }
+        if (text == null) {
+            line.visibility = View.GONE
+            return
+        }
+        line.text = text
+        line.visibility = View.VISIBLE
+    }
+
     /** `superfine` — the top bar is glanced at, not read. */
     private fun barLabel(pad: Int = 0) = TextView(context).apply {
         typeface = type.medium
@@ -1387,6 +1434,7 @@ class LockOverlay(private val context: Context) {
         renderMedia(media.track)
         renderNav(nav.state)
         renderNextUp(nextUp.state)
+        renderWeather(weather.state)
         renderCall(callState)
     }
 
