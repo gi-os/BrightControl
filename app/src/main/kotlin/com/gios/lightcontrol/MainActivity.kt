@@ -56,6 +56,7 @@ import com.gios.lightcontrol.ui.VolumeScreen
 import com.gios.lightcontrol.ui.VolumeAppListScreen
 import com.gios.lightcontrol.ui.VolumeHudAppListScreen
 import com.gios.lightcontrol.ui.VolumeDiagnosticsScreen
+import com.gios.lightcontrol.ui.DacScreen
 import com.gios.lightcontrol.ui.WifiRingerScreen
 import com.gios.lightcontrol.ui.LocalCursor
 import com.gios.lightcontrol.ui.WheelCursor
@@ -91,6 +92,7 @@ private sealed interface Screen {
     data object VolumeApps : Screen
     data object VolumeHudApps : Screen
     data object VolumeDiagnostics : Screen
+    data object Dac : Screen
     data object Color : Screen
     data object PerAppColor : Screen
     data object Lock : Screen
@@ -326,11 +328,16 @@ class MainActivity : ComponentActivity() {
                             onWifiRinger = { screen = Screen.WifiRinger },
                             onVolumeApps = { screen = Screen.VolumeApps },
                             onVolumeHudApps = { screen = Screen.VolumeHudApps },
+                            onDac = { screen = Screen.Dac },
                             onDiagnostics = { screen = Screen.VolumeDiagnostics },
                             onBack = home,
                         )
 
                         Screen.VolumeDiagnostics -> VolumeDiagnosticsScreen(
+                            onBack = { screen = Screen.Volume },
+                        )
+
+                        Screen.Dac -> DacScreen(
                             onBack = { screen = Screen.Volume },
                         )
 
@@ -504,6 +511,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.VolumeApps -> Screen.Volume
     Screen.VolumeHudApps -> Screen.Volume
     Screen.VolumeDiagnostics -> Screen.Volume
+    Screen.Dac -> Screen.Volume
     is Screen.HiddenApps -> screen.back
     is Screen.Notifications -> screen.back
     Screen.Background -> Screen.Lock

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Which devices DacAttachActivity is offered.
+
+  Class 1 is audio, subclass 1 is the audio *control* interface — the one that owns the volume.
+  No vendor or product id, deliberately: the Apple adapter is the one that was measured, but the
+  bug is a host that never sets a standard control, so every adapter with a quiet power-on default
+  has it. A vendor list would fix this for one part number and for nothing anybody else plugs in.
+
+  Matching a class rather than a device means this is offered speakers, interfaces and headsets
+  too. Being offered one costs an invisible activity and a handful of control transfers; the user
+  is asked once per device and can say no, and nothing here writes to a device that reports no
+  volume control. Note that a device is only ever offered while the feature is switched on: the
+  activity is declared disabled and enabled from DacUnlock.setEnabled.
+-->
+<resources>
+    <usb-device class="1" subclass="1" />
+</resources>

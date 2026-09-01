@@ -693,6 +693,41 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("volume_pin", v).apply()
 
     /**
+     * Whether plugging in a USB headphone adapter raises the adapter's own volume.
+     *
+     * **Off, and experimental.** Three separate reasons for that, and none of them is doubt about
+     * the diagnosis:
+     *
+     * - It needs `RECORD_AUDIO`, which the platform requires of any app that enumerates a USB
+     *   audio device and which this feature does not otherwise use. A microphone permission is
+     *   never something to acquire as a side effect of a setting somebody flipped for volume.
+     * - It writes to a device this app did not make, over a control it discovers by asking. That
+     *   works on the adapter it was written against and is a reasonable guess everywhere else,
+     *   which is not the same claim.
+     * - Roughly 23 dB is a large change to make to something in somebody's ears. See
+     *   [dacTrim] for the one guard, and `usb.DacUnlock` for why it is as narrow as it is.
+     *
+     * Switching it on also enables `usb.DacAttachActivity`, which is how the platform hands this
+     * app a device it is allowed to open. Switching it off disables the component again, so off
+     * means no dialog and no window, not merely a check that fails later.
+     */
+    var dacUnlock: Boolean
+        get() = sp.getBoolean("dac_unlock", false)
+        set(v) = sp.edit().putBoolean("dac_unlock", v).apply()
+
+    /**
+     * Whether the unlock pulls the media level down when it lands on a phone that is playing.
+     *
+     * On. The unlock is worth about 23 dB and the ordinary way to use an adapter is to plug it in
+     * while something is already coming out of it, so the dangerous case is the common one. Narrow
+     * on purpose: nothing playing means nothing is moved, and a level lowered here is lowered once
+     * and never re-asserted.
+     */
+    var dacTrim: Boolean
+        get() = sp.getBoolean("dac_trim", true)
+        set(v) = sp.edit().putBoolean("dac_trim", v).apply()
+
+    /**
      * Apps that take the volume keys for themselves, so a press in one is not a volume change.
      *
      * There is no way to ask whether the app in front swallowed a key — the accessibility filter

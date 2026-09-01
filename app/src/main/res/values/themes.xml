@@ -8,4 +8,14 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <!--
+      For an activity that exists to be handed a USB device and then finish. It has no layout and
+      lives for less than a frame; without this it would still paint a black window over whatever
+      the user was looking at every time they plugged headphones in. See usb/DacAttachActivity.kt.
+    -->
+    <style name="Theme.LightControl.Invisible" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowNoDisplay">true</item>
+    </style>
+
 </resources>

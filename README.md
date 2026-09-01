@@ -32,6 +32,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background |
 | **Volume** | The on-screen volume level LightOS ships without, and a selector for every stream the hardware cannot otherwise reach |
 | **Ringer** | Silent on some Wi-Fi networks, loud on others. The office and the flat are different places |
+| **Wired headphones** | Sets the USB-C adapter's own volume, which Android never does — measured at 23.5 dB below an iPhone through the same Apple adapter. **Experimental, and off by default** |
 | **ADB and grants** | The phone grants itself every permission it needs, over its own wireless debugging |
 | **Wi-Fi login** | A captive-portal sign-in page. **In development. It may not work** |
 | **Hotspot** | Raises the hotspot when a paired iPad is near. **In development. It may not work** |

@@ -187,6 +187,7 @@ fun VolumeScreen(
     onWifiRinger: () -> Unit,
     onVolumeApps: () -> Unit,
     onVolumeHudApps: () -> Unit,
+    onDac: () -> Unit,
     onDiagnostics: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -286,6 +287,16 @@ fun VolumeScreen(
             sub = "its own screens have their own volume control — except during a call, where " +
                 "the dialer has none and the strip is the only feedback there is",
             dim = true,
+        )
+        Rule()
+
+        SectionLabel("WIRED HEADPHONES")
+        MenuRow(
+            label = "Louder through a USB-C adapter",
+            detail = if (prefs.dacUnlock) "ON" else "›",
+            sub = "the adapter has a volume of its own and Android never sets it — 23.5 dB below " +
+                "an iPhone through the same one, measured. Experimental, and off.",
+            onClick = onDac,
         )
         Rule()
 

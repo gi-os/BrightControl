@@ -169,6 +169,32 @@
     -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      The USB headphone adapter's own volume - experimental, off by default, and the reason a
+      microphone permission is in this manifest.
+
+      Android omits any USB device with an audio-class interface from `UsbManager.getDeviceList()`
+      and refuses to open it unless the calling app holds RECORD_AUDIO. That is deliberate on the
+      platform's part: a USB audio device is a microphone as often as it is a speaker. Nothing here
+      opens an audio input - no AudioRecord, no MediaRecorder anywhere in this app - and the
+      permission is only ever *requested* from the DAC screen, once the user has switched the
+      feature on. Declining it leaves the feature inert and the screen says which grant is missing.
+
+      An ordinary runtime prompt, so it is deliberately NOT in adb/SelfGrant.kt: a screen whose
+      button runs every grant in one go must not be the thing that hands this app a microphone.
+
+      See usb/DacUnlock.kt for what it does with the device once it has one.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      Required="false" on purpose. Host mode is what carries the adapter, and a phone without it
+      simply never has one attached - which the feature already handles, because "no USB audio
+      device attached" is one of the outcomes the DAC screen reports. Marking it required would
+      make this app uninstallable on a phone that lacks it, to no gain.
+    -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -221,6 +247,41 @@
                 <action android:name="android.net.conn.CAPTIVE_PORTAL" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+        </activity>
+
+        <!--
+          The invisible window that carries the USB permission. Experimental; see
+          usb/DacAttachActivity.kt for why it has to be an activity and usb/DacUnlock.kt for what
+          it triggers.
+
+          android:enabled="false" is load-bearing. With this component live the platform asks the
+          user which app should handle every audio adapter they plug in, whether or not the feature
+          is switched on - a dialog earned by nothing. DacUnlock.setEnabled flips it with
+          setComponentEnabledSetting when the setting changes, so off means no filter, no dialog and
+          no window.
+
+          exported="true" because the sender is the system, delivering USB_DEVICE_ATTACHED. Nothing
+          that arrives is trusted for anything: the only field read is EXTRA_DEVICE, and a device
+          this app has not been granted permission for cannot be opened whatever the intent says.
+
+          noHistory + excludeFromRecents + an empty taskAffinity keep it out of the recents list and
+          out of the task the user was already in; the translucent theme and the null window
+          animation keep it off the screen. It finishes inside onCreate.
+        -->
+        <activity
+            android:name=".usb.DacAttachActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.LightControl.Invisible">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_audio_devices" />
         </activity>
 
         <!--

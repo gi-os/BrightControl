@@ -40,6 +40,7 @@ import com.gios.lightcontrol.hotspot.SoftAp
 import com.gios.lightcontrol.TurnAction
 import com.gios.lightcontrol.lock.Lock
 import com.gios.lightcontrol.lock.LockCall
+import com.gios.lightcontrol.usb.DacWatcher
 import com.gios.lightcontrol.lock.LockCallState
 import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.lock.LockOverlay
@@ -220,6 +221,13 @@ class ControlService : AccessibilityService() {
     private lateinit var callAudio: CallAudio
 
     /**
+     * USB headphone adapters, plugged and unplugged. Experimental, off by default, and inert
+     * unless [Prefs.dacUnlock] is on — see [DacWatcher] for why the service listens as well as
+     * the activity that carries the permission.
+     */
+    private lateinit var dac: DacWatcher
+
+    /**
      * True while the face has stood down for a call in progress rather than been dismissed.
      *
      * The two are not the same and must not be stored the same way. A dismiss is the user saying
@@ -376,6 +384,12 @@ class ControlService : AccessibilityService() {
         lockCall.onChange = { state -> runCatching { onCallChanged(state) } }
         lockCall.onTick = { runCatching { callAudio.check() } }
         lockCall.start()
+        // Not gated on `prefs.enabled`, and not gated on its own setting here either: the receiver
+        // is cheap, and DacUnlock reads the setting at the event. Gating registration would mean a
+        // setting switched on mid-session did nothing until the next rebind, which is the shape of
+        // a feature that "works after a reboot" and reads as broken before one.
+        dac = DacWatcher(this) { line -> log(line) }
+        dac.start()
         lockFace.onAnswerCall = { runCatching { answerCall() } }
         lockFace.onDeclineCall = { runCatching { declineCall() } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
@@ -2148,6 +2162,7 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         bound = false
         runCatching { unregisterReceiver(screenOff) }
+        if (::dac.isInitialized) runCatching { dac.stop() }
         colorObserver?.let { observer ->
             colorObserver = null
             runCatching { contentResolver.unregisterContentObserver(observer) }
