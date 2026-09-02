@@ -1,39 +1,46 @@
-## BrightControl v4.13 — Wi-Fi: join the networks Settings calls "not supported"
+## BrightControl v4.14 — Wi-Fi joins without the shell
 
-*This network ("DFS Guest") is not supported by The Light Phone.* That is what LightOS Settings
-says to an open network, and it is a rule in Light's Settings app — the Android Wi-Fi stack
-underneath it is stock and will join anything. This app already holds the phone's own shell for
-its grants, and the shell has `cmd wifi`, the tool the platform's own tests join networks with. So
-the Wi-Fi login screen is now a Wi-Fi screen, and it joins.
+v4.13's Wi-Fi screen failed on its first outing: *Scan failed: the connection is gone and could not
+be picked back up*, standing next to the network it wanted. The reason is structural, not a bug in
+the connection code. Android's `AdbDebuggingManager` refuses to start the wireless debugging daemon
+unless the phone is already on a Wi-Fi network, and switches it off the moment Wi-Fi drops. The
+shell this app holds therefore cannot exist at the one moment this screen matters: off Wi-Fi,
+wanting on. Chicken, egg.
 
-### What it does
+### The second route: suggest
 
-- **Scans** over the shell (`cmd wifi start-scan`, then `list-scan-results`) and lists every network
-  it hears, one row per SSID, strongest first, with signal bars, band (2.4 / 5 / 6 GHz) and security.
-- **Joins** with `cmd wifi connect-network <ssid> open|owe|wpa2|wpa3 [passphrase]`. Open and OWE
-  networks join on a tap; WPA2 and WPA3 ask for the password (a WPA2/WPA3 transition AP is joined
-  as WPA2, which every AP that advertises PSK accepts). Enterprise (802.1X) and WEP are shown greyed:
-  the shell cannot supply a certificate, and will not add WEP.
-- **Watches the verdict.** `cmd wifi status` confirms the association within 20 s; then the network's
-  capability bits decide the next step. VALIDATED means online. CAPTIVE_PORTAL, or connected but
-  still unvalidated after 12 s, means a login page — and the portal screen (v4.12's, with its log)
-  opens by itself.
-- **Saved networks** are listed with FORGET (`forget-network <id>`), and a switched-off radio gets
-  a TURN ON row.
-- If the shell is not paired yet, the screen says so and sends you to ADB & grants.
+A plain app on Android 10+ cannot join a network itself, but it can **suggest** one
+(`WifiNetworkSuggestion`), and the system joins it on its next scan. Off Wi-Fi, the screen now does
+that: pick a network, and Android joins it — with a password for WPA2/WPA3, enhanced-open for OWE.
+Suggestions are kept, so a network joined once is rejoined on its own next time, and the KNOWN TO
+THIS PHONE list shows them with FORGET.
 
-### Why the shell and not the Wi-Fi APIs
+Scanning off Wi-Fi is `WifiManager.getScanResults`, which Android gates behind fine location *and*
+the location toggle. Both are checked and named on the screen, with a GRANT row that asks the
+normal way (ADB & grants already gives it silently) and a row that opens location settings.
 
-A third-party app on Android 10+ cannot join a network of its own choosing. `addNetwork` returns -1;
-the suggestion API only lets the *system* pick the network up later and needs a per-app approval
-that LightOS has no UI for; a `WifiNetworkSpecifier` request yields a network the system refuses to
-route the internet over. The shell has none of those limits, and this app has the shell.
+### The catch, and three ways round it
 
-### Details
+Android ignores an app's suggestions until the user has approved that app once, through a
+notification with Allow / No thanks — a notification LightOS has no shade to answer from. So:
 
-- `wifi/WifiShell.kt`: pure parsers for `list-scan-results`, `list-networks` and `status`, the
-  `connect-network` line (single-quoted for `sh`, because SSIDs have spaces and passphrases have
-  everything), and the blocking calls over `AdbManager.runVia`. Unit-tested.
-- `ui/WifiScreen.kt` replaces `WifiLoginScreen.kt`; the home row is now **Wi-Fi**.
-- The THIS PHONE diagnostics (WebView, login-page detection) and the MAC-clone fallback stay at the
-  bottom of the screen.
+- **Self-grant.** `cmd wifi network-suggestions-set-user-approved com.gios.lightcontrol yes` is a
+  step in ADB & grants now, verified with the new `GrantCheck.ShellSays` (runs
+  `network-suggestions-has-user-approved` and reads the `yes`). Run it once at home and the café
+  is already approved.
+- **The APPROVAL row.** Whenever the shell is reachable (on Wi-Fi), the row shows the current
+  answer and offers APPROVE.
+- **Press the notification's own button.** This app's notification listener can see the system's
+  question. `LockNotes.approvalAction` finds an action titled Allow/Yes/Accept on a notification
+  that names this app and a network, and the screen shows ALLOW — ANSWER ANDROID'S QUESTION, which
+  fires that action's PendingIntent. Checked during a join, when the question appears.
+
+### What stays
+
+On Wi-Fi with the shell up, the v4.13 route is still used: `cmd wifi connect-network` joins
+instantly, `list-networks`/`forget-network` manage saved networks, and the radio can be switched on.
+The screen decides per action, and says which route it is on ("joining X (suggestion)…"). After
+either route: association within 30 s, then the system's verdict — VALIDATED is online, anything
+else opens the login page.
+
+THIS PHONE gained a *Shell* row that says plainly why it is unreachable off Wi-Fi.

@@ -55,6 +55,13 @@ sealed interface GrantCheck {
      * service, which then asks the user per app in its own UI, so there is no state here that
      * says whether it worked. Reported honestly as unknown rather than dressed up as success.
      */
+    /**
+     * A grant the platform keeps nowhere this app can read — only the shell can ask. The command
+     * is run and its output is looked at for a word; `cmd wifi network-suggestions-has-user-approved`
+     * answers `yes`/`no`, which is the case this exists for.
+     */
+    data class ShellSays(val command: String, val expect: String) : GrantCheck
+
     data object None : GrantCheck
 }
 
@@ -196,6 +203,9 @@ object GrantCheckRunner {
             cur.split(':').any { expand(it.trim()) == want }
         }.getOrNull()
 
+        is GrantCheck.ShellSays -> runCatching {
+            adb.runCommand(check.command).contains(check.expect, ignoreCase = true)
+        }.getOrNull()
         GrantCheck.None -> null
     }
 

@@ -186,6 +186,44 @@ object LockNotes {
         service = listener
     }
 
+    /**
+     * The "Allow" on the system's *"Allow Controls to suggest networks?"* notification, if it is
+     * up — as something that presses it. Null when there is no such notification, or no listener.
+     *
+     * The Wi-Fi screen hands networks to the system as suggestions, and the system asks the user
+     * once, per app, whether to accept them: a notification with Allow / No thanks. LightOS draws
+     * no shade to answer it from, so the question would sit there forever and every suggestion
+     * would be silently ignored. This listener can see the notification, and its action carries
+     * the PendingIntent the button would have fired. Matched on words rather than ids: the
+     * platform's strings and package differ across releases, but the text always names this app
+     * and a network, and the affirmative button is one of three words.
+     */
+    fun approvalAction(context: Context): (() -> Boolean)? {
+        val listener = service ?: return null
+        val active = runCatching { listener.activeNotifications }.getOrNull() ?: return null
+        val appName = runCatching { context.applicationInfo.loadLabel(context.packageManager).toString() }.getOrDefault("Controls")
+        for (sbn in active) {
+            val n = sbn.notification ?: continue
+            val extras = n.extras ?: continue
+            val text = listOf(
+                extras.getCharSequence(Notification.EXTRA_TITLE),
+                extras.getCharSequence(Notification.EXTRA_TEXT),
+                extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
+            ).joinToString(" ")
+            val aboutUs = text.contains(appName, ignoreCase = true) || text.contains("BrightControl", ignoreCase = true)
+            val aboutWifi = text.contains("network", ignoreCase = true) || text.contains("wi-fi", ignoreCase = true) ||
+                text.contains("wifi", ignoreCase = true)
+            if (!aboutUs || !aboutWifi) continue
+            val allow = n.actions?.firstOrNull { a ->
+                val t = a.title?.toString()?.trim() ?: return@firstOrNull false
+                t.equals("Allow", true) || t.equals("Yes", true) || t.equals("Accept", true) || t.equals("OK", true)
+            } ?: continue
+            val intent = allow.actionIntent ?: continue
+            return { runCatching { intent.send(); true }.getOrDefault(false) }
+        }
+        return null
+    }
+
     internal fun publish(list: List<LockNote>) {
         state.value = list
         runCatching { onChange?.invoke() }

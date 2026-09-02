@@ -76,6 +76,15 @@ object SelfGrant {
             "pm grant $PKG android.permission.ACCESS_BACKGROUND_LOCATION",
             GrantCheck.Permission(PKG, "android.permission.ACCESS_BACKGROUND_LOCATION"),
         ),
+        // The Wi-Fi screen joins networks by *suggesting* them to the system, because the shell
+        // itself needs Wi-Fi to exist (wireless debugging stops without it). Suggestions from an
+        // app are ignored until the user approves that app once, through a notification LightOS
+        // has no shade for — so the approval is given here, over the shell, while it is reachable.
+        Step(
+            "Join Wi-Fi networks (approve this app's suggestions)",
+            "cmd wifi network-suggestions-set-user-approved $PKG yes",
+            GrantCheck.ShellSays("cmd wifi network-suggestions-has-user-approved $PKG", "yes"),
+        ),
         Step(
             "Lock-screen notifications",
             "cmd notification allow_listener $PKG/.lock.LockNotifications",
