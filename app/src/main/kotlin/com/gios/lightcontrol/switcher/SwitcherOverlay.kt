@@ -166,33 +166,21 @@ class SwitcherOverlay(private val context: Context) {
      * aiming at — was drawn below the fold on a list that deliberately cannot be scrolled by
      * finger.
      *
-     * Worked out from the same numbers the view is built from: the panel's height, the grid units
-     * of padding above and below, the header and the hint, one row of type plus its own padding,
-     * and — when [pinned] — the HOME heading over the row at the bottom. [FLOOR] is the honest minimum — a switcher showing fewer than three apps is not
-     * worth the gesture — and the ceiling stops a tablet-sized surface turning this into a
-     * launcher.
+     * The arithmetic itself lives in [SwitcherFit], where a JVM test can hold it against the
+     * LPIII's real panel — because this number rotted once already, quietly. Every piece of
+     * furniture this screen gained (the way-out button, the HOME heading, wider tap air) was
+     * subtracted here, each one defensible alone, until on a 1240px panel the room left for the
+     * list was 2.9 rows and [SwitcherFit.FLOOR] had been silently deciding the answer for days.
+     * A floor that is always the answer is not a floor, it is the capacity — and nothing said so.
      */
     fun capacity(pinned: Boolean): Int {
         val metrics = context.resources.displayMetrics
-        // The icon is drawn exactly one line tall (see [iconPx]), so a row with one in it is the
-        // same height as a row without -- which is why this arithmetic does not mention it.
-        val rowPx = type.gridPx(0.75f) * 2f + sp(type.copy * SCALE) * LINE_SPACING
-        val labelPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(1f)
-        val hintPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f)
-        // The way-out button, one line plus the air above and below it. Counted here for the same
-        // reason the header and the hint are: a row this arithmetic forgets about is a row drawn
-        // below the fold of a list that cannot be scrolled by finger, and it is always the app
-        // furthest back -- the one a switcher is for.
-        val buttonPx = sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f) * 2f
-        // The HOME heading over the pinned row, and the air around it. Counted for the same reason
-        // as everything else here: the row this arithmetic forgets is the app furthest back. Zero
-        // when the row is switched off, because charging a screen for something it is not drawing
-        // is a row of recents spent on nothing.
-        val pinPx = if (pinned) sp(type.superfine * SCALE) * LINE_SPACING + type.gridPx(2f) else 0f
-        val padding = type.gridPx(3f) + type.gridPx(3f)
-        val room = metrics.heightPixels - padding - labelPx - hintPx - buttonPx - pinPx
-        if (rowPx <= 0f) return FLOOR
-        return (room / rowPx).toInt().coerceIn(FLOOR, CEILING)
+        return SwitcherFit.capacity(
+            widthPx = metrics.widthPixels.toFloat(),
+            heightPx = metrics.heightPixels.toFloat(),
+            fontScale = context.resources.configuration.fontScale,
+            pinned = pinned,
+        )
     }
 
     private fun sp(value: Float): Float = TypedValue.applyDimension(
@@ -341,9 +329,16 @@ class SwitcherOverlay(private val context: Context) {
         }
         val col = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            // The SDK's grid: one unit in from the sides, three of top bar. The same figures as
-            // the lock face, so the two screens this app draws look like one phone.
-            setPadding(type.gridPx(1f), type.gridPx(3f), type.gridPx(1f), type.gridPx(3f))
+            // The SDK's grid: one unit in from the sides, three of top bar — the same figures as
+            // the lock face, so the two screens this app draws look like one phone. The *bottom*
+            // is half a unit, not three: nothing sits under the hint but the edge of the glass,
+            // and on a panel this short three units of margin there was most of a row of recents.
+            setPadding(
+                type.gridPx(1f),
+                type.gridPx(SwitcherFit.TOP_PAD),
+                type.gridPx(1f),
+                type.gridPx(SwitcherFit.BOTTOM_PAD),
+            )
         }
         scroll.addView(
             col,
@@ -368,7 +363,7 @@ class SwitcherOverlay(private val context: Context) {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.medium
                 letterSpacing = type.buttonTracking
-                setPadding(0, 0, 0, type.gridPx(1f))
+                setPadding(0, 0, 0, type.gridPx(SwitcherFit.LABEL_AIR))
             },
         )
         // Asked of the recents rather than of the whole list: Home is pinned whether or not
@@ -383,7 +378,7 @@ class SwitcherOverlay(private val context: Context) {
                     setTextColor(DIM)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
                     typeface = type.regular
-                    setPadding(0, type.gridPx(0.75f), 0, type.gridPx(0.75f))
+                    setPadding(0, type.gridPx(SwitcherFit.ROW_AIR), 0, type.gridPx(SwitcherFit.ROW_AIR))
                 },
             )
         }
@@ -396,7 +391,10 @@ class SwitcherOverlay(private val context: Context) {
                 text = entry.label
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.copy * SCALE)
                 typeface = type.regular
-                setPadding(0, type.gridPx(0.75f), 0, type.gridPx(0.75f))
+                // Half a unit of air, not three quarters: the difference, times every row plus
+                // every piece of furniture below the list, is what pays for a fifth row on the
+                // LPIII. The height itself is still the icon's -- see [iconPx].
+                setPadding(0, type.gridPx(SwitcherFit.ROW_AIR), 0, type.gridPx(SwitcherFit.ROW_AIR))
                 // The app's own icon, inline, ahead of its name. A switcher is read at a glance
                 // and a column of names is a column of things that have to be read; the icon is
                 // the part of an app you already know by shape. It is a compound drawable rather
@@ -435,7 +433,7 @@ class SwitcherOverlay(private val context: Context) {
                 setTextColor(DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
                 typeface = type.regular
-                setPadding(0, type.gridPx(2f), 0, 0)
+                setPadding(0, type.gridPx(SwitcherFit.HINT_AIR), 0, 0)
             },
         )
         status = TextView(context).apply {
@@ -464,7 +462,7 @@ class SwitcherOverlay(private val context: Context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
         typeface = type.medium
         letterSpacing = type.buttonTracking
-        setPadding(0, type.gridPx(1.5f), 0, type.gridPx(0.5f))
+        setPadding(0, type.gridPx(SwitcherFit.PIN_AIR_TOP), 0, type.gridPx(SwitcherFit.PIN_AIR_BOTTOM))
     }
 
     /**
@@ -483,12 +481,12 @@ class SwitcherOverlay(private val context: Context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, type.superfine * SCALE)
         typeface = type.medium
         letterSpacing = type.buttonTracking
-        // A full line of air above and below the text, not just the text itself: this is the
-        // control at the very bottom of the screen, where a thumb is reaching, and a clickable
-        // strip only as tall as the superfine type was a tap that missed and closed the list.
-        // The bottom padding is counted in [capacity], so a taller button costs a row there
-        // rather than pushing the last app below the fold.
-        setPadding(0, type.gridPx(2f), 0, type.gridPx(2f))
+        // A unit of air above and below the text, inside the clickable: a strip only as tall
+        // as the superfine type was a tap that missed and closed the list, and this target is
+        // still two and a half of those. It was two units each side once, which read as safe and
+        // cost most of a row of recents on a panel with 1240px to spend -- the air is counted in
+        // [SwitcherFit], so every extra unit here is a row the list does not get.
+        setPadding(0, type.gridPx(SwitcherFit.BUTTON_AIR), 0, type.gridPx(SwitcherFit.BUTTON_AIR))
         isClickable = true
         // Tap only. It briefly carried App info on a hold as well, which put two answers on the
         // one control furthest from the app they were about -- the app is the row, and the gesture
@@ -586,14 +584,8 @@ class SwitcherOverlay(private val context: Context) {
         const val HOME_KEY = "\u0000home"
 
 
-        /** Fewer than this and the gesture is not worth making. */
-        const val FLOOR = 3
-
-        /** More than this and it is a launcher, not a switcher. */
-        const val CEILING = 12
-
         /** Roughly what a line of this type occupies, including its own leading. */
-        const val LINE_SPACING = 1.3f
+        const val LINE_SPACING = SwitcherFit.LINE_SPACING
 
         /** How long it waits with nothing pressed before closing itself. */
         const val IDLE_MS = 6_000L
@@ -603,9 +595,9 @@ class SwitcherOverlay(private val context: Context) {
          *
          * The one deliberate departure from `LightType` in this app. The switcher is read at
          * arm's length in the second between deciding to leave an app and leaving it, which is
-         * not the reading distance the SDK's body scale is set for, and a list of eight rows has
-         * the room to spend.
+         * not the reading distance the SDK's body scale is set for. The number lives in
+         * [SwitcherFit] beside the arithmetic it inflates.
          */
-        const val SCALE = 1.15f
+        const val SCALE = SwitcherFit.SCALE
     }
 }
