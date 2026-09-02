@@ -86,6 +86,7 @@ class PortalActivity : ComponentActivity() {
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
     private lateinit var loadAnyway: TextView
+    private lateinit var vpnSettings: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var done = false
 
@@ -206,6 +207,29 @@ class PortalActivity : ComponentActivity() {
             setMargins(dp(16), 0, dp(16), dp(8))
         })
 
+        // Only ever shown when a VPN is what stopped the bind. LightOS may not have this Settings
+        // screen at all; the tap says so if not.
+        vpnSettings = TextView(this).apply {
+            text = "OPEN VPN SETTINGS"
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            visibility = View.GONE
+            setOnClickListener {
+                log.add("user opened VPN settings")
+                runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }
+                    .onFailure {
+                        log.add("no VPN settings screen: ${it::class.java.simpleName}")
+                        status.text = "This phone has no VPN settings screen. Turn the VPN off in its own app, then reopen this."
+                    }
+            }
+        }
+        root.addView(vpnSettings, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+            setMargins(dp(16), 0, dp(16), dp(8))
+        })
+
         val frame = FrameLayout(this)
         root.addView(frame, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
 
@@ -290,8 +314,33 @@ class PortalActivity : ComponentActivity() {
         val bound = cm.bindProcessToNetwork(net)
         log.add("bindProcessToNetwork → $bound; process's bound network now ${cm.boundNetworkForProcess}")
         if (!bound) {
+            // **This is the VPN.** light-reports #242–#244: the phone was on the portal network,
+            // flagged CAPTIVE_PORTAL, WebView present, detection on — and the bind returned false,
+            // then every probe died with `EPERM`. A VPN (tun0) was the default network. netd's rule
+            // is that a UID whose traffic goes through a VPN may not explicitly select any other
+            // network, unless the VPN app allows bypass; the system's own CaptivePortalLogin is
+            // exempt by privilege, and this app is not. Nothing here can lift that. What it can do
+            // is say so, name the VPN when the phone will, and not spend 25 s pretending to load.
+            val vpn = PortalDiagnostics.vpn(cm)
+            if (vpn != null) {
+                val app = PortalDiagnostics.alwaysOnVpnApp(contentResolver)
+                val appLabel = app?.let { pkg ->
+                    runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+                        .getOrDefault(pkg)
+                }
+                log.add("VPN up: ${PortalDiagnostics.describe(cm, vpn, vpn == cm.activeNetwork)}; always-on app: ${app ?: "not set"}")
+                vpnSettings.visibility = View.VISIBLE
+                fail(
+                    what = "reach the Wi-Fi network from under a VPN (Android forbids an app under a VPN from " +
+                        "binding to any other network; bindProcessToNetwork returned false)",
+                    line = "A VPN is on" + (appLabel?.let { " ($it)" } ?: "") + ", and Android does not let an " +
+                        "app under a VPN talk to any other network — so the login page cannot be loaded " +
+                        "while it is up. Turn the VPN off, sign in here, then turn it back on.",
+                )
+                return
+            }
             fail(
-                what = "bind the app to the Wi-Fi network (bindProcessToNetwork returned false)",
+                what = "bind the app to the Wi-Fi network (bindProcessToNetwork returned false, no VPN up)",
                 line = "Android refused to route this app over the Wi-Fi network, so the login " +
                     "page cannot be reached. This has been reported.",
             )
@@ -324,7 +373,7 @@ class PortalActivity : ComponentActivity() {
         val cm = getSystemService(ConnectivityManager::class.java)
         val bound = cm.bindProcessToNetwork(net)
         log.add("onStart: rebound → $bound")
-        if (done) return
+        if (done || autoReported && !bound) return
         watching = true
         handler.postDelayed(probeLoop, PROBE_EVERY_MS)
     }

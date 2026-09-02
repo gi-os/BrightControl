@@ -107,6 +107,23 @@ object PortalDiagnostics {
         }
     }.getOrElse { "$n unreadable: ${it::class.java.simpleName}: ${it.message}" }
 
+    /** The VPN network, if one is up. Its existence is what makes every bind to Wi-Fi fail with EPERM. */
+    fun vpn(cm: ConnectivityManager): Network? = runCatching {
+        @Suppress("DEPRECATION")
+        cm.allNetworks.firstOrNull { n ->
+            cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        }
+    }.getOrNull()
+
+    /**
+     * The always-on VPN package, when one is set — the only name for the VPN a plain app can read.
+     * A VPN started by hand leaves this blank, and the owner UID of the VPN network is hidden from
+     * ordinary apps since API 30.
+     */
+    fun alwaysOnVpnApp(cr: ContentResolver): String? = runCatching {
+        Settings.Secure.getString(cr, "always_on_vpn_app")
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
     private val CAPTIVE_KEYS = listOf(
         "captive_portal_mode",
         "captive_portal_detection_enabled",

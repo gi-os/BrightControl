@@ -1,46 +1,31 @@
-## BrightControl v4.14 — Wi-Fi joins without the shell
+## BrightControl v4.15 — the login page names the VPN that is stopping it
 
-v4.13's Wi-Fi screen failed on its first outing: *Scan failed: the connection is gone and could not
-be picked back up*, standing next to the network it wanted. The reason is structural, not a bug in
-the connection code. Android's `AdbDebuggingManager` refuses to start the wireless debugging daemon
-unless the phone is already on a Wi-Fi network, and switches it off the moment Wi-Fi drops. The
-shell this app holds therefore cannot exist at the one moment this screen matters: off Wi-Fi,
-wanting on. Chicken, egg.
+The first reports from v4.14 (light-reports #242, #243, #244) are good news wearing a failure.
+Everything up to the last step worked: the phone was on the café's network, LightOS had flagged it
+`CAPTIVE_PORTAL` (so login-page detection is on after all), the WebView was there, and the screen
+picked the right network. Then `bindProcessToNetwork` returned false and every probe died with
+`EPERM (Operation not permitted)`.
 
-### The second route: suggest
+The log also showed why. Network 108 — `cell+vpn`, `tun0`, `dns=10.8.0.10` — was the default. A VPN.
+netd's rule is that a UID whose traffic goes through a VPN may not explicitly select any other
+network unless the VPN app allows bypass. The system's own CaptivePortalLogin is exempt by
+privilege; this app is not, and nothing it can do lifts that.
 
-A plain app on Android 10+ cannot join a network itself, but it can **suggest** one
-(`WifiNetworkSuggestion`), and the system joins it on its next scan. Off Wi-Fi, the screen now does
-that: pick a network, and Android joins it — with a password for WPA2/WPA3, enhanced-open for OWE.
-Suggestions are kept, so a network joined once is rejoined on its own next time, and the KNOWN TO
-THIS PHONE list shows them with FORGET.
+### What changed
 
-Scanning off Wi-Fi is `WifiManager.getScanResults`, which Android gates behind fine location *and*
-the location toggle. Both are checked and named on the screen, with a GRANT row that asks the
-normal way (ADB & grants already gives it silently) and a row that opens location settings.
+- When the bind fails and a VPN network is up, the portal screen says so in words: *A VPN is on
+  (app), and Android does not let an app under a VPN talk to any other network — turn it off, sign
+  in here, then turn it back on.* It names the VPN app when the phone will say (the always-on VPN
+  package is readable; a VPN started by hand is not), offers **OPEN VPN SETTINGS**, and stops the
+  probe loop instead of logging `EPERM` every four seconds.
+- The Wi-Fi screen shows the same row under THIS NETWORK whenever a VPN is up and the network is
+  not online, so you see it before the login page opens.
+- A bind failure with *no* VPN up is now a distinct report family, so the two never get triaged as
+  one problem.
 
-### The catch, and three ways round it
+### What the reports settled
 
-Android ignores an app's suggestions until the user has approved that app once, through a
-notification with Allow / No thanks — a notification LightOS has no shade to answer from. So:
-
-- **Self-grant.** `cmd wifi network-suggestions-set-user-approved com.gios.lightcontrol yes` is a
-  step in ADB & grants now, verified with the new `GrantCheck.ShellSays` (runs
-  `network-suggestions-has-user-approved` and reads the `yes`). Run it once at home and the café
-  is already approved.
-- **The APPROVAL row.** Whenever the shell is reachable (on Wi-Fi), the row shows the current
-  answer and offers APPROVE.
-- **Press the notification's own button.** This app's notification listener can see the system's
-  question. `LockNotes.approvalAction` finds an action titled Allow/Yes/Accept on a notification
-  that names this app and a network, and the screen shows ALLOW — ANSWER ANDROID'S QUESTION, which
-  fires that action's PendingIntent. Checked during a join, when the question appears.
-
-### What stays
-
-On Wi-Fi with the shell up, the v4.13 route is still used: `cmd wifi connect-network` joins
-instantly, `list-networks`/`forget-network` manage saved networks, and the radio can be switched on.
-The screen decides per action, and says which route it is on ("joining X (suggestion)…"). After
-either route: association within 30 s, then the system's verdict — VALIDATED is online, anything
-else opens the login page.
-
-THIS PHONE gained a *Shell* row that says plainly why it is unreachable off Wi-Fi.
+- LightOS does not switch captive-portal detection off: every `captive_portal_*` setting was at the
+  platform default and the network carried `CAPTIVE_PORTAL`.
+- The WebView is `com.android.webview 113.0.5672.136` — present.
+- Joining by suggestion works; the phone was on the network within the same minute.

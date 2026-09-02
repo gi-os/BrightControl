@@ -221,6 +221,19 @@ fun WifiScreen(onBack: () -> Unit, onAdb: () -> Unit) {
             sub = state.second,
             onClick = { if (busy == null) scope.launch { refreshLocal(); probeShell() } },
         )
+        val vpnUp = remember(state) { PortalDiagnostics.vpn(context.getSystemService(ConnectivityManager::class.java)) != null }
+        if (vpnUp && state.first != "Online") {
+            MenuRow(
+                label = "A VPN is on — turn it off to sign in",
+                detail = "›",
+                sub = "Android does not let an app under a VPN reach any other network, so the login page " +
+                    "cannot load while the VPN is up (light-reports #242). Off, sign in, back on.",
+                onClick = {
+                    runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+                        .onFailure { note = "No VPN settings screen on this phone — turn it off in the VPN's own app." }
+                },
+            )
+        }
         if (state.first != "Online" && state.first != "No Wi-Fi") {
             MenuRow(
                 label = "Open the login page",
