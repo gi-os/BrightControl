@@ -186,6 +186,57 @@ object LockNotes {
         service = listener
     }
 
+    /** A system notification, reduced to what a diagnostic log may carry: who posted it, its title. */
+    data class SystemNote(val pkg: String, val title: String, val text: String)
+
+    /**
+     * The platform's own notifications currently up — package `android` and the network stack.
+     * Nothing from user apps: this goes into reports, and a stranger's message titles do not.
+     */
+    fun systemNotes(): List<SystemNote> {
+        val listener = service ?: return emptyList()
+        val active = runCatching { listener.activeNotifications }.getOrNull() ?: return emptyList()
+        return active.filter { sbn ->
+            sbn.packageName == "android" || sbn.packageName.startsWith("com.android.networkstack") ||
+                sbn.packageName.startsWith("com.google.android.networkstack") ||
+                sbn.packageName.startsWith("com.android.captiveportallogin")
+        }.map { sbn ->
+            val e = sbn.notification?.extras
+            SystemNote(
+                sbn.packageName,
+                e?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: "",
+                e?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: "",
+            )
+        }
+    }
+
+    /**
+     * Something that taps the system's *"Sign in to network"* notification, or null.
+     *
+     * ConnectivityService posts it (as package `android`) when a network is flagged
+     * CAPTIVE_PORTAL. Its content intent opens the platform's CaptivePortalLogin with the binder
+     * that lets a successful login be reported back — the one route to a portal page that a VPN
+     * cannot block, because that app is privileged and this one is not. LightOS never surfaces
+     * the notification; the listener still receives it. Matched on the title's words, which are
+     * the platform's `network_available_sign_in` string in every translation Light ships.
+     */
+    fun signInAction(): (() -> Boolean)? {
+        val listener = service ?: return null
+        val active = runCatching { listener.activeNotifications }.getOrNull() ?: return null
+        for (sbn in active) {
+            if (sbn.packageName != "android" && !sbn.packageName.contains("networkstack")) continue
+            val n = sbn.notification ?: continue
+            val title = n.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+            val text = n.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+            val words = "$title $text"
+            val signIn = words.contains("sign in", true) || words.contains("sign-in", true) || words.contains("log in", true)
+            if (!signIn || !words.contains("network", true) && !words.contains("wi-fi", true) && !words.contains("wifi", true)) continue
+            val intent = n.contentIntent ?: continue
+            return { runCatching { intent.send(); true }.getOrDefault(false) }
+        }
+        return null
+    }
+
     /**
      * The "Allow" on the system's *"Allow Controls to suggest networks?"* notification, if it is
      * up — as something that presses it. Null when there is no such notification, or no listener.

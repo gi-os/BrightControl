@@ -87,6 +87,7 @@ class PortalActivity : ComponentActivity() {
     private lateinit var logScroll: ScrollView
     private lateinit var loadAnyway: TextView
     private lateinit var vpnSettings: TextView
+    private lateinit var systemSignIn: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var done = false
 
@@ -102,6 +103,13 @@ class PortalActivity : ComponentActivity() {
     private var openedAt = 0L
     private var probes = 0
     private var probeFailures = 0
+
+    /**
+     * The bind was refused because of a VPN. Probes cannot be made from this process then (EPERM),
+     * so [probe] reads the system's verdict instead — the capability bits need no socket — and,
+     * when the shell can be reached, asks the system to re-evaluate the network right now.
+     */
+    private var vpnBlocked = false
 
     /** A portal page the WebView refused on its certificate, held until the user says otherwise. */
     private var heldSsl: SslErrorHandler? = null
@@ -230,6 +238,25 @@ class PortalActivity : ComponentActivity() {
             setMargins(dp(16), 0, dp(16), dp(8))
         })
 
+        systemSignIn = TextView(this).apply {
+            text = "OPEN ANDROID'S SIGN-IN PAGE AGAIN"
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            visibility = View.GONE
+            setOnClickListener {
+                when (val o = SystemSignIn.open(this@PortalActivity, network) { log.add(it) }) {
+                    is SystemSignIn.Opened.Failed -> status.text = "Could not open it: ${o.why}"
+                    else -> Unit
+                }
+            }
+        }
+        root.addView(systemSignIn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+            setMargins(dp(16), 0, dp(16), dp(8))
+        })
+
         val frame = FrameLayout(this)
         root.addView(frame, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
 
@@ -329,6 +356,33 @@ class PortalActivity : ComponentActivity() {
                         .getOrDefault(pkg)
                 }
                 log.add("VPN up: ${PortalDiagnostics.describe(cm, vpn, vpn == cm.activeNetwork)}; always-on app: ${app ?: "not set"}")
+                // Android's own sign-in app is allowed past the VPN. Open it, and say which way.
+                vpnBlocked = true
+                // Reported even when the handoff works: whether the notification existed on this
+                // ROM, and which route opened, is exactly what the next release needs to know.
+                when (val opened = SystemSignIn.open(this, net) { log.add(it) }) {
+                    SystemSignIn.Opened.ViaNotification -> {
+                        systemSignIn.visibility = View.VISIBLE
+                        fail(
+                            what = "load the login page here under a VPN — handed to Android's own sign-in via its notification",
+                            line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
+                                "page is opening instead (it is allowed past the VPN). Sign in there; " +
+                                "CHECK here asks whether it worked.",
+                        )
+                        return
+                    }
+                    is SystemSignIn.Opened.ViaIntent -> {
+                        systemSignIn.visibility = View.VISIBLE
+                        fail(
+                            what = "load the login page here under a VPN — handed to Android's own sign-in by direct launch (${opened.pkg})",
+                            line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
+                                "page (${opened.pkg}) is opening instead. Sign in there, then CHECK here: " +
+                                "it asks the system to look at the network again.",
+                        )
+                        return
+                    }
+                    is SystemSignIn.Opened.Failed -> log.add("system sign-in unavailable: ${opened.why}")
+                }
                 vpnSettings.visibility = View.VISIBLE
                 fail(
                     what = "reach the Wi-Fi network from under a VPN (Android forbids an app under a VPN from " +
@@ -426,6 +480,7 @@ class PortalActivity : ComponentActivity() {
     private fun probe(why: String) {
         val net = network ?: return
         if (done) return
+        if (vpnBlocked) { verdictWithoutSocket(net, why); return }
         val n = ++probes
         Thread {
             val started = SystemClock.elapsedRealtime()
@@ -483,6 +538,42 @@ class PortalActivity : ComponentActivity() {
                     log.add("already online on arrival; nothing to sign")
                     status.text = "This network is already online — there was nothing to sign " +
                         "in to. The page below is the network's own, if you want it."
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Under a VPN this process may not open a socket on the Wi-Fi, but it may still *ask* about
+     * it: VALIDATED appearing on the network is the system's own probe saying the gate is open.
+     * The system re-probes a captive network on its own schedule; over the shell — reachable, since
+     * the phone is on Wi-Fi — `cmd connectivity reevaluate <netId>` makes it look now.
+     */
+    private fun verdictWithoutSocket(net: Network, why: String) {
+        val n = ++probes
+        Thread {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            if (com.gios.lightcontrol.adb.AdbManager.hasPairing(this) &&
+                com.gios.lightcontrol.adb.AdbManager.ensureAlive(this, 4_000)
+            ) {
+                val out = com.gios.lightcontrol.adb.AdbManager.runVia(this, "cmd connectivity reevaluate $net", 6_000)
+                log.add("asked the system to reevaluate $net → ${out.trim().take(120).ifBlank { "ok" }}")
+                Thread.sleep(2_500)
+            }
+            val caps = cm.getNetworkCapabilities(net)
+            val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            val captive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
+            log.add("verdict #$n ($why): ${if (caps == null) "network gone" else "validated=$validated captive=$captive"}")
+            handler.post {
+                if (done) return@post
+                when {
+                    caps == null -> status.text = "The Wi-Fi network is gone."
+                    validated && !captive -> {
+                        done = true
+                        status.text = "You're online — the system says this network lets you through."
+                        handler.postDelayed({ finish() }, 1500)
+                    }
+                    else -> status.text = "Not through yet (system still sees a login page). Sign in on Android's page, then CHECK."
                 }
             }
         }.start()

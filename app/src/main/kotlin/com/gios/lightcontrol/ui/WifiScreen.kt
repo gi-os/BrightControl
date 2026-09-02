@@ -29,6 +29,7 @@ import com.gios.lightcontrol.adb.AdbWifi
 import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.portal.PortalActivity
 import com.gios.lightcontrol.portal.PortalDiagnostics
+import com.gios.lightcontrol.portal.SystemSignIn
 import com.gios.lightcontrol.wifi.WifiShell
 import com.gios.lightcontrol.wifi.WifiSuggest
 import kotlinx.coroutines.Dispatchers
@@ -224,13 +225,25 @@ fun WifiScreen(onBack: () -> Unit, onAdb: () -> Unit) {
         val vpnUp = remember(state) { PortalDiagnostics.vpn(context.getSystemService(ConnectivityManager::class.java)) != null }
         if (vpnUp && state.first != "Online") {
             MenuRow(
-                label = "A VPN is on — turn it off to sign in",
+                label = "A VPN is on — use Android's own sign-in page",
                 detail = "›",
-                sub = "Android does not let an app under a VPN reach any other network, so the login page " +
-                    "cannot load while the VPN is up (light-reports #242). Off, sign in, back on.",
+                sub = "Android does not let this app reach any other network from under a VPN (light-reports " +
+                    "#242), but its own sign-in app is allowed through. This opens that. If the phone has " +
+                    "none, turning the VPN off is the only other way.",
                 onClick = {
-                    runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
-                        .onFailure { note = "No VPN settings screen on this phone — turn it off in the VPN's own app." }
+                    val cm = context.getSystemService(ConnectivityManager::class.java)
+                    @Suppress("DEPRECATION")
+                    val wifi = cm.allNetworks.firstOrNull { n ->
+                        cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                    }
+                    when (val o = SystemSignIn.open(context, wifi) { }) {
+                        SystemSignIn.Opened.ViaNotification -> note = "Opened Android's sign-in page from its notification."
+                        is SystemSignIn.Opened.ViaIntent -> note = "Opened Android's sign-in page (${o.pkg}). Sign in there, then refresh THIS NETWORK."
+                        is SystemSignIn.Opened.Failed -> {
+                            note = "No system sign-in app to hand this to (${o.why}). Turn the VPN off to sign in."
+                            runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+                        }
+                    }
                 },
             )
         }

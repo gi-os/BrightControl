@@ -1,31 +1,39 @@
-## BrightControl v4.15 — the login page names the VPN that is stopping it
+## BrightControl v4.16 — under a VPN, hand the login to Android's own sign-in app
 
-The first reports from v4.14 (light-reports #242, #243, #244) are good news wearing a failure.
-Everything up to the last step worked: the phone was on the café's network, LightOS had flagged it
-`CAPTIVE_PORTAL` (so login-page detection is on after all), the WebView was there, and the screen
-picked the right network. Then `bindProcessToNetwork` returned false and every probe died with
-`EPERM (Operation not permitted)`.
+v4.15 explained the VPN and asked for it to be switched off. For one tester that is not an option:
+the VPN is accountability software, always-on, not his to disable. So "turn it off" was a
+diagnosis, not a fix. This is the fix.
 
-The log also showed why. Network 108 — `cell+vpn`, `tun0`, `dns=10.8.0.10` — was the default. A VPN.
-netd's rule is that a UID whose traffic goes through a VPN may not explicitly select any other
-network unless the VPN app allows bypass. The system's own CaptivePortalLogin is exempt by
-privilege; this app is not, and nothing it can do lifts that.
+### The route a VPN cannot block
+
+netd's rule — a UID under a VPN may not select any other network — has an exception class: apps
+holding `CONNECTIVITY_USE_RESTRICTED_NETWORKS`. The platform's own **CaptivePortalLogin** is one.
+It is how a stock Android phone signs in to hotel Wi-Fi with a VPN up, and it is installed on the
+Light Phone too. What LightOS lacks is the *"Sign in to network"* notification that launches it,
+and a shade to tap it from.
+
+This app has a notification listener. ConnectivityService still posts that notification (as
+package `android`) the moment a network is flagged `CAPTIVE_PORTAL`; the listener still receives
+it; and its content intent carries the `CaptivePortal` binder that lets a successful login be
+reported back to the system. Firing that intent *is* tapping the notification.
 
 ### What changed
 
-- When the bind fails and a VPN network is up, the portal screen says so in words: *A VPN is on
-  (app), and Android does not let an app under a VPN talk to any other network — turn it off, sign
-  in here, then turn it back on.* It names the VPN app when the phone will say (the always-on VPN
-  package is readable; a VPN started by hand is not), offers **OPEN VPN SETTINGS**, and stops the
-  probe loop instead of logging `EPERM` every four seconds.
-- The Wi-Fi screen shows the same row under THIS NETWORK whenever a VPN is up and the network is
-  not online, so you see it before the login page opens.
-- A bind failure with *no* VPN up is now a distinct report family, so the two never get triaged as
-  one problem.
+- `portal/SystemSignIn`: opens Android's sign-in app — first through the system notification
+  (`LockNotes.signInAction`, matched on the title's words), then by launching the activity directly
+  with `ACTION_CAPTIVE_PORTAL_SIGN_IN` and the network. It logs which route worked, and the system
+  notifications it could see, so the next report says what this ROM allows.
+- The portal screen does this by itself the moment a VPN refuses the bind, and says so. **OPEN
+  ANDROID'S SIGN-IN PAGE AGAIN** re-fires it.
+- **CHECK** works under a VPN now: it cannot open a socket, but it can read the network's
+  `VALIDATED` bit — the system's own probe saying the gate is open — after asking the shell (which
+  is reachable, the phone being on Wi-Fi) for `cmd connectivity reevaluate <netId>`.
+- The Wi-Fi screen's VPN row opens the system sign-in page rather than VPN settings; settings are
+  the fallback when the phone has no sign-in app.
+- `LockNotes.systemNotes()` lists the platform's own notifications for the log — package and title
+  only, never anything from a user's apps.
 
-### What the reports settled
+### Still to learn from the phone
 
-- LightOS does not switch captive-portal detection off: every `captive_portal_*` setting was at the
-  platform default and the network carried `CAPTIVE_PORTAL`.
-- The WebView is `com.android.webview 113.0.5672.136` — present.
-- Joining by suggestion works; the phone was on the network within the same minute.
+Whether LightOS's ConnectivityService posts the sign-in notification at all, and whether the
+direct launch renders the page without the binder. The handoff is reported once either way.
