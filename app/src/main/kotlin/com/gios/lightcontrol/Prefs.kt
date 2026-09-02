@@ -1756,6 +1756,16 @@ class Prefs(context: Context) {
     }
 
     /**
+     * When the Wi-Fi login screen last filed a report by itself, epoch millis; 0 never. On disk
+     * rather than in the process because that screen is opened, fails, closed and reopened — the
+     * relaunch must not be a fresh first offence. Wall-clock on purpose: elapsedRealtime resets
+     * with a reboot, and a reboot is one of the things people try.
+     */
+    var portalLastAutoReport: Long
+        get() = sp.getLong(PORTAL_LAST_AUTO_REPORT, 0L)
+        set(value) = sp.edit().putLong(PORTAL_LAST_AUTO_REPORT, value).apply()
+
+    /**
      * Every stored setting, as one typed JSON document (light-reports#137).
      *
      * The whole app lives in one SharedPreferences file, so one dump is genuinely everything:
@@ -1855,6 +1865,7 @@ class Prefs(context: Context) {
         const val PAIR_TRAIL_MAX = 24
         const val AUTO_SEND = "autoSendFailures"
         const val AUTO_REPORTED = "autoReportedFailures"
+        const val PORTAL_LAST_AUTO_REPORT = "portalLastAutoReport"
         const val PENDING_PKG = "pendingGrantPkg"
         const val PENDING_LINES = "pendingGrantLines"
         const val PENDING_AT = "pendingGrantAt"

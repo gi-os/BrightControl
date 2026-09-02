@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.gios.lightcontrol.portal.PortalActivity
+import com.gios.lightcontrol.portal.PortalDiagnostics
 
 /**
  * The door to [PortalActivity], plus enough of a readout to know whether you need it.
@@ -29,7 +30,7 @@ fun WifiLoginScreen(onBack: () -> Unit) {
     SectionScaffold(
         title = "Wi-Fi login",
         onBack = onBack,
-        guide = "IN DEVELOPMENT. This is unfinished and may not work. It needs a system WebView to draw the login page in, and whether LightOS ships one is still unconfirmed — on a phone without one the page will not render and there is nothing this screen can do about it.\n\n" +
+        guide = "IN DEVELOPMENT. This does not reliably work yet. LightOS Settings never gets a login page through, on purpose, so this screen is the attempt — and since v4.12 it keeps a log of everything it tries. When it fails in a way it can recognise (no WebView, no network, the page never loading, nothing answering) it files that log as a report by itself; the LOG button shows it on the phone and SEND LOG files it by hand. The rows under THIS PHONE say up front whether a login page can be drawn at all.\n\n" +
             "Hotel and café Wi-Fi often wants a webpage signed before it lets you through — " +
             "and this phone has no browser to sign it with, so the network connects and then " +
             "goes nowhere. This opens that page and watches the connection, closing itself once " +
@@ -44,6 +45,25 @@ fun WifiLoginScreen(onBack: () -> Unit) {
             detail = "↻",
             sub = state.second,
             onClick = { state = wifiState(context) },
+        )
+        Rule()
+
+        SectionLabel("THIS PHONE")
+        val webView = remember { PortalDiagnostics.webView() }
+        val mode = remember { PortalDiagnostics.captiveModeLine(context.contentResolver) }
+        MenuRow(
+            label = if (PortalDiagnostics.hasWebView()) "WebView present" else "No WebView",
+            sub = if (PortalDiagnostics.hasWebView()) {
+                "$webView — the login page has something to draw into"
+            } else {
+                "$webView — without one the login page cannot be drawn on this phone, whatever the network does"
+            },
+            dim = true,
+        )
+        MenuRow(
+            label = "Login-page detection: ${mode.first}",
+            sub = mode.second,
+            dim = true,
         )
         Rule()
 
