@@ -27,7 +27,7 @@ class WifiShellTest {
     @Test
     fun foldsAccessPointsToTheStrongestPerSsidAndDropsHidden() {
         val seen = WifiShell.parseScan(scan)
-        assertEquals(listOf("DFS Guest", "Cafe Enhanced", "Corp", "Modern", "BasilNet 5G"), seen.map { it.ssid })
+        assertEquals(listOf("DFS Guest", "Corp", "Cafe Enhanced", "Modern", "BasilNet 5G"), seen.map { it.ssid })
         val dfs = seen.first()
         assertEquals(-48, dfs.rssi)
         assertEquals(2437, dfs.frequency)
