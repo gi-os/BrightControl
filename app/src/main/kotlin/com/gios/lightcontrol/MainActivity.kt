@@ -63,7 +63,7 @@ import com.gios.lightcontrol.ui.LocalCursor
 import com.gios.lightcontrol.ui.WheelCursor
 import com.gios.lightcontrol.ui.WheelScreen
 import com.gios.lightcontrol.ui.HotspotScreen
-import com.gios.lightcontrol.ui.WifiLoginScreen
+import com.gios.lightcontrol.ui.WifiScreen
 import com.gios.lightcontrol.ui.theme.LightControlTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -419,7 +419,7 @@ class MainActivity : ComponentActivity() {
                             },
                         )
 
-                        Screen.WifiLogin -> WifiLoginScreen(onBack = home)
+                        Screen.WifiLogin -> WifiScreen(onBack = home, onAdb = { screen = Screen.Adb })
                         Screen.Hotspot -> HotspotScreen(onBack = home)
 
                         is Screen.GrantRequestFor -> GrantRequestScreen(

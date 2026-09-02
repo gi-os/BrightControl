@@ -246,8 +246,8 @@ fun HomeScreen(
 
             SectionLabel("SYSTEM")
             MenuRow(
-                label = "Wi-Fi login",
-                sub = "IN DEVELOPMENT · sign in to hotel and café Wi-Fi that wants a webpage first",
+                label = "Wi-Fi",
+                sub = "join the networks Settings calls \"not supported\", and sign in to the ones with a login page",
                 detail = "›",
                 onClick = onWifiLogin,
             )
