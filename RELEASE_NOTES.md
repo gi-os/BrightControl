@@ -1,46 +1,39 @@
-## BrightControl v4.12 — the Wi-Fi login screen keeps a log and reports its own failures
+## BrightControl v4.13 — Wi-Fi: join the networks Settings calls "not supported"
 
-One screen, and it is the one that does not work: Wi-Fi login, the captive-portal page LightOS
-has no browser for. Signing in from LightOS Settings always fails, on purpose, so this screen is
-the only route through a hotel or café network — and on the phone it fails too, and nobody could
-say why. Its whole account of itself was one status line. This release makes it explain itself.
+*This network ("DFS Guest") is not supported by The Light Phone.* That is what LightOS Settings
+says to an open network, and it is a rule in Light's Settings app — the Android Wi-Fi stack
+underneath it is stock and will join anything. This app already holds the phone's own shell for
+its grants, and the shell has `cmd wifi`, the tool the platform's own tests join networks with. So
+the Wi-Fi login screen is now a Wi-Fi screen, and it joins.
 
-### What it writes down
+### What it does
 
-From the moment it opens, the screen keeps a timestamped log of everything it learns:
+- **Scans** over the shell (`cmd wifi start-scan`, then `list-scan-results`) and lists every network
+  it hears, one row per SSID, strongest first, with signal bars, band (2.4 / 5 / 6 GHz) and security.
+- **Joins** with `cmd wifi connect-network <ssid> open|owe|wpa2|wpa3 [passphrase]`. Open and OWE
+  networks join on a tap; WPA2 and WPA3 ask for the password (a WPA2/WPA3 transition AP is joined
+  as WPA2, which every AP that advertises PSK accepts). Enterprise (802.1X) and WEP are shown greyed:
+  the shell cannot supply a certificate, and will not add WEP.
+- **Watches the verdict.** `cmd wifi status` confirms the association within 20 s; then the network's
+  capability bits decide the next step. VALIDATED means online. CAPTIVE_PORTAL, or connected but
+  still unvalidated after 12 s, means a login page — and the portal screen (v4.12's, with its log)
+  opens by itself.
+- **Saved networks** are listed with FORGET (`forget-network <id>`), and a switched-off radio gets
+  a TURN ON row.
+- If the shell is not paired yet, the screen says so and sends you to ADB & grants.
 
-- the WebView provider on this phone (package and version), or the exception constructing one threw,
-- LightOS's `Settings.Global.captive_portal_*` values — `captive_portal_mode = 0` would mean the ROM
-  has told Android never to look for login pages, which is exactly "connects and then goes nowhere",
-- every network the system knows, with its transport, INTERNET / VALIDATED / CAPTIVE_PORTAL bits,
-  interface, DNS servers and proxy, and which one is the default,
-- which Wi-Fi it picked and why, and what `bindProcessToNetwork` returned,
-- every probe: HTTP code, `Location` redirect, server header and round-trip time — or the exception,
-- every page the WebView started, finished, navigated to or errored on, main frame or subresource,
-  HTTP errors, SSL errors, the renderer dying, and the page's own JavaScript console.
+### Why the shell and not the Wi-Fi APIs
 
-### When it reports
+A third-party app on Android 10+ cannot join a network of its own choosing. `addNetwork` returns -1;
+the suggestion API only lets the *system* pick the network up later and needs a per-app approval
+that LightOS has no UI for; a `WifiNetworkSpecifier` request yields a network the system refuses to
+route the internet over. The shell has none of those limits, and this app has the shell.
 
-The failures it can recognise by itself file the log to light-reports without asking: no WebView,
-no Wi-Fi network, the bind refused, the login page not finished after 25 s, five probes in a row
-throwing rather than being redirected (nothing answers over this Wi-Fi at all), or the renderer
-dying. Once per opening of the screen, and never more than one every ten minutes across openings —
-the gap lives in prefs so a relaunch is not a fresh first offence. Leaving the screen after fifteen
-seconds without getting through also files once per install, through the same ledger the pairing
-reports use. The send unbinds the process first: the report should not have to ride the network
-that does not work, though it queues to disk either way.
+### Details
 
-### On the phone
-
-- **LOG** shows the log over the page, scrolled by the wheel; **SEND LOG** files it by hand, whatever
-  the throttles say.
-- A portal that redirects to an https page with a certificate for the wrong name used to be a blank
-  page. It now says so and offers **LOAD IT ANYWAY**.
-- The Wi-Fi login settings screen gained a THIS PHONE section: whether a WebView exists, and whether
-  LightOS has login-page detection on, off, or set to avoid.
-
-### For the next report
-
-The log is in the report body under "What the app itself reported". Read the first dozen lines
-first — WebView provider and `captive_portal_mode` decide whether anything below them could have
-worked.
+- `wifi/WifiShell.kt`: pure parsers for `list-scan-results`, `list-networks` and `status`, the
+  `connect-network` line (single-quoted for `sh`, because SSIDs have spaces and passphrases have
+  everything), and the blocking calls over `AdbManager.runVia`. Unit-tested.
+- `ui/WifiScreen.kt` replaces `WifiLoginScreen.kt`; the home row is now **Wi-Fi**.
+- The THIS PHONE diagnostics (WebView, login-page detection) and the MAC-clone fallback stay at the
+  bottom of the screen.
