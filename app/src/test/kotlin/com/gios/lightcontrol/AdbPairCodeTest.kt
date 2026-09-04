@@ -181,6 +181,19 @@ class AdbPairCodeTest {
     }
 
     @Test
+    fun `the QR pairing screen is not the pairing dialog`() {
+        // light-reports#264: the reader filed "could not read the pairing code off the dialog"
+        // against the QR screen, which says "pair" and "code" but has no six-digit code to read —
+        // the phone pairs by scanning the QR. It must never be mistaken for the numeric dialog.
+        val qr = """
+            Scan QR code
+            Pair device over Wi-Fi by scanning a QR code
+        """.trimIndent()
+        assertFalse(AdbPairCode.looksLikePairingDialog(qr))
+        assertNull(AdbPairCode.extract(qr))
+    }
+
+    @Test
     fun `the dialog is still recognised`() {
         assertTrue(
             AdbPairCode.looksLikePairingDialog(

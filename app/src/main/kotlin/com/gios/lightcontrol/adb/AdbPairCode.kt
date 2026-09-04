@@ -47,16 +47,22 @@ object AdbPairCode {
     }
 
     /**
-     * The Wireless debugging *list*, which is not the dialog and never carries a code.
+     * A Settings screen that is not the pairing-code dialog and never carries a code, so it must
+     * never be mistaken for one. Two such screens have been reported as the dialog:
      *
-     * It matched every test the dialog does — it says "pair", it says "code" (in the row labelled
-     * "Pair device with pairing code"), and it shows the `ip:port` — so light-reports#65 and #68 both
-     * reported the reader failing to find digits on a screen that has never had any. Two phrases
-     * belong only to the list, and either of them settles it.
+     * - The Wireless debugging *list*, which matched every test the dialog does — it says "pair",
+     *   it says "code" (in the row labelled "Pair device with pairing code"), and it shows the
+     *   `ip:port` — so light-reports#65 and #68 both reported the reader failing to find digits on
+     *   a screen that has never had any. Its two telling phrases settle it.
+     * - The *QR* pairing screen, which light-reports#264 filed the same way: "Scan QR code" and
+     *   "Pair device over Wi-Fi by scanning a QR code" contain "pair" and "code" but no six-digit
+     *   code — the phone pairs by scanning the QR, so there is nothing for this reader to read. The
+     *   word "QR" is the tell, and it belongs to no screen that shows a numeric code.
      */
     fun looksLikeTheList(text: String): Boolean =
         text.contains("Use wireless debugging", ignoreCase = true) ||
-            text.contains("Pair device with QR code", ignoreCase = true)
+            text.contains("Pair device with QR code", ignoreCase = true) ||
+            text.contains("QR", ignoreCase = true)
 
     /**
      * The code, or null if this screen does not carry one.

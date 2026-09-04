@@ -1,39 +1,18 @@
-## BrightControl v4.16 — under a VPN, hand the login to Android's own sign-in app
+## BrightControl v4.17 — the pairing reader stops mistaking the QR screen for the code dialog
 
-v4.15 explained the VPN and asked for it to be switched off. For one tester that is not an option:
-the VPN is accountability software, always-on, not his to disable. So "turn it off" was a
-diagnosis, not a fix. This is the fix.
-
-### The route a VPN cannot block
-
-netd's rule — a UID under a VPN may not select any other network — has an exception class: apps
-holding `CONNECTIVITY_USE_RESTRICTED_NETWORKS`. The platform's own **CaptivePortalLogin** is one.
-It is how a stock Android phone signs in to hotel Wi-Fi with a VPN up, and it is installed on the
-Light Phone too. What LightOS lacks is the *"Sign in to network"* notification that launches it,
-and a shade to tap it from.
-
-This app has a notification listener. ConnectivityService still posts that notification (as
-package `android`) the moment a network is flagged `CAPTIVE_PORTAL`; the listener still receives
-it; and its content intent carries the `CaptivePortal` binder that lets a successful login be
-reported back to the system. Firing that intent *is* tapping the notification.
+The one-tap pairing helper was filing a false "could not read the pairing code off the dialog"
+report against the QR pairing screen. The report named the screen it actually saw — *Scan QR
+code / Pair device over Wi-Fi by scanning a QR code* — which is the smoking gun: that screen says
+"pair" and "code" but has no six-digit code to read, because the phone pairs by scanning the QR.
 
 ### What changed
 
-- `portal/SystemSignIn`: opens Android's sign-in app — first through the system notification
-  (`LockNotes.signInAction`, matched on the title's words), then by launching the activity directly
-  with `ACTION_CAPTIVE_PORTAL_SIGN_IN` and the network. It logs which route worked, and the system
-  notifications it could see, so the next report says what this ROM allows.
-- The portal screen does this by itself the moment a VPN refuses the bind, and says so. **OPEN
-  ANDROID'S SIGN-IN PAGE AGAIN** re-fires it.
-- **CHECK** works under a VPN now: it cannot open a socket, but it can read the network's
-  `VALIDATED` bit — the system's own probe saying the gate is open — after asking the shell (which
-  is reachable, the phone being on Wi-Fi) for `cmd connectivity reevaluate <netId>`.
-- The Wi-Fi screen's VPN row opens the system sign-in page rather than VPN settings; settings are
-  the fallback when the phone has no sign-in app.
-- `LockNotes.systemNotes()` lists the platform's own notifications for the log — package and title
-  only, never anything from a user's apps.
+`AdbPairCode.looksLikeTheList`, the test that keeps Settings screens without a code from being
+taken for the pairing dialog, already excluded the Wireless debugging list — the screen that
+produced the same false report back in #65 and #68. The QR screen slips past it because its
+wording contains "pair" and "code" without any of the list's telling phrases. The test now also
+rejects any screen that says "QR", so the QR pairing screen is left to the sweep-and-navigate
+path instead of being filed as an unreadable dialog.
 
-### Still to learn from the phone
-
-Whether LightOS's ConnectivityService posts the sign-in notification at all, and whether the
-direct launch renders the page without the binder. The handoff is reported once either way.
+Fixes [light-reports#264] — the pairing reader mistook the QR pairing screen for the code dialog
+and filed "could not read the pairing code" against a screen with no code on it.
