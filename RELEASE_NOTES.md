@@ -1,18 +1,18 @@
-## BrightControl v4.17 — the pairing reader stops mistaking the QR screen for the code dialog
+## BrightControl v4.18 — the Send log row stops filing the same log twice
 
-The one-tap pairing helper was filing a false "could not read the pairing code off the dialog"
-report against the QR pairing screen. The report named the screen it actually saw — *Scan QR
-code / Pair device over Wi-Fi by scanning a QR code* — which is the smoking gun: that screen says
-"pair" and "code" but has no six-digit code to read, because the phone pairs by scanning the QR.
+The Color screen's "Send log" filed the same log nine times in a single four-second sitting.
+All nine arrived titled **per-app color: 1 held, 0 overwritten**, which is the *success* state —
+one write landed and stayed — so the color feature itself was never broken. The row that broke
+is the one that sends: tapping it flips its label to "Log sent" but left the tap alive, so
+every further press composed and queued the same log again, and nine presses meant nine
+identical issues.
 
 ### What changed
 
-`AdbPairCode.looksLikeTheList`, the test that keeps Settings screens without a code from being
-taken for the pairing dialog, already excluded the Wireless debugging list — the screen that
-produced the same false report back in #65 and #68. The QR screen slips past it because its
-wording contains "pair" and "code" without any of the list's telling phrases. The test now also
-rejects any screen that says "QR", so the QR pairing screen is left to the sweep-and-navigate
-path instead of being filed as an unreadable dialog.
+`ColorScreen`'s send row is inert once sent. `onClick` is now `if (sent) null else { … }`, so
+after the report is queued the row carries no click at all — the same "state, never a
+transition" idea the color feature runs on. Only the Clear row below re-arms it, and clearing
+is exactly what you do before filing a fresh log anyway.
 
-Fixes [light-reports#264] — the pairing reader mistook the QR pairing screen for the code dialog
-and filed "could not read the pairing code" against a screen with no code on it.
+Fixes [light-reports#271] — the Send log row filed nine copies of one healthy color log in four
+seconds.

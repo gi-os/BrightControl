@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.17.** See [Version history](#version-history).
+**Current version: v4.18.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1180,6 +1180,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.18 | **The Send log row stops filing the same log twice.** The Color screen's "Send log" filed nine identical issues in one four-second sitting (light-reports #271–#279), all titled "per-app color: 1 held, 0 overwritten" — the success state, one write landed and stayed, so the feature itself was never broken. The row was the broken part: tapping it flipped the label to "Log sent" but left the tap alive, so every further press queued the same log again. The row is now inert once sent, and only Clear re-arms it |
 | v4.17 | **The pairing reader stops mistaking the QR screen for the code dialog.** The QR pairing screen says "pair" and "code" but has no six-digit code — the phone pairs by scanning the QR — so the one-tap helper filed a false "could not read the pairing code" report against it (light-reports #264). `looksLikeTheList` now also rejects any Settings screen that says "QR", the same way it already excluded the Wireless debugging list, and a JVM test pins it |
 | v4.16 | **Under a VPN, hand the login to Android's own sign-in app.** A tester's VPN is accountability software that cannot be switched off, so "turn the VPN off" was not an answer. The platform's `CaptivePortalLogin` is privileged and exempt from netd's VPN rule — it is how stock phones sign in under a VPN — and LightOS ships it but never shows the *Sign in to network* notification that opens it. `SystemSignIn` now fires that notification's content intent through this app's notification listener (`LockNotes.signInAction`), falling back to launching the activity directly with `ACTION_CAPTIVE_PORTAL_SIGN_IN`; the portal screen does this automatically when a VPN refuses the bind, and the Wi-Fi screen's VPN row does the same. CHECK then reads the network's VALIDATED bit (no socket needed) after asking the shell for `cmd connectivity reevaluate`. The handoff is reported once so the next release learns which route the ROM allowed |
 | v4.15 | **The login page names the VPN that is stopping it.** First reports from v4.14 (light-reports #242–#244) showed the join working — the phone on the portal network, LightOS flagging it CAPTIVE_PORTAL, WebView present — and then `bindProcessToNetwork → false` and `EPERM` on every probe, with a VPN (`tun0`) as the default network. netd forbids a UID under a VPN from selecting any other network, and no app can lift that. The portal screen now recognises the case: it says a VPN is on (naming the always-on app when the phone will), offers OPEN VPN SETTINGS, and stops probing; the Wi-Fi screen shows the same row under THIS NETWORK. A bind failure with no VPN is reported separately |
