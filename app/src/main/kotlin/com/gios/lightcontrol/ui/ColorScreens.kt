@@ -223,7 +223,8 @@ fun ColorScreen(onPerApp: () -> Unit, onAdb: () -> Unit, onBack: () -> Unit) {
             // Once sent, this row is inert until Clear below resets `sent`. It used to stay
             // clickable — the label flips to "Log sent" but the tap still ran, and one sitting
             // filed nine copies of the same healthy log (light-reports#271–#279) in four seconds.
-            onClick = if (sent) null else {
+            onClick = sendLog@{
+                if (sent) return@sendLog
                 // Read again here rather than trusting the snapshot. The evidence block always
                 // read the log fresh out of preferences while the title was written from the
                 // snapshot, so a stale screen filed an issue whose title said nothing had ever
