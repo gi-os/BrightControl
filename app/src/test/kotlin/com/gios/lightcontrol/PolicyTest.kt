@@ -25,6 +25,7 @@ class PolicyTest {
         // ScrollThrough the lock could be set and then never cleared: the app told you to click
         // the wheel while the click was being spent on the torch one layer above it.
         assertEquals(AppRule.Off, Policy.builtInRuleFor("com.gios.lightcamera"))
+        assertEquals(AppRule.Off, Policy.builtInRuleFor("com.gios.brighthermes"))
     }
 
     /**
@@ -42,6 +43,7 @@ class PolicyTest {
     fun `wheel ownership is answered from the built-in list, whatever anyone stored`() {
         assertTrue(Policy.ownsWheelClick("com.gios.lightcamera"))
         assertTrue(Policy.ownsWheelClick("com.gios.brightrecorder"))
+        assertTrue(Policy.ownsWheelClick("com.gios.brighthermes"))
         assertFalse(Policy.ownsWheelClick("com.gios.lightnoise"))
         assertFalse(Policy.ownsWheelClick("com.example.whatever"))
         assertFalse(Policy.ownsWheelClick(null))

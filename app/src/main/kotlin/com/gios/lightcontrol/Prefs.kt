@@ -2064,6 +2064,11 @@ object Policy {
         // the one app where losing the torch costs nothing: it has its own flash control, and it
         // handles the camera button itself.
         "com.gios.lightcamera",
+        // BrightHermes: holding the wheel in is push-to-talk, a click walks the deck, and the
+        // camera button is the same hold where it arrives. Under ScrollThrough the click went to
+        // the torch and the camera key opened the camera, so the app's only two controls did
+        // nothing -- the same failure Roll's dial lock had, for the same reason.
+        "com.gios.brighthermes",
     )
 
     private val scrollAwarePrefixes = listOf(

@@ -1,18 +1,9 @@
-## BrightControl v4.18 — the Send log row stops filing the same log twice
+## BrightControl v4.19 — BrightHermes gets the whole wheel
 
-The Color screen's "Send log" filed the same log nine times in a single four-second sitting.
-All nine arrived titled **per-app color: 1 held, 0 overwritten**, which is the *success* state —
-one write landed and stayed — so the color feature itself was never broken. The row that broke
-is the one that sends: tapping it flips its label to "Log sent" but left the tap alive, so
-every further press composed and queued the same log again, and nine presses meant nine
-identical issues.
+**BrightHermes's two controls did nothing, for the reason Roll's dial lock once did nothing.** In BrightHermes, holding the wheel in is push-to-talk and a click walks the deck. Under the `com.gios.` ScrollThrough rule the wheel's *turns* reached the app and its *press* did not: this service saw the press first and spent it on the torch, and the camera key on opening the camera. From the phone that reads as an app ignoring its buttons.
 
 ### What changed
 
-`ColorScreen`'s send row is inert once sent. `onClick` is now `if (sent) null else { … }`, so
-after the report is queued the row carries no click at all — the same "state, never a
-transition" idea the color feature runs on. Only the Clear row below re-arms it, and clearing
-is exactly what you do before filing a fresh log anyway.
+`com.gios.brighthermes` joins `ownsWheelPrefixes`, beside Roll and BrightRecorder, so it resolves to `AppRule.Off`: every key goes to the app untouched while it is in front. The torch and the camera key do nothing there, which is the trade the app asked for — it has no flash to lose and handles the camera button itself. As with the other two, this is consulted from the built-in table alone, so a per-app rule stored earlier cannot keep eating the press.
 
-Fixes [light-reports#271] — the Send log row filed nine copies of one healthy color log in four
-seconds.
+`PolicyTest` pins both the `ownsWheelClick` answer and the resolved rule.
