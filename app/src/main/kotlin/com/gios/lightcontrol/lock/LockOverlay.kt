@@ -129,6 +129,12 @@ class LockOverlay(private val context: Context) {
     private var navInstruction: TextView? = null
     private var navSecondary: TextView? = null
 
+    // ---- June's card, where the player goes. See [LockHermes] for the BrightHermes contract.
+    private val hermes = LockHermes(context)
+    private var hermesRow: LinearLayout? = null
+    private var hermesTitle: TextView? = null
+    private var hermesText: TextView? = null
+
     // ---- the next thing on the calendar. See [LockNextUp] for the Notebook contract.
     private val nextUp = LockNextUp(context)
     private var nextUpLine: TextView? = null
@@ -182,6 +188,8 @@ class LockOverlay(private val context: Context) {
         nav.onChange = { step -> runCatching { renderNav(step) } }
         nextUp.onChange = { entry -> runCatching { renderNextUp(entry) } }
         weather.onChange = { entry -> runCatching { renderWeather(entry) } }
+        // The card and the player share a slot; either change repaints both.
+        hermes.onChange = { card -> runCatching { renderHermes(card); renderMedia(media.track) } }
     }
 
     /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
@@ -281,6 +289,7 @@ class LockOverlay(private val context: Context) {
         nav.requery()
         nextUp.requery()
         weather.requery()
+        hermes.requery()
         // And repaint everything once, now. Every tick, battery report and shade change that
         // arrived against the dark panel was ignored; this is the re-ask that rule promised.
         runCatching { refresh() }
@@ -401,6 +410,7 @@ class LockOverlay(private val context: Context) {
             nav.requery()
             nextUp.requery()
             weather.requery()
+            hermes.requery()
             refresh()
             return
         }
@@ -434,6 +444,7 @@ class LockOverlay(private val context: Context) {
                 if (navRow != null) nav.start()
                 if (nextUpLine != null) nextUp.start()
                 if (weatherLine != null) weather.start()
+                if (hermesRow != null) hermes.start()
                 runCatching { refresh() }
             }
     }
@@ -453,6 +464,7 @@ class LockOverlay(private val context: Context) {
         nav.stop()
         nextUp.stop()
         weather.stop()
+        hermes.stop()
         // Only if it is still ours -- the same fast-toggle race as the service's [Banners.onShow]
         // guard: the old service's hide() lands after the new service's face has registered its
         // own closure, and clearing unconditionally here froze the new face's shade updates.
@@ -481,6 +493,9 @@ class LockOverlay(private val context: Context) {
         navSecondary = null
         nextUpLine = null
         weatherLine = null
+        hermesRow = null
+        hermesTitle = null
+        hermesText = null
         callRow = null
         callLabel = null
         callWho = null
@@ -649,6 +664,10 @@ class LockOverlay(private val context: Context) {
         // Under the clock and the shade, above the hints. The foot of the screen is where a phone
         // puts what is playing, and it is also the only place a control can go without the notes
         // shifting position every time a song starts.
+        // June's card takes the player's slot when there is one. Built whether or not the player
+        // row is, because the card does not depend on the media setting: it is the one thing that
+        // can be said to a locked phone from the other end.
+        column.addView(buildHermes())
         if (prefs.lockMedia) column.addView(buildMedia())
 
         // `detail`, not `button`. This is a caption telling you the sensor is live, not a control
@@ -1194,6 +1213,11 @@ class LockOverlay(private val context: Context) {
      */
     private fun renderMedia(track: LockTrack?) {
         val row = mediaRow ?: return
+        // The card has the slot. Whatever is playing, the player waits until the card is gone.
+        if (hermes.state?.live() == true) {
+            row.visibility = View.GONE
+            return
+        }
         if (track == null) {
             row.visibility = View.GONE
             mediaArt?.setImageDrawable(null)
@@ -1261,6 +1285,77 @@ class LockOverlay(private val context: Context) {
      * Greyscale by design, like the cover art: `lineColor` never reaches this row. The
      * instruction BrightWay writes already names the line where one matters.
      */
+    // ------------------------------------------------------------------------ June's card
+
+    /**
+     * The card, where the player goes. A label, a headline and a line — the same shape as the
+     * player row minus the cover and the buttons, so swapping one for the other moves nothing
+     * above it. Tapping it when the phone is unlocked opens BrightHermes, gated on the same
+     * arming as the player's title, and for the same reason.
+     */
+    private fun buildHermes(): LinearLayout {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, type.gridPx(1f), 0, type.gridPx(0.6f))
+        }
+        val label = TextView(context).apply {
+            typeface = type.medium
+            setTextColor(DIM)
+            textSize = type.superfine
+            letterSpacing = type.subheadingTracking
+            gravity = Gravity.CENTER
+            text = "JUNE"
+        }
+        val title = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(Color.WHITE)
+            textSize = type.copy
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, type.gridPx(0.3f), 0, 0)
+        }
+        val text = TextView(context).apply {
+            typeface = type.regular
+            setTextColor(DIM)
+            textSize = type.detail
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, type.gridPx(0.2f), 0, 0)
+        }
+        row.addView(label)
+        row.addView(title)
+        row.addView(text)
+        row.setOnClickListener {
+            if (!enterArmed) return@setOnClickListener
+            runCatching { onOpenPlayer?.invoke(LockHermes.PACKAGE) }
+        }
+        hermesRow = row
+        hermesTitle = title
+        hermesText = text
+        return row
+    }
+
+    /** Put the card on screen, or take the row away when it is gone or has run out. */
+    private fun renderHermes(card: LockHermesCard?) {
+        val row = hermesRow ?: return
+        if (card == null || !card.live()) {
+            row.visibility = View.GONE
+            return
+        }
+        hermesTitle?.apply {
+            text = card.title.ifBlank { card.text }
+        }
+        hermesText?.apply {
+            val second = if (card.title.isBlank()) "" else card.text
+            text = second
+            visibility = if (second.isBlank()) View.GONE else View.VISIBLE
+        }
+        row.visibility = View.VISIBLE
+    }
+
     private fun buildNav(): LinearLayout {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -1431,6 +1526,7 @@ class LockOverlay(private val context: Context) {
             icon.charging = batteryCharging()
         }
         fillNotes(now)
+        renderHermes(hermes.state)
         renderMedia(media.track)
         renderNav(nav.state)
         renderNextUp(nextUp.state)

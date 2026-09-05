@@ -1,9 +1,13 @@
-## BrightControl v4.19 — BrightHermes gets the whole wheel
+## BrightControl v4.20 — June can take the player's slot on the lock face
 
-**BrightHermes's two controls did nothing, for the reason Roll's dial lock once did nothing.** In BrightHermes, holding the wheel in is push-to-talk and a click walks the deck. Under the `com.gios.` ScrollThrough rule the wheel's *turns* reached the app and its *press* did not: this service saw the press first and spent it on the torch, and the camera key on opening the camera. From the phone that reads as an app ignoring its buttons.
+**One card, for the very important thing.** BrightHermes now exposes `content://com.gios.brighthermes.deck/lock`: at most one row — title, text, when it expires — the one thing June has decided cannot wait for the phone to be opened. The face reads it like it reads BrightWay's turn and the Notebook's next event, and draws it where the music player goes, *in place of* the player. Music comes back the moment the card is gone or its clock runs out.
 
-### What changed
+### How it gets there with the phone dark
 
-`com.gios.brighthermes` joins `ownsWheelPrefixes`, beside Roll and BrightRecorder, so it resolves to `AppRule.Off`: every key goes to the app untouched while it is in front. The torch and the camera key do nothing there, which is the trade the app asked for — it has no flash to lose and handles the camera button itself. As with the other two, this is consulted from the built-in table alone, so a per-app rule stored earlier cannot keep eating the press.
+The face queries on show and on every wake, and BrightHermes's provider answers from its cache at once and then — only while the screen is on — asks its gateway for a fresher card and `notifyChange`s if one arrives. So a card posted while the phone lay on the desk is on the face about a second after the first wake, with no service running and nothing polling a dark panel.
 
-`PolicyTest` pins both the `ownsWheelClick` answer and the resolved rule.
+Tapping the card once unlocked opens BrightHermes, gated on the same arming as the player's title.
+
+### Also
+
+`LockHermes` follows `LockNav` line for line — window-scoped watcher, observer ping ignored against a dark panel, absent app means no row. The manifest's `<queries>` names the provider so Android 11's package visibility lets the query through.

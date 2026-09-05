@@ -208,6 +208,8 @@
         <provider android:authorities="com.gios.lightnotebook.nextup" />
         <package android:name="com.gios.lightfog" />
         <provider android:authorities="com.gios.lightfog.weather" />
+        <package android:name="com.gios.brighthermes" />
+        <provider android:authorities="com.gios.brighthermes.deck" />
     </queries>
 
     <application
