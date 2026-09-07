@@ -46,7 +46,7 @@ class LockNextUp(private val context: Context) {
 
     private val main = Handler(Looper.getMainLooper())
 
-    /** Told on the main thread whenever the answer changes. Null means nothing in the 48 h. */
+    /** Told on the main thread whenever the answer changes. Null means nothing in the provider's 48 h; the face trims that to [NextUpText.HORIZON_MS] as it draws. */
     var onChange: ((LockNextUpEntry?) -> Unit)? = null
 
     var state: LockNextUpEntry? = null
@@ -148,6 +148,21 @@ class LockNextUp(private val context: Context) {
  */
 object NextUpText {
 
+    /**
+     * How far ahead the line looks: 18 hours. The provider's own window is 48, which is what a
+     * calendar needs; a lock face is glanced at, and Thursday's meeting on Tuesday night is
+     * clutter, not warning. Eighteen is "the rest of today and first thing tomorrow" -- at 10 pm
+     * it reaches a 9 am start, at noon it reaches nothing past bedtime.
+     */
+    const val HORIZON_MS: Long = 18L * 60 * 60 * 1000
+
+    /**
+     * Whether an entry is close enough to draw. Anything already started or within [HORIZON_MS]
+     * of now qualifies; the face re-asks this on every repaint, so an entry parked just past the
+     * edge walks onto the line as the clock catches up, with no second query.
+     */
+    fun within(startAt: Long, now: Long): Boolean = startAt - now <= HORIZON_MS
+
     private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm", Locale.US)
 
     /**
@@ -155,8 +170,8 @@ object NextUpText {
      *
      * A timed entry shows its time; on a later day the day comes first, because "9:30" alone on
      * Tuesday night means Wednesday morning to nobody. An all-day entry has no time to show, so
-     * it says the day. The window is 48 hours, so the day is almost always TOMORROW; the weekday
-     * is the honest fallback for a provider that answered past its own contract.
+     * it says the day. The face only draws within [HORIZON_MS], so the day is TODAY or TOMORROW;
+     * the weekday is the honest fallback for a caller that skipped [within].
      */
     fun label(startAt: Long, allDay: Boolean, now: Long, zone: ZoneId, title: String): String {
         val head = lead(startAt, allDay, now, zone)

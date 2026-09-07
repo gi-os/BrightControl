@@ -4,6 +4,8 @@ import com.gios.lightcontrol.lock.NextUpText
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -58,5 +60,19 @@ class NextUpTextTest {
     fun `a title is one line however it was written`() {
         val label = NextUpText.label(at(9, 1, 9, 30), false, at(9, 1, 7, 0), zone, "Team\n  sync")
         assertEquals("NEXT UP · 9:30 TEAM SYNC", label)
+    }
+
+    @Test
+    fun `the horizon is eighteen hours, inclusive`() {
+        val now = at(9, 1, 22, 0)
+        assertTrue(NextUpText.within(at(9, 2, 9, 0), now))      // 11 h: tomorrow morning shows
+        assertTrue(NextUpText.within(at(9, 2, 16, 0), now))     // exactly 18 h
+        assertFalse(NextUpText.within(at(9, 2, 16, 1), now))    // one minute past
+        assertFalse(NextUpText.within(at(9, 3, 9, 0), now))     // the day after: inside 48, outside 18
+    }
+
+    @Test
+    fun `an entry already started is still within`() {
+        assertTrue(NextUpText.within(at(9, 1, 9, 0), at(9, 1, 9, 30)))
     }
 }

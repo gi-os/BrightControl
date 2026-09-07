@@ -1405,18 +1405,22 @@ class LockOverlay(private val context: Context) {
     /**
      * The quiet line under the date, or nothing -- which is the ordinary case and must look
      * deliberate. The label is rebuilt on every repaint rather than cached, because "TODAY"
-     * becomes wrong at midnight and the minute ticker is already paying for the clock.
+     * becomes wrong at midnight and the minute ticker is already paying for the clock. The same
+     * repaint applies the 18-hour horizon ([NextUpText.within]): the provider answers for 48
+     * hours, and an entry past the edge sits in [LockNextUp.state] unseen until the clock
+     * brings it inside.
      */
     private fun renderNextUp(entry: LockNextUpEntry?) {
         val line = nextUpLine ?: return
-        if (entry == null || entry.title.isBlank()) {
+        val now = System.currentTimeMillis()
+        if (entry == null || entry.title.isBlank() || !NextUpText.within(entry.startAt, now)) {
             line.visibility = View.GONE
             return
         }
         line.text = NextUpText.label(
             startAt = entry.startAt,
             allDay = entry.allDay,
-            now = System.currentTimeMillis(),
+            now = now,
             zone = java.time.ZoneId.systemDefault(),
             title = entry.title,
         )

@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.20.** See [Version history](#version-history).
+**Current version: v4.21.** See [Version history](#version-history).
 
 ## What it does
 
@@ -29,7 +29,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 | **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
 | **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. The left edge goes back and is on out of the box, because this phone has no back button; the right edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
-| **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background. While BrightWay navigates it shows the current turn; when BrightNotebook has something in the next 48 hours, one quiet NEXT UP line under the date |
+| **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background. While BrightWay navigates it shows the current turn; when BrightNotebook has something in the next 18 hours, one quiet NEXT UP line under the date |
 | **Volume** | The on-screen volume level LightOS ships without, and a selector for every stream the hardware cannot otherwise reach |
 | **Ringer** | Silent on some Wi-Fi networks, loud on others. The office and the flat are different places |
 | **Calls apart** | A call and a text message at different loudness, on a phone that gives them one number. Silent notifications, or two levels swapped on the ring. **Off by default** |
@@ -1180,6 +1180,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 | --- | --- |
+| v4.21 | **NEXT UP looks 18 hours ahead, not 48.** The Notebook's provider answers for two days, which is what a calendar needs; a lock face glanced at on Tuesday night does not need Thursday's meeting. The line now draws only what starts within 18 hours — the rest of today and first thing tomorrow — and an entry just past the edge walks on as the minute tick catches up, with no second query |
 | v4.20 | **June can take the player's slot on the lock face.** BrightHermes's `…deck/lock` provider — at most one row, with an expiry — is drawn where the music player goes, in place of it, until it is cleared or runs out. Read on show and on every wake like the nav and next-up rows; the provider refreshes itself from the gateway on a lit-screen query, so a card posted while the phone lay dark is there on the first wake |
 | v4.19 | **BrightHermes gets the whole wheel.** Holding the wheel in is push-to-talk there and a click walks the deck; under ScrollThrough the press went to the torch and the camera key opened the camera, so the app's two controls did nothing. `com.gios.brighthermes` now resolves to Off, beside Roll and BrightRecorder |
 | v4.18 | **The Send log row stops filing the same log twice.** The Color screen's "Send log" filed nine identical issues in one four-second sitting (light-reports #271–#279), all titled "per-app color: 1 held, 0 overwritten" — the success state, one write landed and stayed, so the feature itself was never broken. The row was the broken part: tapping it flipped the label to "Log sent" but left the tap alive, so every further press queued the same log again. The row is now inert once sent, and only Clear re-arms it |
