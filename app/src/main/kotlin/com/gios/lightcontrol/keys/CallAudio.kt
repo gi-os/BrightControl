@@ -106,4 +106,40 @@ class CallAudio(
 
     @Suppress("DEPRECATION")
     private fun legacySpeaker(audio: AudioManager): Boolean = audio.isSpeakerphoneOn
+
+    /** Whether the call is on the phone's own speaker right now. Public for the card's button. */
+    fun isOnSpeaker(): Boolean = runCatching {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return false
+        onSpeaker(audio)
+    }.getOrDefault(false)
+
+    /**
+     * Force the route on or off the built-in speaker, from the card's own button.
+     *
+     * Different question from the boost above -- that is a level, once; this is the route, and
+     * the one thing this app can actually move about a call. It exists because the dialer's own
+     * speaker button sits on a screen that this face's window at layer 31 covers exactly the way
+     * it covers everything else, and the screen cycling mid-call re-raises the face over an
+     * already-active call with nothing on it that could reach that button. See [ControlService].
+     */
+    fun setSpeaker(on: Boolean): Boolean {
+        val audio = runCatching { context.getSystemService(AudioManager::class.java) }.getOrNull()
+            ?: return false
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (on) {
+                    val speaker = audio.availableCommunicationDevices
+                        .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    speaker != null && audio.setCommunicationDevice(speaker)
+                } else {
+                    audio.clearCommunicationDevice()
+                    true
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = on
+                true
+            }
+        }.getOrDefault(false)
+    }
 }

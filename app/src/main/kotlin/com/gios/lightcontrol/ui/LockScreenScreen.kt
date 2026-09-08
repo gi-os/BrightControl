@@ -31,7 +31,6 @@ fun LockScreenScreen(
     var lockNotes by remember { mutableStateOf(prefs.lockNotes) }
     var lockMedia by remember { mutableStateOf(prefs.lockMedia) }
     var lockCalls by remember { mutableStateOf(prefs.lockCalls) }
-    var lockHold by remember { mutableStateOf(prefs.lockHoldToEnter) }
     val notesGranted = LockNotes.granted(context)
     val hasBackground = LockBackground.has(context)
     val phoneState = context.checkSelfPermission(
@@ -53,7 +52,8 @@ fun LockScreenScreen(
             label = "Light lock face",
             detail = if (lockScreen) "ON" else "OFF",
             sub = if (lockScreen) {
-                "on. Tap the face to reach the keypad. Unlocking lands wherever Resume would."
+                "on. Press home for the keypad if the sensor isn't letting you in. Unlocking " +
+                    "holds the face open; press home again to go in."
             } else {
                 "off. Needs a screen lock set. Turn on for a clock, notifications and your own " +
                     "picture over the stock lock screen."
@@ -93,27 +93,13 @@ fun LockScreenScreen(
                 label = "Prompt",
                 detail = if (lockPrompt) "ON" else "OFF",
                 sub = if (lockPrompt) {
-                    "\"press the power button\" and \"or tap for the keypad\", under the clock"
+                    "\"press the power button\" and \"or press home for the keypad\", under the clock"
                 } else {
                     "hidden. The clock, the notifications and nothing else."
                 },
                 onClick = {
                     lockPrompt = !lockPrompt
                     prefs.lockPrompt = lockPrompt
-                },
-            )
-            MenuRow(
-                label = "Hold to enter",
-                detail = if (lockHold) "ON" else "OFF",
-                sub = if (lockHold) {
-                    "unlocking holds the face open so you can read it. Press and hold anywhere " +
-                        "for a second to go in; swipe up for the keypad."
-                } else {
-                    "unlocking opens your app straight away, the instant the sensor reads you."
-                },
-                onClick = {
-                    lockHold = !lockHold
-                    prefs.lockHoldToEnter = lockHold
                 },
             )
             val chosen = prefs.resumeApps().size
@@ -186,7 +172,9 @@ fun LockScreenScreen(
                             "com.gios.lightcontrol/.lock.LockNotifications"
                     lockCalls ->
                         "a ringing call gets a card here, with answer and decline. Answer it and " +
-                            "the face steps aside for LightOS's own in-call screen."
+                            "the face steps aside for LightOS's own in-call screen — and if it " +
+                            "comes back over an active call, the card gets a speaker toggle and " +
+                            "a button back to the phone view."
                     else ->
                         "off. The face hides for the whole call instead, so the stock " +
                             "incoming-call screen is what you see."

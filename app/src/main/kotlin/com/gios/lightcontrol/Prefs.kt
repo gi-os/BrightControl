@@ -1278,20 +1278,6 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("call_boost", v).apply()
 
     /**
-     * Whether unlocking holds the face open until a deliberate press-and-hold, instead of
-     * launching the resume app the instant the fingerprint authenticates.
-     *
-     * On, because the whole point of the face is the notifications on it, and an unlock that opens
-     * an app in the same beat is one nobody gets to read. With this on, the thumb still unlocks the
-     * phone -- but the face stays up, armed, and a one-second hold anywhere on it is what actually
-     * goes in. A swipe up still reaches the keypad. The app cannot time the power-button sensor, so
-     * the hold is read on the touchscreen, not the button.
-     */
-    var lockHoldToEnter: Boolean
-        get() = sp.getBoolean("lock_hold_to_enter", true)
-        set(v) = sp.edit().putBoolean("lock_hold_to_enter", v).apply()
-
-    /**
      * Whether the face lists notifications an app has marked as permanent.
      *
      * Off, and that is the same answer the code gave before this became a setting -- the filter

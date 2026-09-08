@@ -30,6 +30,12 @@ data class LockNote(
     val title: String,
     val text: String,
     val postedAt: Long,
+    /**
+     * What a tap on this row would send -- the same `contentIntent` tapping it in the shade
+     * itself would fire. Null for a notification that offers nothing to open, which is rarer
+     * than it sounds but not impossible.
+     */
+    val open: PendingIntent?,
 )
 
 /**
@@ -422,6 +428,7 @@ class LockNotifications : NotificationListenerService() {
                 title = said.title,
                 text = said.text,
                 postedAt = sbn.postTime,
+                open = sbn.notification.contentIntent,
             )
         }
         LockNotes.publish(notes)

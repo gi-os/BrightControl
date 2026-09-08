@@ -637,16 +637,26 @@ every drag on it already means something else. It now measures against the space
 given, draws only whole rows, and says how many are missing on the `+N MORE` line. Clearing the top
 ones brings the rest up.
 
-Three gestures on the face, and each one has to be impossible to do by accident, because this
-window covers the whole panel and a pocket presses the whole panel: **up** for the keypad,
-**left** on a row to clear it, **press and hold** to go in once the phone is unlocked. The axis is
-locked at the first movement past the touch slop and never revisited, so a lazy diagonal cannot
-take the face away while you are wiping a row.
+One touch gesture on the face now: **left** on a row to clear it, which has to be impossible to
+do by accident, because this window covers the whole panel and a pocket presses the whole panel.
+The axis is locked at the first movement past the touch slop and never revisited, so a lazy
+diagonal cannot take a row with it. Reaching the keypad and going in once the phone is unlocked
+used to be a swipe up and a press-and-hold; both are gone in favour of the **Home button** — press
+it and the face either drops to the keypad (the sensor has not let you in yet) or goes straight to
+whatever the phone was doing before it slept (it already has). A pocket cannot press a button by
+accident the way it presses the glass.
+
+**A notification row can be tapped**, too, once the phone has actually unlocked — same rule as
+June's card and the player's title, because a lock screen that opens an app on one tap before that
+is not a lock screen. It sends the same `contentIntent` tapping the row in the shade would.
 
 **A ringing call gets a card on the face.** This is a fix, not an addition. The face is a window
 at layer 31, so it paints over the dialer's incoming-call screen the same way it once painted over
 the camera. A call that arrived while the phone was locked rang behind a clock. The card shows who
-is calling and carries ANSWER and DECLINE.
+is calling and carries ANSWER and DECLINE. Once the call is active, the same card gets a SPEAKER
+toggle and a PHONE button back to LightOS's own in-call screen — the screen cycling mid-call
+re-raises the face over an already-live call the same way it re-raises it for everything else, and
+until these buttons existed there was nothing on it to reach that screen from.
 
 Answering presses the dialer's own notification buttons, which needs no grant beyond the
 notification listener the face already uses. A dialer whose buttons cannot be identified by their

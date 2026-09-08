@@ -78,10 +78,12 @@ import kotlin.math.abs
  *
  * ### The one thing it takes
  *
- * Touches, so a **swipe up** can get out of the way when you want the keypad. That is all it does:
- * hide this window, revealing the real lock screen already behind it. It never asks for the bouncer
- * and never dismisses anything. A tap is deliberately inert — this covers the whole panel, and a
- * phone in a pocket presses the whole panel.
+ * Touches, so a row can be swiped away. Reaching the keypad, and going in once the phone has
+ * unlocked, both used to be touch gestures here too — a swipe up and a press-and-hold — and both
+ * were retired in favour of the Home button, which is not something a pocket presses by accident
+ * the way it presses this whole panel. See [ControlService]'s Home handling and
+ * [LockOverlay.requestKeypad]. This window never asks for the bouncer and never dismisses
+ * anything on its own.
  */
 class LockOverlay(private val context: Context) {
 
@@ -89,9 +91,6 @@ class LockOverlay(private val context: Context) {
 
     /** LightOS's own type scale and grid. Never a hardcoded sp or dp on this screen. */
     private val type = LightType(context)
-
-    /** How far up counts as meaning it. Four grid units — a flick, not a graze. */
-    private val swipeThreshold: Int get() = type.gridPx(4f)
 
     /**
      * How far left a row has to be pushed before letting go dismisses it.
@@ -110,8 +109,6 @@ class LockOverlay(private val context: Context) {
     private var batteryIcon: BatteryIcon? = null
     private var alarm: TextView? = null
     private var notes: LockNoteList? = null
-    private var enterHint: TextView? = null
-    private var progressLine: View? = null
 
     // ---- now playing. See [LockMedia] for why the player cannot draw this itself.
     private val media = LockMedia(context)
@@ -150,6 +147,9 @@ class LockOverlay(private val context: Context) {
     private var callSub: TextView? = null
     private var callAnswer: TextView? = null
     private var callDecline: TextView? = null
+    private var callExtra: LinearLayout? = null
+    private var callSpeaker: TextView? = null
+    private var callPhone: TextView? = null
     private var callState: LockCallState? = null
 
     /**
@@ -165,7 +165,7 @@ class LockOverlay(private val context: Context) {
     /**
      * Asked to open the player, with its package.
      *
-     * The face never starts an activity. Same seam as [onEnter] and for the same reason: every
+     * The face never starts an activity. Same seam as [onOpenNote] and for the same reason: every
      * launch in this app goes through the service's one throttle, its one log line and its cover
      * handling, and a window that started its own would sit outside all three.
      */
@@ -180,6 +180,29 @@ class LockOverlay(private val context: Context) {
      */
     var onDismissNote: ((String) -> Unit)? = null
 
+    /**
+     * A notification row was tapped, with the intent it carries.
+     *
+     * Same seam as [onOpenPlayer] and gated the same way as June's card and the player's title --
+     * on [enterArmed], because a lock screen that opens an app on one tap is not a lock screen.
+     * The face never starts anything itself; sending the intent is the service's job, on the same
+     * throttle and the same log as every other way out of this window.
+     */
+    var onOpenNote: ((android.app.PendingIntent) -> Unit)? = null
+
+    /**
+     * SPEAKER, pressed on the call card. See [ControlService.toggleSpeaker] for what it actually
+     * moves and why volume itself is out of reach.
+     */
+    var onToggleSpeaker: (() -> Unit)? = null
+
+    /**
+     * PHONE, pressed on the call card -- jump to LightOS's own in-call screen. Offered here for
+     * the moment the face has come back over an already-active call, which the screen cycling
+     * mid-call does exactly the way it re-raises the face for everything else.
+     */
+    var onOpenCallScreen: (() -> Unit)? = null
+
     init {
         // The row is driven by the session, not by the minute ticker -- a track changes when it
         // changes, and repainting the clock is no reason to redraw a cover.
@@ -192,20 +215,11 @@ class LockOverlay(private val context: Context) {
         hermes.onChange = { card -> runCatching { renderHermes(card); renderMedia(media.track) } }
     }
 
-    /** Set true on unlock; a press-and-hold then goes in. Reset every lock cycle. */
+    /** Set true on unlock. Reset every lock cycle. */
     private var enterArmed = false
 
     /** True once unlocked and holding open for a read — the window a home press means "go in". */
     val armed: Boolean get() = enterArmed
-    private var holdAnimator: android.animation.ValueAnimator? = null
-
-    /**
-     * Told when a completed hold means "go in", set by the service.
-     *
-     * The face has no idea where to resume to -- that is the service's list and snapshot -- so the
-     * hold gesture only reports that it happened and the service decides where it lands.
-     */
-    var onEnter: (() -> Unit)? = null
 
     /** Hidden by a tap, and left hidden until the next sleep. */
     private var dismissedByTouch = false
@@ -316,66 +330,37 @@ class LockOverlay(private val context: Context) {
         face?.animate()?.alpha(1f)?.setDuration(FADE_MS)?.start()
     }
 
-    private val holdEnter = Runnable {
-        // Fires a full second in, while the finger is still down. The service launches and takes
-        // the window down; nothing here needs to.
-        runCatching { onEnter?.invoke() }
-    }
-
     /**
-     * The phone is open -- now wait for a deliberate hold rather than launching on the unlock.
+     * The phone is open -- stay up, armed, rather than launching on the unlock.
      *
-     * This reverses the old contract. Before this, the poll that saw the keyguard unlock also
-     * opened the resume app in the same instant, so the notifications on this face were never read.
-     * Now the face stays up and readable, says how to go in, and enters only when [holdEnter]
-     * completes. Called by the service the moment it sees the phone unlock.
+     * Before this, the poll that saw the keyguard unlock also opened the resume app in the same
+     * instant, so the notifications on this face were never read. Now the face stays up and
+     * readable, and going in is the Home button's job -- see [ControlService]'s armed-home branch,
+     * which is the only thing that reads [armed]. Called by the service the moment it sees the
+     * phone unlock; idempotent because the unlock arrives on three signals at once (poll, keyguard
+     * listener, USER_PRESENT).
      */
     fun armEnter() {
-        // Idempotent: the unlock arrives on three signals at once (poll, keyguard listener,
-        // USER_PRESENT), and re-running this mid-hold would snap the progress line back to zero.
-        if (enterArmed) return
         enterArmed = true
-        // No text furniture. The clock, the notifications and nothing else -- the hold's feedback
-        // is the progress line filling, not a caption. enterHint is kept GONE.
-        handler.post { resetProgress() }
-    }
-
-    private fun startHold() {
-        handler.removeCallbacks(holdEnter)
-        handler.postDelayed(holdEnter, HOLD_ENTER_MS)
-        val line = progressLine ?: return
-        holdAnimator?.cancel()
-        val full = type.gridPx(10f)
-        holdAnimator = android.animation.ValueAnimator.ofInt(0, full).apply {
-            duration = HOLD_ENTER_MS
-            addUpdateListener { anim ->
-                line.layoutParams = line.layoutParams.apply { width = anim.animatedValue as Int }
-                line.requestLayout()
-            }
-            start()
-        }
-    }
-
-    private fun cancelHold() {
-        handler.removeCallbacks(holdEnter)
-        resetProgress()
-    }
-
-    private fun resetProgress() {
-        holdAnimator?.cancel()
-        holdAnimator = null
-        progressLine?.let {
-            it.layoutParams = it.layoutParams.apply { width = 0 }
-            it.requestLayout()
-        }
     }
 
     /** Back to a fresh, un-armed face. Called at the start of every lock cycle and on teardown. */
     private fun resetEnter() {
         enterArmed = false
-        handler.removeCallbacks(holdEnter)
-        enterHint?.visibility = View.GONE
-        resetProgress()
+    }
+
+    /**
+     * Put the face away to reach the keypad.
+     *
+     * The button's job now: neither a swipe nor a hold does this any more, and the sensor still
+     * being unconvinced is the one moment this face has to get out of the way on request rather
+     * than on a deliberate drag. Called by the service on a Home press that lands on a face that
+     * has not unlocked. Sticky like the swipe it replaces, and for the same reason: re-raising the
+     * face on the next screen-on would make the keypad it was just pressed for unreachable.
+     */
+    fun requestKeypad() {
+        dismissedByTouch = true
+        hide()
     }
 
     /**
@@ -471,9 +456,6 @@ class LockOverlay(private val context: Context) {
         if (LockNotes.onChange === notesChange) LockNotes.onChange = null
         notesChange = null
         handler.removeCallbacks(fadeIn)
-        handler.removeCallbacks(holdEnter)
-        holdAnimator?.cancel()
-        holdAnimator = null
         enterArmed = false
         face?.animate()?.cancel()
         val view = root ?: return true
@@ -502,8 +484,9 @@ class LockOverlay(private val context: Context) {
         callSub = null
         callAnswer = null
         callDecline = null
-        enterHint = null
-        progressLine = null
+        callExtra = null
+        callSpeaker = null
+        callPhone = null
         clock = null
         date = null
         bars = null
@@ -688,35 +671,12 @@ class LockOverlay(private val context: Context) {
             textSize = type.superfine
             gravity = Gravity.CENTER
             setPadding(0, type.gridPx(0.35f), 0, 0)
-            text = "swipe up for the keypad"
+            text = "or press home for the keypad"
         }
         if (prefs.lockPrompt) {
             column.addView(hint)
             column.addView(hintSub)
         }
-
-        // Shown only after the phone unlocks (armEnter). Tells the user the face is now theirs to
-        // read, and that going in takes a deliberate hold -- not the pocket-proof swipe, a hold.
-        val enter = TextView(context).apply {
-            typeface = type.medium
-            setTextColor(Color.WHITE)
-            textSize = type.detail
-            letterSpacing = type.buttonTracking
-            gravity = Gravity.CENTER
-            visibility = View.GONE
-            setPadding(0, type.gridPx(0.6f), 0, type.gridPx(0.4f))
-            text = "HOLD TO ENTER  ·  SWIPE UP FOR KEYPAD"
-        }
-        // The hold's progress, drawn as a line that fills over the second. Width 0 at rest; the
-        // hold animator grows it, a lift or a swipe snaps it back. Feedback the sensor never gave.
-        val progress = View(context).apply {
-            setBackgroundColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, maxOf(2, type.gridPx(0.12f))).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            }
-        }
-        column.addView(enter)
-        column.addView(progress)
 
         content.addView(column)
 
@@ -724,14 +684,13 @@ class LockOverlay(private val context: Context) {
         // presses its whole panel — a face that got out of the way on any touch is a face that
         // spends the day out of the way, and then the picture is a thing you see only when you
         // meant to see something else. So every gesture here has to be one nothing does by
-        // accident: a deliberate drag, up for the keypad or left to dismiss a row. See
-        // [LockFrame], which is where all of it is read.
+        // accident: a deliberate drag, left to dismiss a row. Reaching the keypad and going in are
+        // both the Home button's job now -- see [ControlService]. See [LockFrame], which is where
+        // the drag is read.
 
         face = content
         nextUpLine = next
         weatherLine = wx
-        enterHint = enter
-        progressLine = progress
         clock = time
         date = day
         bars = signal
@@ -746,12 +705,12 @@ class LockOverlay(private val context: Context) {
     /**
      * Every gesture the face answers to, read in one place.
      *
-     * Three of them, and each one has to be impossible to perform by accident, because this window
-     * covers the whole panel and a phone in a pocket presses the whole panel:
-     *
-     *  - **Up** — put the face away and show the keypad underneath.
-     *  - **Left, on a row** — dismiss that notification, or put the player's card away.
-     *  - **Press and hold, once unlocked** — go in. See [startHold].
+     * One left now: **left, on a row** — dismiss that notification, or put the player's card
+     * away. It has to be impossible to perform by accident, because this window covers the whole
+     * panel and a phone in a pocket presses the whole panel. Reaching the keypad and going in once
+     * unlocked used to live here too, as a swipe up and a press-and-hold — both gone in favour of
+     * the Home button, which the phone already has and a pocket cannot press. See
+     * [LockOverlay.requestKeypad] and [ControlService]'s armed-home branch.
      *
      * ### Why this intercepts
      *
@@ -790,26 +749,14 @@ class LockOverlay(private val context: Context) {
 
         override fun onTouchEvent(ev: MotionEvent): Boolean {
             when (ev.actionMasked) {
-                // Only reached when no child took the press. Which is the old rule, kept: a press
-                // on the skip button is not the beginning of a hold-to-enter.
-                MotionEvent.ACTION_DOWN -> {
-                    begin(ev)
-                    // Only after the phone is unlocked does a hold mean anything. Before that the
-                    // keyguard behind us is what a press has to reach.
-                    if (enterArmed) startHold()
-                }
+                // Only reached when no child took the press.
+                MotionEvent.ACTION_DOWN -> begin(ev)
                 MotionEvent.ACTION_MOVE -> {
                     recognise(ev)
                     if (drag == Drag.SIDEWAYS) push(ev.rawX - downX)
                 }
-                MotionEvent.ACTION_UP -> {
-                    cancelHold()
-                    finish(ev)
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    cancelHold()
-                    settle()
-                }
+                MotionEvent.ACTION_UP -> finish(ev)
+                MotionEvent.ACTION_CANCEL -> settle()
             }
             return true
         }
@@ -824,17 +771,15 @@ class LockOverlay(private val context: Context) {
         /**
          * Which gesture this is, decided once and kept. True once there is one to take over.
          *
-         * A sideways drag that started over nothing dismissable is [Drag.DEAD] rather than falling
-         * through to the swipe up: the finger has already committed to an axis, and reading a
-         * lazy diagonal as "keypad" is how a face disappears when somebody meant to wipe a row.
+         * A sideways drag that started over nothing dismissable is [Drag.DEAD], and so is anything
+         * more vertical than horizontal now that a swipe up means nothing: reading a lazy diagonal
+         * as anything at all is how a row gets wiped when nothing was meant.
          */
         private fun recognise(ev: MotionEvent): Boolean {
             if (drag != Drag.NONE) return true
             val dx = ev.rawX - downX
             val dy = ev.rawY - downY
             if (abs(dx) < slop && abs(dy) < slop) return false
-            // This is a drag, not a hold. Whatever it turns out to be, it is not that.
-            cancelHold()
             drag = if (abs(dx) > abs(dy)) {
                 val row = if (dx < 0) rowAt(downX, downY) else null
                 if (row == null) {
@@ -844,7 +789,7 @@ class LockOverlay(private val context: Context) {
                     Drag.SIDEWAYS
                 }
             } else {
-                Drag.UPWARD
+                Drag.DEAD
             }
             return true
         }
@@ -860,18 +805,10 @@ class LockOverlay(private val context: Context) {
 
         private fun finish(ev: MotionEvent) {
             val dx = ev.rawX - downX
-            val up = downY - ev.rawY
             when (drag) {
                 Drag.SIDEWAYS -> {
                     val row = target
                     if (row != null && -dx > swipeAwayThreshold) away(row) else settle()
-                }
-                // Up, far enough to be meant. Remembered, so screen-on does not raise the face
-                // again: swiping to reach the keypad and having it come straight back would make
-                // the keypad unreachable, which is the one bug this feature must never have.
-                Drag.UPWARD -> if (up > swipeThreshold) {
-                    dismissedByTouch = true
-                    hide()
                 }
                 else -> settle()
             }
@@ -1018,10 +955,27 @@ class LockOverlay(private val context: Context) {
         buttons.addView(decline)
         buttons.addView(answer)
 
+        // A second row, active-call only. The dialer's own screen has speaker and this same jump
+        // on it -- but that screen sits underneath a window at layer 31 exactly like everything
+        // else the face covers, and the screen cycling mid-call re-raises the face over it (see
+        // [ControlService.onScreenOn]) with nothing left on this one to reach either from.
+        val extra = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            visibility = View.GONE
+            setPadding(0, type.gridPx(0.5f), 0, 0)
+        }
+        val speaker = callButton(filled = false) { runCatching { onToggleSpeaker?.invoke() } }
+            .apply { text = "SPEAKER" }
+        val phone = callButton(filled = false) { runCatching { onOpenCallScreen?.invoke() } }
+            .apply { text = "PHONE" }
+        extra.addView(speaker)
+        extra.addView(phone)
+
         card.addView(label)
         card.addView(who)
         card.addView(sub)
         card.addView(buttons)
+        card.addView(extra)
 
         callRow = card
         callLabel = label
@@ -1029,6 +983,9 @@ class LockOverlay(private val context: Context) {
         callSub = sub
         callAnswer = answer
         callDecline = decline
+        callExtra = extra
+        callSpeaker = speaker
+        callPhone = phone
         return card
     }
 
@@ -1083,6 +1040,21 @@ class LockOverlay(private val context: Context) {
             visibility = if (ringing) View.VISIBLE else View.GONE
         }
         callDecline?.text = if (ringing) "DECLINE" else "END"
+        // Speaker and phone only make sense once there is a call actually happening -- ringing
+        // has nothing to route yet and nowhere of its own to jump to.
+        callExtra?.visibility = if (ringing) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * Label the SPEAKER button with what the route actually is, not what this face last set.
+     *
+     * Read off the phone rather than remembered, because a call can already be on speaker when
+     * this row appears -- a headset unplugged, a route the dialer's own screen was left on -- and
+     * a button that only knew what it last pressed would show the wrong word. Called once when
+     * the card comes up and again on every tick while a call is up. See [ControlService].
+     */
+    fun setSpeakerOn(on: Boolean) {
+        callSpeaker?.text = if (on) "SPEAKER ON" else "SPEAKER"
     }
 
     // ------------------------------------------------------------------------ now playing
@@ -1095,10 +1067,10 @@ class LockOverlay(private val context: Context) {
      * moves everything above it a few pixels the moment a track begins, and on a lock screen that
      * reads as the face glitching.
      *
-     * **The buttons are the only touchable things on this face.** Everything else falls through to
-     * the frame's listener, which is what the swipe and the hold-to-enter are read from -- a child
-     * with a click listener consumes the gesture before the frame ever sees it, so pressing skip
-     * cannot half-start a hold, and dragging up from anywhere else still reaches the keypad.
+     * **The buttons are among the few touchable things on this face**, along with the notification
+     * rows and June's card. Everything else falls through to the frame's listener, which is what
+     * the swipe is read from -- a child with a click listener consumes the gesture before the
+     * frame ever sees it, so pressing skip cannot be mistaken for the start of a drag.
      */
     private fun buildMedia(): LinearLayout {
         val row = LinearLayout(context).apply {
@@ -1567,6 +1539,17 @@ class LockOverlay(private val context: Context) {
                 // index would be a promise that the list has not been rebuilt since, and it is
                 // rebuilt on every notification the phone receives.
                 tag = note.key
+                // Open the app it is about, gated the same way as June's card and the player's
+                // title: only once the phone has actually unlocked. Before that this row is a
+                // click listener like the media buttons are — it takes the tap before the frame
+                // ever sees it, which is what keeps a tap from being read as the start of a drag.
+                val open = note.open
+                if (open != null) {
+                    isClickable = true
+                    setOnClickListener {
+                        if (enterArmed) runCatching { onOpenNote?.invoke(open) }
+                    }
+                }
             }
             // The app name and the age share one line: the name takes the room it needs and the
             // age is pinned to the right edge, so a long app name ellipsises rather than pushing
@@ -1826,9 +1809,6 @@ class LockOverlay(private val context: Context) {
         /** The square behind a missing cover. Dark enough to be a shape, not a hole. */
         val EMPTY_ART = Color.rgb(0x22, 0x22, 0x22)
 
-        /** How long a press-and-hold on the unlocked face must last to go in. */
-        const val HOLD_ENTER_MS = 1000L
-
         /**
          * Below this, a reported RSSI is not a reading.
          *
@@ -1843,8 +1823,9 @@ class LockOverlay(private val context: Context) {
 /**
  * What a drag on the face turned out to mean, decided once at the first movement past the slop.
  *
- * [DEAD] is not an absence: it is a sideways drag that began over nothing dismissable, and it has
- * to be a decision rather than a fall-through, or a lazy diagonal across the middle of the screen
- * would take the face away when somebody meant to wipe a row.
+ * [DEAD] is not an absence: it covers a sideways drag that began over nothing dismissable and
+ * anything more vertical than horizontal, now that a swipe up means nothing. It has to be a
+ * decision rather than a fall-through, or a lazy diagonal across the middle of the screen would
+ * take a row with it.
  */
-private enum class Drag { NONE, DEAD, SIDEWAYS, UPWARD }
+private enum class Drag { NONE, DEAD, SIDEWAYS }

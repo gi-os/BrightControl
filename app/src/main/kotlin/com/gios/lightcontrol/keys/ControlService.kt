@@ -390,12 +390,11 @@ class ControlService : AccessibilityService() {
         // would reach `wm.removeView` on the very view whose touch listener is still dispatching
         // the stroke that asked for it. One loop later there is no stroke to be inside.
         switcher.onVisibilityChanged = { runCatching { handler.post { refreshEdges() } } }
-        // The deliberate hold-to-enter gesture reports here; the service owns where an unlock lands
-        // (its resume list and snapshot), so the face only tells it the hold completed.
-        lockFace.onEnter = { runCatching { homeFromLock() } }
         // The now-playing row on the face reports a tap here rather than starting anything itself.
         // Every activity start in this app goes through one throttle, one log line and one cover.
         lockFace.onOpenPlayer = { pkg -> runCatching { openFromLock(pkg) } }
+        // A notification row was tapped, once armed. Same launch route as a heads-up box tap.
+        lockFace.onOpenNote = { intent -> runCatching { openLockNote(intent) } }
         // Swipe left on a row. The face reports the key; the cancel goes through the bound
         // notification listener, which is the only object allowed to make one.
         lockFace.onDismissNote = { key ->
@@ -410,7 +409,12 @@ class ControlService : AccessibilityService() {
         callAudio = CallAudio(this, allowed = { prefs.callBoost }, log = { line -> log(line) })
         lockCall = LockCall(this)
         lockCall.onChange = { state -> runCatching { onCallChanged(state) } }
-        lockCall.onTick = { runCatching { callAudio.check() } }
+        lockCall.onTick = {
+            runCatching { callAudio.check() }
+            // Keeps the SPEAKER label honest against a route that moved for a reason of its own —
+            // a headset, the dialer's own screen. Cheap: only runs while a call is up.
+            runCatching { lockFace.setSpeakerOn(callAudio.isOnSpeaker()) }
+        }
         lockCall.start()
         // Not gated on `prefs.enabled`, and not gated on its own setting here either: the receiver
         // is cheap, and DacUnlock reads the setting at the event. Gating registration would mean a
@@ -420,6 +424,8 @@ class ControlService : AccessibilityService() {
         dac.start()
         lockFace.onAnswerCall = { runCatching { answerCall() } }
         lockFace.onDeclineCall = { runCatching { declineCall() } }
+        lockFace.onToggleSpeaker = { runCatching { toggleSpeaker() } }
+        lockFace.onOpenCallScreen = { runCatching { jumpToCallScreen() } }
         // Per-app color. Captures the daltonizer baseline the first time it runs and drives it
         // from the front app thereafter. Inert unless colorAutoSwitch is on and the secure-
         // settings grant is present. See keys/ColorMode.kt.
@@ -698,10 +704,11 @@ class ControlService : AccessibilityService() {
         // Unlocked -- but do not rip the face away. The keyguard authenticated in the background
         // and the phone is open, yet the notifications on the face are the reason it exists, and an
         // unlock that launches an app in the same instant is an unlock nobody got to read. So hold
-        // the face up, armed, and go in only on a deliberate press-and-hold (see [LockOverlay]).
-        // The app cannot see the fingerprint sensor itself, so the hold is on the glass, not the
-        // button. Off -> the old behavior, launch the moment the phone opens.
-        if (prefs.lockHoldToEnter && lockFace.showing) {
+        // the face up, armed, and go in only on a deliberate press of the Home button (see
+        // [LockOverlay] and the armed-home branch in [handleKey]). Neither a swipe nor a touch hold
+        // does this any more -- the button does, because a pocket cannot press it by accident the
+        // way it presses the glass.
+        if (lockFace.showing) {
             runCatching { lockFace.armEnter() }
             return
         }
@@ -1333,11 +1340,22 @@ class ControlService : AccessibilityService() {
             return false
         }
 
+        // The lock face is up but has not unlocked -- the sensor is not letting the thumb in, or
+        // this phone has no sensor to try. Neither a swipe nor a touch hold reaches the keypad any
+        // more; the Home button does, because a pocket cannot press it by accident the way it
+        // presses the glass. See [LockOverlay.requestKeypad].
+        if (button == Button.Home && lockFace.showing && !lockFace.armed) {
+            if (isFreshDown(event)) {
+                log("HOME · lock face → keypad")
+                runCatching { lockFace.requestKeypad() }
+            }
+            return true
+        }
+
         // The lock face is up and armed -- the phone is already unlocked and the face is being
-        // held open to be read. A home press there means "go in now", exactly like finishing the
-        // touch hold. Take the whole press (down and the release) so LightOS does not get a lone
-        // home release and pull its dashboard up behind our cover. Only Home; the wheel and camera
-        // button are left alone.
+        // held open to be read. A home press there means "go in now". Take the whole press (down
+        // and the release) so LightOS does not get a lone home release and pull its dashboard up
+        // behind our cover. Only Home; the wheel and camera button are left alone.
         if (button == Button.Home && (armedHomeConsuming || (lockFace.showing && lockFace.armed))) {
             if (isFreshDown(event) && !armedHomeConsuming) {
                 log("HOME · enter from armed lock")
@@ -2935,6 +2953,65 @@ class ControlService : AccessibilityService() {
     private fun declineCall() {
         val ok = lockCall.decline()
         log("call decline" + if (ok) "" else " · NO ROUTE")
+    }
+
+    /**
+     * SPEAKER, pressed on the card.
+     *
+     * The route is the one thing this app can move about a call -- [CallAudio]'s own doc explains
+     * why the volume itself is out of reach. Read the actual state first rather than a remembered
+     * one: the phone can already be on speaker when this card appears (a headset unplugged, or
+     * the route LightOS's own in-call screen was left on), and a button that only knew what it
+     * last set would show the wrong word.
+     */
+    private fun toggleSpeaker() {
+        val next = !callAudio.isOnSpeaker()
+        val ok = callAudio.setSpeaker(next)
+        log("call speaker route → " + (if (next) "ON" else "OFF") + if (ok) "" else " · REFUSED")
+        runCatching { lockFace.setSpeakerOn(callAudio.isOnSpeaker()) }
+    }
+
+    /**
+     * PHONE, pressed on the card -- the same jump [onCallChanged] makes on its own when a call is
+     * answered, offered here for the moment the face has come back *over* an already-active call.
+     * The screen cycling mid-call re-raises the face exactly the way it re-raises it for
+     * everything else (see [onScreenOn]/[onScreenOff]), and until this button existed there was
+     * nothing on that face to reach the real in-call screen from. The latch is cleared first so
+     * the press always tries, rather than finding the last automatic attempt already spent.
+     */
+    private fun jumpToCallScreen() {
+        standDownForCall("card")
+        callScreenOpened = false
+        openCallScreen("card")
+    }
+
+    /**
+     * A notification row on the face was tapped, once armed.
+     *
+     * Same route as [openBanner] -- whatever tapping the row in the shade itself would do -- and
+     * the same background-activity-start rule: without the overlay appop a `PendingIntent.send()`
+     * from a service is blocked without throwing, so it is checked first rather than trusted.
+     */
+    private fun openLockNote(intent: android.app.PendingIntent) {
+        if (!Grants.canDrawOverlays(this)) {
+            log("lock note tap · no overlay appop, nothing can start")
+            return
+        }
+        val options = ActivityOptions.makeBasic().let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                it.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                )
+            } else {
+                it
+            }
+        }
+        val sent = runCatching {
+            intent.send(this, 0, null, null, null, null, options.toBundle())
+            true
+        }.getOrDefault(false)
+        log("lock note tap · " + if (sent) "opened" else "intent was dead")
+        if (sent) dropCover()
     }
 
     /** Take the face off a live call, once, and remember to bring it back. */
