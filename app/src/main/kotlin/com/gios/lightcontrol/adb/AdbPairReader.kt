@@ -44,7 +44,18 @@ class AdbPairReader : AccessibilityService() {
      * be the one that happens.
      */
     private fun read() {
-        if (!AdbPairSession.armed) return
+        if (!AdbPairSession.armed) {
+            wasArmed = false
+            return
+        }
+        // A fresh arming is a fresh scroll budget. Watched here rather than pushed from
+        // [AdbPairSession.arm] so the session keeps knowing nothing about the walk.
+        if (!wasArmed) {
+            wasArmed = true
+            scrolls = 0
+            lastTarget = null
+            lastActedAt = 0L
+        }
         // **Every window, not just the active one.**
         //
         // light-reports#65 and #68 carried the text this read, and it was the *Wireless debugging
@@ -83,10 +94,13 @@ class AdbPairReader : AccessibilityService() {
                 collect(root, text, 0)
                 if (AdbPairSession.offerScreen(this, text.toString())) return
             }
-            // Nothing carried a code. Best-effort: walk the user towards the dialog from whichever
-            // window looks like the list. Never depended on — the read above works just as well
-            // when they navigate by hand, and a forked Settings may label these rows differently
-            // or not expose them as clickable nodes at all.
+            // Nothing carried a code, so walk towards the dialog. This used to be described as
+            // best-effort and never depended on — which was true of the read and false of the
+            // user, who is standing in a Settings screen the app opened for them and reasonably
+            // expects the button they pressed to finish the job. [AdbPairWalk] decides the step;
+            // this only carries it out. A forked Settings that labels these rows differently, or
+            // does not expose them as clickable nodes, still falls through to nothing happening —
+            // and the read works just as well when they navigate by hand.
             for (root in roots) {
                 val text = StringBuilder()
                 collect(root, text, 0)
@@ -140,7 +154,17 @@ class AdbPairReader : AccessibilityService() {
     }
 
     private var lastTarget: String? = null
-    private var lastTapAt = 0L
+    private var lastActedAt = 0L
+
+    /**
+     * Scrolls spent in this armed window.
+     *
+     * Reset when [AdbPairSession.armed] goes up rather than when a screen changes, so the cap is a
+     * budget for one attempt at pairing and not one per screen the user wanders through.
+     */
+    private var scrolls = 0
+
+    private var wasArmed = false
 
     /**
      * Flatten a window's text, one node per line. Line-per-node matters: [AdbPairSession] looks
@@ -162,36 +186,120 @@ class AdbPairReader : AccessibilityService() {
     }
 
     /**
-     * Tap the row that gets us one screen closer to the pairing dialog.
+     * Carry out one step of [AdbPairWalk] on this window.
      *
-     * Debounced, because `typeWindowContentChanged` arrives in bursts: if a tap does not
-     * navigate — a fork that labels the row the same but handles it elsewhere — an undebounced
-     * version would hammer it several times a second for the whole ninety-second window.
+     * Returns true when this window was the one to act on, so no other window needs trying —
+     * whether the step was a press, a scroll, or a press that found nothing to press.
+     *
+     * Debounced, because `typeWindowContentChanged` arrives in bursts and [sweep] adds two reads a
+     * second on top: undebounced, a row that does not navigate would be hammered several times a
+     * second for the whole ninety-second window, and a list would be scrolled off the bottom before
+     * a single sweep got to look at what came into view.
      */
     private fun advance(root: AccessibilityNodeInfo, screen: String): Boolean {
-        val target = when {
-            screen.contains("Pair device with pairing code", true) -> "Pair device with pairing code"
-            screen.contains("Wireless debugging", true) -> "Wireless debugging"
-            else -> return false
-        }
+        val step = AdbPairWalk.next(screen)
+        if (step is AdbPairWalk.Step.Nothing) return false
 
         val now = android.os.SystemClock.elapsedRealtime()
-        if (target == lastTarget && now - lastTapAt < TAP_DEBOUNCE_MS) return true
-        lastTarget = target
-        lastTapAt = now
+        val key = step.toString()
+        if (key == lastTarget && now - lastActedAt < TAP_DEBOUNCE_MS) return true
+        lastTarget = key
+        lastActedAt = now
 
-        val tapped = root.findAccessibilityNodeInfosByText(target)
-            ?.firstOrNull { it.isClickable || it.parent?.isClickable == true }
-            ?.let { node ->
-                val clickable = if (node.isClickable) node else node.parent
-                clickable?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        return when (step) {
+            is AdbPairWalk.Step.Tap -> tap(root, step.label)
+            AdbPairWalk.Step.Scroll -> scroll(root)
+            AdbPairWalk.Step.Nothing -> false
+        }
+    }
+
+    /**
+     * Press the row carrying this label.
+     *
+     * ### Why the label's parent is not enough
+     *
+     * A Settings row is a `RecyclerView` item holding a frame, holding a column of title and
+     * summary, holding the `TextView` that the text search actually matches. The clickable node is
+     * the item — three levels up, not one — so the old `it.isClickable || it.parent?.isClickable`
+     * test found the label, found nothing clickable, dispatched no click and reported success
+     * anyway. That is the pair of reports that reached the right screen and stopped there
+     * (light-reports#311 and #235): the row was on the glass, matched, and never pressed.
+     *
+     * So the climb goes up as far as [CLICKABLE_DEPTH] and takes the first ancestor that will
+     * accept a click. It stops rather than climbing to the root, because the root of a preference
+     * screen is itself clickable often enough, and clicking a whole screen presses whatever the
+     * framework decides is under the middle of it.
+     */
+    private fun tap(root: AccessibilityNodeInfo, label: String): Boolean {
+        val matches = root.findAccessibilityNodeInfosByText(label) ?: return false
+        try {
+            for (node in matches) {
+                var candidate: AccessibilityNodeInfo? = node
+                var climbed = 0
+                while (candidate != null && climbed <= CLICKABLE_DEPTH) {
+                    if (candidate.isClickable) {
+                        return candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    }
+                    candidate = candidate.parent
+                    climbed++
+                }
             }
-        // True either way: this window was the one to act on, so no other window needs trying.
-        return tapped != null
+        } finally {
+            matches.forEach { runCatching { it.recycle() } }
+        }
+        return false
+    }
+
+    /**
+     * Scroll the list this window is built on, one page forward.
+     *
+     * ### Why looking further had to be a step
+     *
+     * The app drops the user on Developer options, and on a 360-pixel screen the "Wireless
+     * debugging" row is below the fold. A row that is not laid out is not in the flattened text and
+     * has no node to click, so the walk had nothing to match and nothing to do — eight reports whose
+     * whole diagnostic reads `windows seen while waiting: Developer options`, ninety seconds spent
+     * beside a row one swipe away.
+     *
+     * Bounded twice over: [AdbPairWalk.MAX_SCROLLS] per armed window, and the list itself refuses
+     * once it is at the bottom, which ends it earlier on a short screen. The count resets with the
+     * arming, not with the screen, so walking back and forth cannot buy more scrolls.
+     */
+    private fun scroll(root: AccessibilityNodeInfo): Boolean {
+        if (scrolls >= AdbPairWalk.MAX_SCROLLS) return false
+        val scrollable = findScrollable(root, 0) ?: return false
+        return try {
+            scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                .also { if (it) scrolls++ }
+        } finally {
+            if (scrollable != root) runCatching { scrollable.recycle() }
+        }
+    }
+
+    /** The nearest node that says it can scroll. Depth-first, and the first one wins. */
+    private fun findScrollable(node: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+        node ?: return null
+        if (depth > 40) return null
+        if (node.isScrollable) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            findScrollable(child, depth + 1)?.let { return it }
+            runCatching { child.recycle() }
+        }
+        return null
     }
 
     private companion object {
         const val TAP_DEBOUNCE_MS = 1_500L
+
+        /**
+         * How far above a matched label to look for something clickable.
+         *
+         * Three: item, frame, column, label. Not further — the root of a preference screen is
+         * clickable often enough, and clicking a screen presses whatever the framework puts under
+         * the middle of it.
+         */
+        const val CLICKABLE_DEPTH = 3
 
         /**
          * Between sweeps of the window list while armed.

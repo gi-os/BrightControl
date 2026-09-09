@@ -1,30 +1,50 @@
-## BrightControl v4.22 — the Home button reaches the keypad, notification taps, call speaker/phone
+## BrightControl v4.23 — one-tap pairing walks the whole way, and stops switching the phone off
 
-**The swipe and the hold are gone. The Home button does both jobs now.** Reaching the keypad used to
-be a swipe up, and going in once the phone had unlocked used to be a press-and-hold anywhere on the
-glass — both retired in favor of the Home button, which a pocket cannot press by accident the way it
-presses the whole panel. Press it on a face that has not unlocked and it drops to the keypad. Press
-it once the phone has unlocked and the face is holding itself open to be read, and it goes in, same
-as the hold used to.
+**The button that pairs the phone to itself was failing two ways at once, and both were the walk
+through Settings rather than the pairing.** PAIR AUTOMATICALLY opens Developer options and arms a
+reader that watches for the pairing dialog, pressing the rows that lead to it. Between them, the
+three faults below sit under twenty-two of the reports filed against pairing this summer.
 
-**A notification row can be tapped**, once the phone has actually unlocked — same rule as June's
-card and the player's title, because a lock screen that opens an app on one tap before that is not a
-lock screen. It sends the same intent tapping the row in the shade would.
+**It never scrolled.** Developer options is about four screens long on this phone and the Wireless
+debugging row sits well below the fold. A row that has not been laid out is not in the text the
+reader flattens and has no node to press, so the walk had nothing to match, did nothing, and the
+ninety seconds ran out with the row one swipe away. Seven reports whose entire diagnostic reads
+`windows seen while waiting: Developer options` are that, exactly. Looking further is now a step of
+its own: the walk scrolls the list a page and reads again, capped at twelve scrolls per attempt and
+stopping as soon as the list says it is at the bottom.
 
-**The call card gets SPEAKER and PHONE, once a call is active.** The dialer's own in-call screen has
-a speaker button and this same jump, but that screen sits underneath the lock face exactly like
-everything else the face covers — and the screen cycling mid-call re-raises the face over an
-already-live call with nothing on it to reach that screen from. Now it can: SPEAKER toggles the
-route, PHONE jumps straight to LightOS's own in-call screen.
+**And when it did reach the right screen, it pressed the wrong thing.** The Wireless debugging
+screen can also open above its pairing rows. In that state the walk fell through to its second
+choice — press the row labeled "Wireless debugging" — on the one screen where that phrase is the
+title over an on/off switch. Node text is matched as a substring, so it matched **Use wireless
+debugging**, which is clickable, and clicked it. That is the report reading *"the pairing was
+accepted and mDNS then found nothing to connect to — wireless debugging may have been switched off
+by the trip through Settings"*: it was, and the app was one of the things that could switch it off.
+Thirteen reports read that way. How many were the app's own doing cannot be told apart from outside
+the phone, but this was a route to it and the route is closed — the Wireless debugging screen is now
+recognized by that switch's own label and is only ever scrolled, never tapped.
 
-The now-dead "Hold to enter" setting is gone from the Lock screen page.
-
-## BrightControl v4.21 — NEXT UP looks 18 hours ahead
-
-**Less on the lock face.** The NEXT UP line under the date used to show whatever BrightNotebook had in the next 48 hours. That is the provider's window, and it is right for a calendar; on a lock face it meant Thursday's meeting sitting under Tuesday's clock. The line now draws only what starts within 18 hours — the rest of today and first thing tomorrow. At 10 pm it reaches a 9 am start; at noon it reaches nothing past bedtime.
+**A third fault sat under the first two.** Reaching the row and matching it still did not press it.
+A Settings row is a list item holding a frame holding a column holding the label, so the clickable
+node is three levels above the text — and the walk only ever looked at the label's immediate parent,
+found nothing clickable, dispatched no click, and reported that it had acted. Two reports reached
+the right screen and stopped there. The climb now goes up to three ancestors and takes the first one
+that accepts a click, stopping short of the root, because pressing a whole screen presses whatever
+the framework decides is under the middle of it.
 
 ### How
 
-The cutoff lives on the face, not in the Notebook. `NextUpText.within()` is checked on every repaint, and the face already repaints on the minute tick, so an entry parked just past the edge appears the minute it comes inside — no second query, no provider change, and the Notebook keeps its 48-hour contract for anything else reading it.
+The decision — press this row, scroll, or leave this screen alone — moved out of the reader into
+`AdbPairWalk`, which has no Android import in it and is pinned by unit tests screen by screen. That
+is the same split `AdbPairCode` already uses, and for a stronger reason here: this is the code that
+decides to touch somebody's Settings, and a wrong decision does not fail quietly, it turns wireless
+debugging off. The reader now only carries the step out.
 
-Nothing else changed.
+Fixes [light-reports#302], [#296], [#290], [#266], [#255], [#254] and [#247] — the walk stalling on
+Developer options. Fixes [light-reports#311] and [#235] — the right screen reached and the row never
+pressed. Addresses [light-reports#318], [#314], [#312], [#310], [#308], [#303], [#288], [#270],
+[#265], [#260], [#258], [#234] and [#229] — wireless debugging off between a pairing the daemon
+accepted and a connection that found nothing.
+
+Still open: the labels are English, so a phone set to another language gets no walk at all
+([light-reports#259], filed in French). Which languages to carry is not a call to make from here.

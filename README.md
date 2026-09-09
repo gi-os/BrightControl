@@ -20,7 +20,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.22.** See [Version history](#version-history).
+**Current version: v4.23.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1190,6 +1190,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.23 | **One-tap pairing walks the whole way through Settings, and stops switching wireless debugging off.** The walk never scrolled, so the Wireless debugging row sitting below the fold on Developer options meant nothing to press and ninety seconds of silence. On the Wireless debugging screen itself it fell through to pressing "Wireless debugging" — which on that one screen is the title over the switch, so it turned the feature off between the pairing and the connection. And a row it did match went unpressed, because the clickable node in a preference list is three levels above the label, not one. The decision moved into `AdbPairWalk`, unit-tested screen by screen |
 | v4.22 | **The Home button reaches the keypad and enters; notification taps; call speaker/phone.** The swipe up and the press-and-hold are gone — the Home button does both jobs now, since a pocket cannot press a button by accident the way it presses the glass. A notification row can be tapped to open its app once the phone has actually unlocked, same rule as June's card and the player's title. Once a call is active the card gets SPEAKER (toggles the route) and PHONE (jumps to LightOS's own in-call screen) — for the moment the screen cycling mid-call re-raises the face over an already-live call with nothing on it to reach that screen from. The now-dead "Hold to enter" setting is gone |
 | v4.21 | **NEXT UP looks 18 hours ahead, not 48.** The Notebook's provider answers for two days, which is what a calendar needs; a lock face glanced at on Tuesday night does not need Thursday's meeting. The line now draws only what starts within 18 hours — the rest of today and first thing tomorrow — and an entry just past the edge walks on as the minute tick catches up, with no second query |
 | v4.20 | **June can take the player's slot on the lock face.** BrightHermes's `…deck/lock` provider — at most one row, with an expiry — is drawn where the music player goes, in place of it, until it is cleared or runs out. Read on show and on every wake like the nav and next-up rows; the provider refreshes itself from the gateway on a lit-screen query, so a card posted while the phone lay dark is there on the first wake |
