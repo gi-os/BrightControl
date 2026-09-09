@@ -65,6 +65,41 @@ object AdbPairCode {
             text.contains("QR", ignoreCase = true)
 
     /**
+     * True when this is the pairing dialog and Settings has not filled it in yet.
+     *
+     * ### Why "unreadable" and "not ready" had to be told apart
+     *
+     * light-reports#300, #285 and #284 all filed "could not read the pairing code off the dialog",
+     * and all three carried the same screen text:
+     *
+     * ```
+     * Pair with device
+     * Wi‑Fi pairing code
+     * IP address & Port
+     * CANCEL
+     * ```
+     *
+     * Both labels, and **neither value**. That is the tell. The address is not something Settings
+     * has to wait for — it knows its own IP and port the moment the box exists — so a dialog
+     * missing the address as well as the code is a dialog that has not been populated at all, not
+     * one whose code cannot be parsed. Settings asks `IAdbManager.enablePairingByPairingCode()` and
+     * receives the digits back in a broadcast, and for the moment between the box appearing and
+     * that broadcast arriving there is nothing on it to read.
+     *
+     * The reader sweeps twice a second, so it looks straight into that moment, every time. All
+     * three of those reports are the app complaining about a dialog that filled itself in an
+     * instant later and very probably paired.
+     *
+     * A dialog with the address on it and no six digits is a different thing and still worth
+     * reporting: that one really is a shape [extract] does not know.
+     */
+    fun looksUnpopulated(text: String): Boolean {
+        if (!looksLikePairingDialog(text)) return false
+        if (extract(text) != null) return false
+        return !ADDRESS.containsMatchIn(text)
+    }
+
+    /**
      * The code, or null if this screen does not carry one.
      *
      * The port on the same dialog is not a hazard: a TCP port stops at 65535, so it is five digits

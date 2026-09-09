@@ -229,4 +229,59 @@ class AdbPairCodeTest {
         assertNull(AdbPairCode.connectAddress("Use wireless debugging\nPair device with QR code"))
     }
 
+
+    /**
+     * The dialog as it exists for the moment before Settings fills it in — both labels, neither
+     * value. light-reports#300, #285 and #284 captured exactly this and all three filed it as a
+     * code that could not be read.
+     */
+    private val dialogNotYetFilledIn = """
+        Pair with device
+        Wi‑Fi pairing code
+        IP address & Port
+        CANCEL
+    """.trimIndent()
+
+    @Test
+    fun `an empty dialog is not ready rather than unreadable`() {
+        assertTrue(AdbPairCode.looksLikePairingDialog(dialogNotYetFilledIn))
+        assertNull(AdbPairCode.extract(dialogNotYetFilledIn))
+        assertTrue(AdbPairCode.looksUnpopulated(dialogNotYetFilledIn))
+    }
+
+    @Test
+    fun `a dialog with the address and no code is a real read failure`() {
+        // The address is not something Settings waits for, so once it is on screen the box is
+        // populated. No six digits on a populated box is a shape extract does not know, and that
+        // is worth reporting.
+        val addressButNoCode = """
+            Pair with device
+            Wi-Fi pairing code
+            IP address & Port
+            192.168.1.24:37419
+            Cancel
+        """.trimIndent()
+        assertNull(AdbPairCode.extract(addressButNoCode))
+        assertFalse(AdbPairCode.looksUnpopulated(addressButNoCode))
+    }
+
+    @Test
+    fun `a filled in dialog is never unpopulated`() {
+        assertFalse(AdbPairCode.looksUnpopulated(pairingDialog))
+    }
+
+    @Test
+    fun `screens that are not the dialog are never unpopulated`() {
+        // The test is only ever consulted about the dialog, and it must not claim anything about
+        // the Wireless debugging list, which carries an address and no code by nature.
+        val list = """
+            Wireless debugging
+            Use wireless debugging
+            IP address & Port
+            192.168.1.24:38675
+            Pair device with QR code
+            Pair device with pairing code
+        """.trimIndent()
+        assertFalse(AdbPairCode.looksUnpopulated(list))
+    }
 }

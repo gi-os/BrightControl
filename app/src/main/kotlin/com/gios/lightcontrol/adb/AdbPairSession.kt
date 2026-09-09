@@ -78,6 +78,25 @@ object AdbPairSession {
         private set
 
     /**
+     * When the pairing dialog was first seen looking unreadable, or 0 while it is not.
+     *
+     * The complaint used to be filed on the first sweep that found the dialog without a code, and
+     * the reader sweeps twice a second. light-reports#300, #285 and #284 are all that first sweep:
+     * a dialog Settings had not filled in yet, complained about, and then almost certainly paired
+     * with a moment later. See [AdbPairCode.looksUnpopulated] for how the two are told apart, and
+     * [UNREADABLE_GRACE_MS] for the wait that covers the cases the shape test cannot.
+     */
+    private var unreadableSince = 0L
+
+    /**
+     * Automatic recoveries from a key the daemon will not trust, this attempt.
+     *
+     * Reset only by a pairing the user started, never by the one [startOver] starts, so a phone
+     * that refuses every key it is given cannot loop through Settings forever.
+     */
+    private var staleKeyRecoveries = 0
+
+    /**
      * The first line of every window seen while armed, in order, deduplicated.
      *
      * ### Why silence had to become data
@@ -108,8 +127,16 @@ object AdbPairSession {
             flat.split(':').any { it.equals(READER_COMPONENT, ignoreCase = true) }
         }.getOrDefault(false)
 
-    fun arm() {
+    /**
+     * Arm the reader for one [WINDOW_MS] window.
+     *
+     * @param fresh a person asked for this. [startOver] arms with `fresh = false`, so its automatic
+     * second go does not hand itself a new budget of automatic second goes.
+     */
+    fun arm(fresh: Boolean = true) {
         cancelExpiry()
+        if (fresh) staleKeyRecoveries = 0
+        unreadableSince = 0L
         grants = emptyList()
         unreadable = null
         synchronized(seen) { seen.clear() }
@@ -196,6 +223,21 @@ object AdbPairSession {
             // Only worth reporting if this really looks like the pairing dialog; the user walks
             // through several Settings screens on the way there.
             if (AdbPairCode.looksLikePairingDialog(text)) {
+                // **A dialog with nothing in it yet is not a dialog that cannot be read.** Settings
+                // gets the digits back in a broadcast, so for a moment the box is up with no code
+                // and no address on it, and a reader sweeping twice a second looks straight into
+                // that moment. Say nothing and look again — the next sweep is 500 ms away.
+                if (AdbPairCode.looksUnpopulated(text)) return false
+                // Populated, and still no code. That is a real read failure — but only once it has
+                // stayed that way. The shape test above catches the ordinary race; this catches the
+                // one where the address lands before the digits do.
+                val firstSeen = unreadableSince
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (firstSeen == 0L) {
+                    unreadableSince = now
+                    return false
+                }
+                if (now - firstSeen < UNREADABLE_GRACE_MS) return false
                 main.post { unreadable = text.take(600) }
                 // **And file it.** light-reports#61 is this failure, reported by hand — "pairing
                 // box present but numbers within not detected" — with no trace of the text that
@@ -212,6 +254,7 @@ object AdbPairSession {
         }
 
         armed = false
+        unreadableSince = 0L
         cancelExpiry()
         val app = context.applicationContext
         main.post {
@@ -286,16 +329,46 @@ object AdbPairSession {
         val usable = proven(context, adb, prefs)
         prefs.notePairStep(if (usable) "shell answers" else "shell REFUSED a command")
         if (!usable) {
+            // **Do the thing the message used to ask for.**
+            //
+            // By here the verdict is not a guess: [proven] asked four times a fifth of a second
+            // apart and then reconnected and asked again, so the key really is one the daemon will
+            // not trust. A key in that state is worth nothing — keeping it costs the user the one
+            // press that throws it away, and six reports (light-reports#307, #301, #267, #250,
+            // #249, #237) are that press not being made, all of them carrying this same sentence
+            // ending in "This is the state FORGET THE PAIRING exists for."
+            //
+            // So forget it here and put them back at the pairing box. A new pairing needs a fresh
+            // six digits and only Settings can produce those, so this cannot finish the job on its
+            // own — what it can do is remove the dead key and reopen the one screen that matters,
+            // which is what START OVER AND PAIR does when pressed by hand.
+            //
+            // Once. [staleKeyRecoveries] survives the [arm] inside [startOver], so a phone that
+            // refuses every key it is handed says so instead of walking through Settings forever.
+            if (staleKeyRecoveries < STALE_KEY_RECOVERIES) {
+                staleKeyRecoveries++
+                prefs.notePairStep("key not trusted — forgetting it and starting over")
+                com.gios.lightcontrol.report.Trouble.record(
+                    "run anything after pairing and connecting",
+                    "the daemon accepted both the pairing and the connection and then refused a " +
+                        "shell stream, which means the key it accepted is not one it trusts. The " +
+                        "app has thrown that key away and reopened the pairing box by itself; if " +
+                        "this report is the only sign of it, the second attempt worked.",
+                )
+                startOver(context)
+                return
+            }
             main.post {
                 phase = Phase.Failed
-                message = "paired and connected, but the phone will not run anything — the key is " +
-                    "not trusted. Use FORGET THE PAIRING, then pair again."
+                message = "paired and connected twice, and the phone will not run anything either " +
+                    "time — it is refusing every key it is given. Turn wireless debugging off and " +
+                    "on in Settings, then pair again."
             }
             com.gios.lightcontrol.report.Trouble.record(
-                "run anything after pairing and connecting",
-                "the daemon accepted both the pairing and the connection and then refused a shell " +
-                    "stream, which means the key it accepted is not one it trusts. This is the " +
-                    "state FORGET THE PAIRING exists for.",
+                "run anything after pairing twice",
+                "the daemon accepted the pairing and the connection both times and refused a shell " +
+                    "stream both times, with a fresh key the second time. So this is not a stale " +
+                    "key on this phone — the daemon is refusing keys it has just accepted.",
             )
             return
         }
@@ -340,6 +413,52 @@ object AdbPairSession {
 
     /** Enough windows to tell what happened, few enough that a report stays readable. */
     private const val MAX_SEEN = 12
+
+    /**
+     * Throw the pairing away and put the user back at the pairing box, without a press.
+     *
+     * The same chain START OVER AND PAIR runs: forget the key, make sure wireless debugging is on,
+     * arm the reader, open Developer options. Armed with `fresh = false`, so the recovery budget
+     * this was called from is not handed back.
+     *
+     * Deliberately not a call into the ADB screen's copy of this chain. That one is inside a button
+     * and also builds the text that button prints; sharing it would mean the screen having to exist
+     * for the recovery to work, and by here the user may well have put the phone down.
+     */
+    private fun startOver(context: Context) {
+        val prefs = com.gios.lightcontrol.Prefs(context)
+        runCatching { AdbManager.forgetPairing(context) }
+        if (runCatching { AdbWifi.on(context) }.getOrNull() != true) {
+            runCatching { AdbWifi.turnOn(context) }
+        }
+        main.post {
+            prefs.clearPairTrail()
+            prefs.notePairStep("armed again after throwing away a key the daemon would not trust")
+            arm(fresh = false)
+            message = "that key was refused — throwing it away and asking for a new code. " +
+                "Open the pairing box again."
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS,
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+    }
+
+    /**
+     * How long the pairing dialog may sit there populated and unreadable before it is reported.
+     *
+     * [AdbPairCode.looksUnpopulated] already catches the ordinary race, where neither the code nor
+     * the address has arrived. This covers the narrower one where the address lands first: three
+     * seconds is six sweeps, far longer than a broadcast takes, and short enough that a genuinely
+     * unreadable dialog is still reported while the user is standing in front of it.
+     */
+    private const val UNREADABLE_GRACE_MS = 3_000L
+
+    /** Automatic goes at a key the daemon will not trust, before the user is told. */
+    private const val STALE_KEY_RECOVERIES = 1
 
     /**
      * Whether the connection will actually carry a command, asked until it is fair to stop asking.
