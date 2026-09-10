@@ -127,4 +127,28 @@ class NoteTextTest {
         val outranked = NoteText.of(contentTitle = "Mail", contentText = "Invoice", subText = "work account")
         assertEquals("Invoice", outranked.text)
     }
+
+    // ---------------------------------------------------------- BrightSports kind
+
+    @Test
+    fun `a BrightSports title splits into kind, team and score`() {
+        val k = NoteText.sportsKind("com.gios.lightsports", "TD SEA · Patriots 7 · Seahawks 14")
+        assertEquals(NoteText.Kind("TD", "SEA", "Patriots 7 · Seahawks 14"), k)
+        assertEquals(
+            NoteText.Kind("TD +2", "SEA", "NE 7 · SEA 15"),
+            NoteText.sportsKind("com.gios.lightsports", "TD +2 SEA · NE 7 · SEA 15"),
+        )
+        assertEquals(NoteText.Kind("RED ZONE", "SEA", ""), NoteText.sportsKind("com.gios.lightsports", "RED ZONE · SEA"))
+        assertEquals(
+            NoteText.Kind("ONE-SCORE GAME", null, "NE 20 · SEA 24"),
+            NoteText.sportsKind("com.gios.lightsports", "ONE-SCORE GAME · NE 20 · SEA 24"),
+        )
+    }
+
+    @Test
+    fun `other apps and plain scores keep their title whole`() {
+        assertEquals(null, NoteText.sportsKind("com.gios.lightchat", "TD SEA · NE 7 · SEA 14"))
+        assertEquals(null, NoteText.sportsKind("com.gios.lightsports", "Mets 3 · Yankees 2"))
+        assertEquals(null, NoteText.sportsKind("com.gios.lightsports", ""))
+    }
 }

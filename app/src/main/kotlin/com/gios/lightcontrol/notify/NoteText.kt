@@ -87,6 +87,34 @@ object NoteText {
         return Content(title, text)
     }
 
+    /**
+     * A BrightSports alert, taken apart: the kind ("TD", "RED ZONE", "ONE-SCORE GAME"), the team
+     * it is about, and what is left of the title (the score line).
+     *
+     * BrightSports 2.0 writes its titles in a fixed shape -- `TD SEA · NE 7 · SEA 14`,
+     * `RED ZONE · SEA`, `ONE-SCORE GAME · NE 20 · SEA 24` -- so that a box can draw the kind
+     * large and the rest small, the way its own box does. Only that package gets this reading;
+     * a chat app whose message happens to start with "FG" keeps its title whole.
+     */
+    data class Kind(val label: String, val team: String?, val rest: String)
+
+    fun sportsKind(pkg: String?, title: String?): Kind? {
+        if (pkg != SPORTS_PKG) return null
+        val t = clean(title)
+        if (t.isEmpty()) return null
+        SPORTS_PREFIX.matchEntire(t)?.let { m ->
+            return Kind(m.groupValues[1], m.groupValues[2], m.groupValues[3])
+        }
+        if (t.startsWith("RED ZONE · ")) return Kind("RED ZONE", t.removePrefix("RED ZONE · "), "")
+        if (t.startsWith("ONE-SCORE GAME · ")) {
+            return Kind("ONE-SCORE GAME", null, t.removePrefix("ONE-SCORE GAME · "))
+        }
+        return null
+    }
+
+    const val SPORTS_PKG = "com.gios.lightsports"
+    private val SPORTS_PREFIX = Regex("^(TD \\+2|TD|FG|SAFETY|PAT|SCORE) ([A-Z0-9&]{2,5}) · (.*)$")
+
     private fun firstReal(vararg candidates: String?): String {
         for (candidate in candidates) {
             val cleaned = clean(candidate)

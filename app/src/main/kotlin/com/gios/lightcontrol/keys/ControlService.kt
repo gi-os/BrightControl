@@ -50,6 +50,7 @@ import com.gios.lightcontrol.lock.LockOverlay
 import com.gios.lightcontrol.notify.BannerWake
 import com.gios.lightcontrol.notify.Banners
 import com.gios.lightcontrol.notify.NoteBanner
+import com.gios.lightcontrol.notify.NoteText
 import com.gios.lightcontrol.switcher.HomeApp
 import com.gios.lightcontrol.switcher.Recents
 import com.gios.lightcontrol.switcher.SwitcherOverlay
@@ -1045,11 +1046,15 @@ class ControlService : AccessibilityService() {
         // reach the keypad, so there is no face to carry the row — suppressing the box then is a
         // notification that appears nowhere at all.
         if (lockFace.showing || (prefs.lockScreen && locked() && !lockFace.dismissed())) return
+        // A BrightSports alert leads with what happened -- "TD  SEA" -- in the heading size,
+        // with the score under it. Every other app's box is unchanged.
+        val kind = NoteText.sportsKind(note.pkg, note.title)
         banner.show(
             app = note.app,
-            title = note.title.ifBlank { note.app },
+            title = (kind?.rest ?: note.title).ifBlank { if (kind != null) "" else note.app },
             text = note.text,
             dwellMs = dwellMs,
+            kind = kind?.let { listOfNotNull(it.label, it.team).joinToString("  ") },
         ) {
             runCatching { openBanner(note) }
         }

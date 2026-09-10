@@ -1,3 +1,11 @@
+## BrightControl v4.25 — a BrightSports banner leads with what happened
+
+**BrightSports 2.0 writes its alert titles in a fixed shape.** The kind comes first: `TD SEA · NE 7 · SEA 14`, `RED ZONE · SEA`, `ONE-SCORE GAME · NE 20 · SEA 24`. The banner now reads that shape and draws the kind large, in the heading size, with the team beside it. The score sits under it in the usual title size. The play text stays on the body line.
+
+**Only that one app.** `NoteText.sportsKind` answers for `com.gios.lightsports` and nothing else. A chat message that happens to start with FG keeps its title whole. Every other banner is exactly what it was.
+
+**Nothing changes on the phone's side.** BrightSports still posts a plain title and text. The banner reads them the same way as before and takes the label apart in one place, `NoteText`, which has tests.
+
 ## BrightControl v4.24 — the pairing box is not unreadable while it is still empty, and a refused key throws itself away
 
 **Two of the reports the pairing path files were the app complaining about its own timing.** Both

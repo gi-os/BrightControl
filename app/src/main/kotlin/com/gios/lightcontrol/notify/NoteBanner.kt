@@ -72,6 +72,7 @@ class NoteBanner(private val context: Context) {
     private var root: FrameLayout? = null
     private var appLine: TextView? = null
     private var titleLine: TextView? = null
+    private var kindLine: TextView? = null
     private var bodyLine: TextView? = null
 
     /**
@@ -126,7 +127,12 @@ class NoteBanner(private val context: Context) {
      * is the smallest thing on the box and it is what decides whether the phone is worth picking
      * up.
      */
-    fun show(app: String, title: String, text: String, dwellMs: Long, onTap: () -> Unit) {
+    /**
+     * @param kind a large first line for an alert that has one -- BrightSports' "TD  SEA",
+     * "RED ZONE  SEA" -- drawn above the title in the heading size. Null for every other app,
+     * and the box is exactly what it was.
+     */
+    fun show(app: String, title: String, text: String, dwellMs: Long, kind: String? = null, onTap: () -> Unit) {
         this.onTap = onTap
         // A box already up swaps its text and stays where it is. Sliding again for the second of
         // two messages would animate the same rectangle back into the place it already occupies.
@@ -137,6 +143,10 @@ class NoteBanner(private val context: Context) {
         // find out it is going to be ellipsised at line two.
         val message = text.trim().take(300)
         appLine?.text = app.uppercase()
+        kindLine?.let {
+            it.text = kind.orEmpty()
+            it.visibility = if (kind.isNullOrBlank()) View.GONE else View.VISIBLE
+        }
         titleLine?.let {
             it.text = title
             it.visibility = if (title.isBlank()) View.GONE else View.VISIBLE
@@ -253,6 +263,22 @@ class NoteBanner(private val context: Context) {
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
         }
+        // The kind line: what happened, in the heading size, for the one app that says so in a
+        // shape this box can read. Hidden -- not merely empty -- for everyone else, so it takes no
+        // room on a chat banner.
+        val kind = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, type.heading)
+            typeface = type.medium
+            letterSpacing = type.subheadingTracking
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = type.gridPx(0.15f) }
+        }
         val heading = TextView(context).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, type.paragraph)
@@ -294,6 +320,7 @@ class NoteBanner(private val context: Context) {
             val padV = type.gridPx(0.7f)
             setPadding(padH, padV, padH, padV)
             addView(source)
+            addView(kind)
             addView(heading)
             addView(body)
         }
@@ -391,6 +418,7 @@ class NoteBanner(private val context: Context) {
                 this.params = params
                 root = frame
                 appLine = source
+                kindLine = kind
                 titleLine = heading
                 bodyLine = body
             }
@@ -406,6 +434,7 @@ class NoteBanner(private val context: Context) {
         root = null
         params = null
         appLine = null
+        kindLine = null
         titleLine = null
         bodyLine = null
         onTap = null
