@@ -2284,6 +2284,10 @@ class ControlService : AccessibilityService() {
         // second later, by which time this object is on its way out and nothing is left
         // to finish taking it down.
         runCatching { banner.dismiss(animated = false) }
+        // Same rule for the wake's own window. It is a single transparent pixel and lives 1.5s,
+        // so this is only ever reached by an unbind that lands inside that window -- and a pixel
+        // at layer 31 that nothing can remove is still a pixel at layer 31 until a reboot.
+        runCatching { bannerWake.release() }
         volume.stop()
         // Only if it is still ours; same fast-toggle race as [Banners.onShow] above. Cleared
         // unconditionally, a rebind left the settings screen's test button doing nothing.

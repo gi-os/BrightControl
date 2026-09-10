@@ -1,3 +1,42 @@
+## BrightControl v4.26 — the wake turns the panel on
+
+**A sleeping phone with banners on and the lock face off did not wake for a notification.**
+Reported on Discord with a photograph of the settings screen, which was set exactly right: Banners
+ON, Wake the screen ON, and nothing. Every banner drew perfectly the moment the screen was already
+on. With the screen off, nothing happened at all.
+
+**Waking the panel was one deprecated wake lock and nothing else.**
+`SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP`, acquired inside a `runCatching`. A display that
+does not act on that request does not throw, so a wake that never happened looked exactly like a
+wake that did, in the log and everywhere else.
+
+**A screen wake lock holds a panel on. It is not what reliably turns one on.** So the wake is two
+things now. A 1x1 transparent window carrying `FLAG_TURN_SCREEN_ON` brings the display up, and the
+wake lock keeps it up for the length of the banner. The window is added, shown, and taken down
+1.5 seconds later; it takes no touches and paints one transparent pixel.
+
+**The flag is on a window of its own, and that is deliberate.** It fires when a window is shown,
+and the lock face is added *as the screen goes off* — the flag there would light the phone up every
+time it was put down. The banner's own window would have worked, but only for a phone with banners
+on: with the lock face on the box is deliberately not drawn, because the face already carries the
+row. One window owned by the wake means both settings wake the same way.
+
+**Nothing about the keyguard changes.** No activity, no `FLAG_SHOW_WHEN_LOCKED`, no occlusion, so
+the fingerprint reader stays armed. That is the whole reason BrightChat's `turnScreenOn` activity
+was never reused here.
+
+**If this was you, it took the wake out of BrightChat too.** BrightChat is told to stand its own box
+down while BrightControl's banners are on, and that box was also its wake — a `showWhenLocked` +
+`turnScreenOn` activity. So one broken wake lock was two apps that had stopped waking the phone.
+Both come back with this version and there is no setting to change.
+
+### How
+
+`BannerWake.poke()` raises the window and arms its own removal; a second banner while one is up
+re-arms the removal instead of adding another. `BannerWake.release()` is public and called from
+`ControlService.onUnbind`, for the unbind that lands inside those 1.5 seconds. The wake lock is
+untouched.
+
 ## BrightControl v4.25 — a BrightSports banner leads with what happened
 
 **BrightSports 2.0 writes its alert titles in a fixed shape.** The kind comes first: `TD SEA · NE 7 · SEA 14`, `RED ZONE · SEA`, `ONE-SCORE GAME · NE 20 · SEA 24`. The banner now reads that shape and draws the kind large, in the heading size, with the team beside it. The score sits under it in the usual title size. The play text stays on the body line.

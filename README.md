@@ -1112,7 +1112,7 @@ lock/LightType.kt          the light-sdk type scale and grid, for plain Views
 notify/Banners.kt          which notification is worth a box, and the two seconds before it
 notify/NoteBanner.kt       the box itself, as one window that moves to slide
 notify/NoteText.kt         what a notification says, out of the eight places it may be written
-notify/BannerWake.kt       the panel held on, without ever occluding the keyguard
+notify/BannerWake.kt       the panel lit and held, without ever occluding the keyguard
 notify/AlertHandoff.kt     the apps told to stand their own box down
 
 adb/AdbManager.kt          the phone talking ADB to itself over loopback
@@ -1190,6 +1190,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.26 | **The wake turns the panel on.** Banners on, lock face off, screen asleep: no notification woke the phone, and the settings screen was set right. The wake was one deprecated `SCREEN_BRIGHT_WAKE_LOCK` inside a `runCatching`, and a display that ignores one does not throw — so a wake that never happened read exactly like a wake that did. A screen wake lock holds a panel on and is not what turns one on, so a 1x1 transparent window carrying `FLAG_TURN_SCREEN_ON` now brings the display up and the lock keeps it up for the dwell. Its own window, because the flag fires when a window is shown and the lock face goes up as the screen goes *off*. No activity and no occlusion, so the fingerprint reader stays armed. It also took the wake out of BrightChat, which stands its own box down while these banners are on |
 | v4.25 | **A BrightSports banner leads with what happened.** BrightSports 2.0 titles its alerts `TD SEA · NE 7 · SEA 14`, `RED ZONE · SEA`, `ONE-SCORE GAME · …`; the banner reads that shape (`NoteText.sportsKind`, that package only) and draws the kind in the heading size with the team beside it, the score under it. Other apps' banners are unchanged |
 | v4.24 | **The pairing box is not unreadable while it is still empty, and a refused key throws itself away.** Settings gets the six digits in a broadcast, so for a moment the box is up with no code and no address on it — and a reader sweeping twice a second complained about exactly that moment. An empty box is now left alone; a populated one with no digits is still reported, after three seconds. And a key the daemon accepts and then will not run anything with is dead, proven over six asks and a reconnect, so the app forgets it and reopens the pairing box itself rather than naming the button to press. Once — the second refusal is a different fault and says so |
 | v4.23 | **One-tap pairing walks the whole way through Settings, and stops switching wireless debugging off.** The walk never scrolled, so the Wireless debugging row sitting below the fold on Developer options meant nothing to press and ninety seconds of silence. On the Wireless debugging screen itself it fell through to pressing "Wireless debugging" — which on that one screen is the title over the switch, so it turned the feature off between the pairing and the connection. And a row it did match went unpressed, because the clickable node in a preference list is three levels above the label, not one. The decision moved into `AdbPairWalk`, unit-tested screen by screen |
