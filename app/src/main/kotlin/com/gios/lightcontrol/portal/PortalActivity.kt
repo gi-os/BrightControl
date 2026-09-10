@@ -1,6 +1,7 @@
 package com.gios.lightcontrol.portal
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.CaptivePortal
@@ -154,6 +155,20 @@ class PortalActivity : ComponentActivity() {
      */
     private var triedGateway = false
 
+    /**
+     * Whether this screen is in the background.
+     *
+     * The one fact that tells a handoff that worked from a handoff that vanished: if Android's own
+     * sign-in page came up, this activity was stopped to make room for it.
+     */
+    private var stopped = false
+
+    /** Whether a re-launch has already arrived, so the watchdog below has nothing to do. */
+    private var handoffReturned = false
+
+    /** So a handoff cannot arm two watchdogs, and a watchdog cannot arm another handoff's. */
+    private var watchArmed = false
+
     private var sawClosedGate = false
 
     /** The probe loop only runs while this is on screen. See [onStart]. */
@@ -165,18 +180,10 @@ class PortalActivity : ComponentActivity() {
         openedAt = SystemClock.elapsedRealtime()
         ReportContext.screen = "wifi-login/portal"
 
-        @Suppress("DEPRECATION")
-        if (Build.VERSION.SDK_INT >= 33) {
-            captivePortal =
-                intent.getParcelableExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL, CaptivePortal::class.java)
-            network = intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK, Network::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            captivePortal = intent.getParcelableExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL)
-            @Suppress("DEPRECATION")
-            network = intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK)
-        }
-        systemUrl = runCatching { intent.getStringExtra(PortalRoute.EXTRA_PORTAL_URL) }.getOrNull()
+        val handedExtras = readSystemExtras(intent)
+        captivePortal = handedExtras.first
+        network = handedExtras.second
+        systemUrl = handedExtras.third
         log.add("opened via ${intent.action ?: "explicit intent"}; system CaptivePortal extra: " +
             "${captivePortal != null}; network extra: ${network ?: "none"}; " +
             "portal url extra: ${systemUrl ?: "none"}")
@@ -184,9 +191,11 @@ class PortalActivity : ComponentActivity() {
         // whichever activity Android picks for `android.net.conn.CAPTIVE_PORTAL`, and half the
         // time that is this one. It is not a fault and must not file a second report about it --
         // light-reports #329 and #330 are one round trip, filed twice.
-        val handedBack = captivePortal != null &&
+        if (captivePortal != null &&
             System.currentTimeMillis() - prefs.portalHandedOffAt < HANDOFF_WINDOW_MS
-        if (handedBack) log.add("this is this app's own handoff coming back, with the binder attached")
+        ) {
+            log.add("this is this app's own handoff coming back, with the binder attached")
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -282,10 +291,11 @@ class PortalActivity : ComponentActivity() {
             setPadding(dp(16), dp(10), dp(16), dp(10))
             visibility = View.GONE
             setOnClickListener {
-                when (val o = SystemSignIn.open(this@PortalActivity, network, intent) { log.add(it) }) {
-                    is SystemSignIn.Opened.Failed -> status.text = "Could not open it: ${o.why}"
-                    else -> Unit
-                }
+                // A deliberate press is a fresh attempt, so the watchdog gets to run again: this
+                // button exists precisely because the last one produced nothing.
+                handoffReturned = false
+                watchArmed = false
+                handOff("Asked again")
             }
         }
         root.addView(systemSignIn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
@@ -391,43 +401,11 @@ class PortalActivity : ComponentActivity() {
                         .getOrDefault(pkg)
                 }
                 log.add("VPN up: ${PortalDiagnostics.describe(cm, vpn, vpn == cm.activeNetwork)}; always-on app: ${app ?: "not set"}")
-                // Android's own sign-in app is allowed past the VPN. Open it, and say which way.
+                // Android's own sign-in app is allowed past the VPN. Hand it over, and watch
+                // whether anything came of it -- see [handOff].
                 vpnBlocked = true
-                // Reported even when the handoff works: whether the notification existed on this
-                // ROM, and which route opened, is exactly what the next release needs to know.
-                prefs.portalHandedOffAt = System.currentTimeMillis()
-                when (val opened = SystemSignIn.open(this, net, intent) { log.add(it) }) {
-                    SystemSignIn.Opened.ViaNotification -> {
-                        systemSignIn.visibility = View.VISIBLE
-                        fail(
-                            what = "load the login page here under a VPN — handed to Android's own sign-in via its notification",
-                            line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
-                                "page is opening instead (it is allowed past the VPN). Sign in there; " +
-                                "CHECK here asks whether it worked.",
-                            report = !handedBack,
-                        )
-                        return
-                    }
-                    is SystemSignIn.Opened.ViaIntent -> {
-                        systemSignIn.visibility = View.VISIBLE
-                        fail(
-                            what = "load the login page here under a VPN — handed to Android's own sign-in by direct launch (${opened.pkg})",
-                            line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
-                                "page (${opened.pkg}) is opening instead. Sign in there, then CHECK here: " +
-                                "it asks the system to look at the network again.",
-                            report = !handedBack,
-                        )
-                        return
-                    }
-                    is SystemSignIn.Opened.Failed -> log.add("system sign-in unavailable: ${opened.why}")
-                }
-                vpnSettings.visibility = View.VISIBLE
-                fail(
-                    what = "reach the Wi-Fi network from under a VPN (Android forbids an app under a VPN from " +
-                        "binding to any other network; bindProcessToNetwork returned false)",
-                    line = "A VPN is on" + (appLabel?.let { " ($it)" } ?: "") + ", and Android does not let an " +
-                        "app under a VPN talk to any other network — so the login page cannot be loaded " +
-                        "while it is up. Turn the VPN off, sign in here, then turn it back on.",
+                handOff(
+                    "A VPN is on" + (appLabel?.let { " ($it)" } ?: "") + ", so this page cannot load here",
                 )
                 return
             }
@@ -460,8 +438,150 @@ class PortalActivity : ComponentActivity() {
         }, PAGE_TIMEOUT_MS)
     }
 
+    /**
+     * The round trip, arriving.
+     *
+     * **This is what was broken in v4.28.** The activity is `singleTask`, so when the system's
+     * *"Sign in to network"* notification resolves back to this app -- which is half the time, see
+     * [SystemSignIn] -- Android does not create it again. It calls this, with the intent that
+     * carries the [CaptivePortal] binder, the network and the portal URL. Nothing was listening,
+     * so the one thing the round trip was worth was dropped on the floor and the screen sat there
+     * with `fired the system's sign-in notification → true` as its last line.
+     *
+     * Now the binder is picked up and spent immediately: under a VPN by handing it to the app
+     * that is allowed past one, otherwise by loading the page this screen came here to load.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // So every later reader -- [handOff]'s extras forwarding above all -- sees the intent that
+        // actually carries something rather than the one this screen was opened with.
+        setIntent(intent)
+        handoffReturned = true
+        handler.removeCallbacks(handoffWatch)
+        val fresh = readSystemExtras(intent)
+        log.add(
+            "re-launched via ${intent.action ?: "explicit intent"}; binder: ${fresh.first != null}; " +
+                "network: ${fresh.second ?: "none"}; portal url: ${fresh.third ?: "none"}",
+        )
+        if (done) return
+        fresh.first?.let { captivePortal = it }
+        fresh.second?.let { network = it }
+        fresh.third?.let { systemUrl = it }
+        when {
+            // A VPN is still a VPN. What changed is that there is now a binder to hand over, so
+            // the system's own app can tell the system it got through instead of the user having
+            // to come back here and press CHECK.
+            vpnBlocked -> {
+                if (captivePortal == null) {
+                    log.add("the round trip brought no binder; handing over anyway")
+                }
+                handOff("handing the sign-in on, with what the round trip brought")
+            }
+            // Not blocked, and the page never loaded: this is the launch that finally carried a
+            // URL. Load it.
+            !pageFinished -> {
+                val url = PortalRoute.startUrl(systemUrl)
+                log.add("loading $url after the re-launch")
+                status.text = "loading the network's login page…"
+                webView?.loadUrl(url)
+            }
+            else -> log.add("the page is already up; the re-launch changes nothing")
+        }
+    }
+
+    /**
+     * Hand the sign-in to the platform's own app, and watch whether anything came of it.
+     *
+     * The notification route cannot be told from a no-op at the moment it is fired -- the
+     * PendingIntent reports that it was sent, not what opened -- so the answer is measured
+     * instead: if Android's page came up, this activity is stopped, and if the round trip landed
+     * back here, [onNewIntent] ran. Neither, after [HANDOFF_WATCH_MS], and the notification went
+     * nowhere; the direct launch is then the only route left and it is taken without asking.
+     */
+    private fun handOff(line: String) {
+        prefs.portalHandedOffAt = System.currentTimeMillis()
+        systemSignIn.visibility = View.VISIBLE
+        when (val opened = SystemSignIn.open(this, network, intent) { log.add(it) }) {
+            SystemSignIn.Opened.ViaNotification -> {
+                // Not a failure and not reported as one: a notification that resolves back to this
+                // app is the expected shape of this, and reporting it is how light-reports #329
+                // and #330 became two issues about one round trip.
+                status.text = "$line — Android's own sign-in page is opening (it is allowed past " +
+                    "the VPN). Sign in there; CHECK here asks whether it worked."
+                if (!watchArmed) {
+                    watchArmed = true
+                    handler.postDelayed(handoffWatch, HANDOFF_WATCH_MS)
+                }
+            }
+            is SystemSignIn.Opened.ViaIntent -> {
+                status.text = "$line — Android's own sign-in page (${opened.pkg}) is opening. " +
+                    "Sign in there, then CHECK here: it asks the system to look at the network again."
+            }
+            is SystemSignIn.Opened.Failed -> {
+                log.add("system sign-in unavailable: ${opened.why}")
+                vpnSettings.visibility = View.VISIBLE
+                fail(
+                    what = "hand the sign-in to Android's own page (${opened.why}) from under a VPN " +
+                        "(bindProcessToNetwork returned false)",
+                    line = "A VPN is on, and Android does not let an app under a VPN talk to any " +
+                        "other network — so the login page cannot load here, and this phone has no " +
+                        "system sign-in page to hand it to (${opened.why}). Turn the VPN off, sign " +
+                        "in here, then turn it back on.",
+                )
+            }
+        }
+    }
+
+    private val handoffWatch = Runnable {
+        when {
+            done || handoffReturned -> Unit
+            // Stopped means something else has the screen, and the only thing this app just asked
+            // for is the sign-in page. That is the handoff working.
+            stopped -> log.add("the sign-in page has the screen; nothing more for this one to do")
+            else -> {
+                log.add("nothing came of the notification in ${HANDOFF_WATCH_MS}ms; launching the system's app directly")
+                // Marked first: the direct launch must not re-arm this.
+                handoffReturned = true
+                when (val opened = SystemSignIn.direct(this, network, intent) { log.add(it) }) {
+                    is SystemSignIn.Opened.ViaIntent -> {
+                        status.text = "Android's own sign-in page (${opened.pkg}) is opening. Sign " +
+                            "in there, then CHECK here."
+                    }
+                    else -> {
+                        vpnSettings.visibility = View.VISIBLE
+                        fail(
+                            what = "open any sign-in page under a VPN — the system's notification " +
+                                "fired and nothing opened, and the direct launch did not either",
+                            line = "A VPN is on and neither Android's sign-in notification nor its " +
+                                "sign-in app opened anything. Turn the VPN off, sign in here, then " +
+                                "turn it back on. This has been reported.",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** The three things the system puts in the intent, read the same way from wherever it comes. */
+    private fun readSystemExtras(from: Intent): Triple<CaptivePortal?, Network?, String?> {
+        val portal: CaptivePortal?
+        val net: Network?
+        if (Build.VERSION.SDK_INT >= 33) {
+            portal = from.getParcelableExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL, CaptivePortal::class.java)
+            net = from.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK, Network::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            portal = from.getParcelableExtra(ConnectivityManager.EXTRA_CAPTIVE_PORTAL)
+            @Suppress("DEPRECATION")
+            net = from.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK)
+        }
+        val url = runCatching { from.getStringExtra(PortalRoute.EXTRA_PORTAL_URL) }.getOrNull()
+        return Triple(portal, net, url)
+    }
+
     override fun onStart() {
         super.onStart()
+        stopped = false
         val net = network ?: return
         val cm = getSystemService(ConnectivityManager::class.java)
         val bound = cm.bindProcessToNetwork(net)
@@ -472,6 +592,7 @@ class PortalActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        stopped = true
         watching = false
         handler.removeCallbacks(probeLoop)
         getSystemService(ConnectivityManager::class.java).bindProcessToNetwork(null)
@@ -935,6 +1056,15 @@ class PortalActivity : ComponentActivity() {
          * problem. Wall-clock, because the handoff is stored across activity deaths.
          */
         private const val HANDOFF_WINDOW_MS = 3L * 60L * 1_000L
+
+        /**
+         * How long a fired notification gets to produce something.
+         *
+         * Long enough for an activity to be started and this one to be stopped, short enough that
+         * a phone on a hotel network is not left looking at a screen that has given up without
+         * saying so. Everything this waits for is local; nothing on a network is involved.
+         */
+        private const val HANDOFF_WATCH_MS = 2_500L
         private const val PROBE_EVERY_MS = 4000L
 
         /** How long a login page gets to finish before its absence is the failure. */
