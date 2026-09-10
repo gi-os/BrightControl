@@ -602,7 +602,8 @@ fun AdbScreen(
                     // usefully be reconnected nine times: if the reconnect inside the first failure
                     // could not get one, the eight after it will not either.
                     val results = mutableListOf<StepResult>()
-                    for ((index, step) in SelfGrant.steps.withIndex()) {
+                    val batch = SelfGrant.steps + SelfGrant.neighbourSteps(context)
+                    for ((index, step) in batch.withIndex()) {
                         val r = GrantCheckRunner.runAndVerify(
                             context = context,
                             adb = adb,
@@ -617,7 +618,7 @@ fun AdbScreen(
                             Outcome.Unknown -> "UNKNOWN"
                         }
                         withContext(Dispatchers.Main) {
-                            say("${index + 1}/${SelfGrant.steps.size}  ${r.label} — $state")
+                            say("${index + 1}/${batch.size}  ${r.label} — $state")
                         }
                         if (GrantRun.stopRequested || AdbManager.stopping) {
                             withContext(Dispatchers.Main) { say("stopped") }
@@ -663,10 +664,10 @@ fun AdbScreen(
                     }
                     val failed = results.count { it.outcome == Outcome.Failed }
                     val unknown = results.count { it.outcome == Outcome.Unknown }
-                    val ranShort = results.size < SelfGrant.steps.size
+                    val ranShort = results.size < batch.size
                     if (ranShort) {
                         lines.append(
-                            "${SelfGrant.steps.size - results.size} were not attempted\n",
+                            "${batch.size - results.size} were not attempted\n",
                         )
                     }
                     lines.append(

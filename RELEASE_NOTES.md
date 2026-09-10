@@ -1,3 +1,21 @@
+## BrightControl v4.27 — the neighbours' grants: passkeys, autofill, the browser
+
+**GRANT ALL now sets up the apps around this one, when they are installed.** LightOS has no page
+for any of these, and the platform keeps them behind secure settings only the shell can write:
+
+- **Passkeys go to Bitwarden.** `credential_service` and `credential_service_primary` name
+  Bitwarden's credential provider, so a passkey request from Web Tools (Firefox's engine, which
+  uses Android 14's Credential Manager and needs no Google) is answered by the vault, and a new
+  passkey is saved there. Bitwarden asks once, on the first request, whether to trust Web Tools
+  as a browser; say yes and it remembers.
+- **Passwords in apps come from Bitwarden.** `autofill_service`.
+- **Web Tools is the browser.** `cmd role add-role-holder android.app.role.BROWSER`, so every link
+  from every app opens there. The role dialog Web Tools asks for itself may not exist on LightOS;
+  this line does not need it.
+
+Each step is skipped when its app is not on the phone, and each is read back like the others, so
+the screen says OK, FAILED or UNKNOWN per line.
+
 ## BrightControl v4.26 — the wake turns the panel on
 
 **A sleeping phone with banners on and the lock face off did not wake for a notification.**

@@ -1,5 +1,7 @@
 package com.gios.lightcontrol.adb
 
+import android.content.Context
+
 /**
  * The exact grants this app needs, as the shell lines that set them — the same commands the
  * settings screens print for a computer, run against the phone's own ADB daemon instead.
@@ -110,6 +112,54 @@ object SelfGrant {
             ),
         ),
     )
+
+    private const val BITWARDEN = "com.x8bit.bitwarden"
+    private const val BITWARDEN_CREDENTIALS = "$BITWARDEN/$BITWARDEN.Autofill.CredentialProviderService"
+    private const val BITWARDEN_AUTOFILL = "$BITWARDEN/$BITWARDEN.Autofill.AutofillService"
+    private const val WEBTOOLS = "com.gios.webtools"
+
+    /**
+     * Grants for the neighbours: settings the platform keeps behind pages LightOS never shows.
+     * Only the ones whose app is installed, so the batch never writes a component that does not
+     * exist. Run after [steps] by the ADB screen's GRANT ALL.
+     *
+     * - **Passkeys.** Android 14's Credential Manager answers a browser's passkey request through
+     *   whichever provider `credential_service` names; `credential_service_primary` is the one
+     *   that saves new ones. There is no settings page for either on this phone. Bitwarden's
+     *   service name is the legacy one on purpose (its manifest says it must never change).
+     * - **Autofill.** The same story for passwords inside apps, `autofill_service`.
+     * - **The browser.** `cmd role` hands Web Tools the browser role, so every link opens there;
+     *   the role dialog Web Tools asks for may not exist on LightOS.
+     */
+    fun neighbourSteps(context: Context): List<Step> {
+        fun installed(pkg: String) = runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+        val out = mutableListOf<Step>()
+        if (installed(BITWARDEN)) {
+            out += Step(
+                "Passkeys: Bitwarden answers for them",
+                "settings put secure credential_service $BITWARDEN_CREDENTIALS",
+                GrantCheck.SecureListHas("credential_service", BITWARDEN_CREDENTIALS),
+            )
+            out += Step(
+                "Passkeys: Bitwarden saves new ones",
+                "settings put secure credential_service_primary $BITWARDEN_CREDENTIALS",
+                GrantCheck.SecureListHas("credential_service_primary", BITWARDEN_CREDENTIALS),
+            )
+            out += Step(
+                "Passwords: Bitwarden fills them in apps",
+                "settings put secure autofill_service $BITWARDEN_AUTOFILL",
+                GrantCheck.SecureListHas("autofill_service", BITWARDEN_AUTOFILL),
+            )
+        }
+        if (installed(WEBTOOLS)) {
+            out += Step(
+                "Browser: Web Tools opens links",
+                "cmd role add-role-holder android.app.role.BROWSER $WEBTOOLS",
+                GrantCheck.ShellSays("cmd role get-role-holders android.app.role.BROWSER", WEBTOOLS),
+            )
+        }
+        return out
+    }
 
     /**
      * A one-liner that adds this service to `enabled_accessibility_services` without dropping
