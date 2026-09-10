@@ -1752,6 +1752,19 @@ class Prefs(context: Context) {
         set(value) = sp.edit().putLong(PORTAL_LAST_AUTO_REPORT, value).apply()
 
     /**
+     * When the Wi-Fi login screen last handed off to Android's own sign-in app, epoch millis.
+     *
+     * `ACTION_CAPTIVE_PORTAL_SIGN_IN` is answered by two activities on this phone -- the system's
+     * and ours -- so the notification this app fires can perfectly well re-launch this app. On
+     * disk, because that re-launch is a different instance of the activity and often a different
+     * process. Inside a few minutes of a handoff, a launch carrying the system's binder is our own
+     * round trip and not a new fault: light-reports #329 and #330 are one of them, filed twice.
+     */
+    var portalHandedOffAt: Long
+        get() = sp.getLong(PORTAL_HANDED_OFF_AT, 0L)
+        set(value) = sp.edit().putLong(PORTAL_HANDED_OFF_AT, value).apply()
+
+    /**
      * Every stored setting, as one typed JSON document (light-reports#137).
      *
      * The whole app lives in one SharedPreferences file, so one dump is genuinely everything:
@@ -1852,6 +1865,7 @@ class Prefs(context: Context) {
         const val AUTO_SEND = "autoSendFailures"
         const val AUTO_REPORTED = "autoReportedFailures"
         const val PORTAL_LAST_AUTO_REPORT = "portalLastAutoReport"
+        const val PORTAL_HANDED_OFF_AT = "portalHandedOffAt"
         const val PENDING_PKG = "pendingGrantPkg"
         const val PENDING_LINES = "pendingGrantLines"
         const val PENDING_AT = "pendingGrantAt"

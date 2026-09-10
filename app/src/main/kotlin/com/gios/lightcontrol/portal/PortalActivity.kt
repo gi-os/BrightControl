@@ -105,6 +105,15 @@ class PortalActivity : ComponentActivity() {
     private var probeFailures = 0
 
     /**
+     * How many of [probeFailures] were a name not resolving.
+     *
+     * Counted apart because the two have different answers. A network that refuses to route
+     * anything is a network nothing on this screen can fix; a network whose resolver will not
+     * answer for outside names is a network whose login page is still sitting there at an address.
+     */
+    private var dnsFailures = 0
+
+    /**
      * The bind was refused because of a VPN. Probes cannot be made from this process then (EPERM),
      * so [probe] reads the system's verdict instead — the capability bits need no socket — and,
      * when the shell can be reached, asks the system to re-evaluate the network right now.
@@ -128,6 +137,23 @@ class PortalActivity : ComponentActivity() {
      * A login flow is a gate that was shut and is now open. Without having seen it shut, this has
      * not watched anybody through it and does not get to say so.
      */
+    /**
+     * The URL the system probed, out of the intent that launched this screen.
+     *
+     * The platform's own login app starts at this and lets the portal redirect it; so does this
+     * one now. See [PortalRoute.EXTRA_PORTAL_URL] for why reading it by name is fair game.
+     */
+    private var systemUrl: String? = null
+
+    /**
+     * Whether the login page has already been retried at the network's own address.
+     *
+     * Once, and only for a name that would not resolve. A second attempt at a page that loaded and
+     * then failed on its own terms is a loop, and the gateway is a guess -- a good one, and still
+     * a guess.
+     */
+    private var triedGateway = false
+
     private var sawClosedGate = false
 
     /** The probe loop only runs while this is on screen. See [onStart]. */
@@ -150,8 +176,17 @@ class PortalActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             network = intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK)
         }
+        systemUrl = runCatching { intent.getStringExtra(PortalRoute.EXTRA_PORTAL_URL) }.getOrNull()
         log.add("opened via ${intent.action ?: "explicit intent"}; system CaptivePortal extra: " +
-            "${captivePortal != null}; network extra: ${network ?: "none"}")
+            "${captivePortal != null}; network extra: ${network ?: "none"}; " +
+            "portal url extra: ${systemUrl ?: "none"}")
+        // Our own handoff, arriving back. See [SystemSignIn]: the notification we fire resolves to
+        // whichever activity Android picks for `android.net.conn.CAPTIVE_PORTAL`, and half the
+        // time that is this one. It is not a fault and must not file a second report about it --
+        // light-reports #329 and #330 are one round trip, filed twice.
+        val handedBack = captivePortal != null &&
+            System.currentTimeMillis() - prefs.portalHandedOffAt < HANDOFF_WINDOW_MS
+        if (handedBack) log.add("this is this app's own handoff coming back, with the binder attached")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -247,7 +282,7 @@ class PortalActivity : ComponentActivity() {
             setPadding(dp(16), dp(10), dp(16), dp(10))
             visibility = View.GONE
             setOnClickListener {
-                when (val o = SystemSignIn.open(this@PortalActivity, network) { log.add(it) }) {
+                when (val o = SystemSignIn.open(this@PortalActivity, network, intent) { log.add(it) }) {
                     is SystemSignIn.Opened.Failed -> status.text = "Could not open it: ${o.why}"
                     else -> Unit
                 }
@@ -360,7 +395,8 @@ class PortalActivity : ComponentActivity() {
                 vpnBlocked = true
                 // Reported even when the handoff works: whether the notification existed on this
                 // ROM, and which route opened, is exactly what the next release needs to know.
-                when (val opened = SystemSignIn.open(this, net) { log.add(it) }) {
+                prefs.portalHandedOffAt = System.currentTimeMillis()
+                when (val opened = SystemSignIn.open(this, net, intent) { log.add(it) }) {
                     SystemSignIn.Opened.ViaNotification -> {
                         systemSignIn.visibility = View.VISIBLE
                         fail(
@@ -368,6 +404,7 @@ class PortalActivity : ComponentActivity() {
                             line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
                                 "page is opening instead (it is allowed past the VPN). Sign in there; " +
                                 "CHECK here asks whether it worked.",
+                            report = !handedBack,
                         )
                         return
                     }
@@ -378,6 +415,7 @@ class PortalActivity : ComponentActivity() {
                             line = "A VPN is on, so this page cannot load here — Android's own sign-in " +
                                 "page (${opened.pkg}) is opening instead. Sign in there, then CHECK here: " +
                                 "it asks the system to look at the network again.",
+                            report = !handedBack,
                         )
                         return
                     }
@@ -405,8 +443,9 @@ class PortalActivity : ComponentActivity() {
         // screen with Home does not destroy the activity, so binding once here left every other
         // thing this app does -- shake-to-report, the ADB screen's own traffic -- pointed at a
         // network that goes nowhere, for as long as the activity stayed in the back stack.
-        log.add("loadUrl $PROBE_URL")
-        web.loadUrl(PROBE_URL)
+        val start = PortalRoute.startUrl(systemUrl)
+        log.add("loadUrl $start" + if (start != PROBE_URL) " (the system's own portal url)" else "")
+        web.loadUrl(start)
 
         // The classic failure is a page that never comes, and a page that never comes raises no
         // callback. A watchdog is the only thing that can notice nothing happening.
@@ -499,22 +538,61 @@ class PortalActivity : ComponentActivity() {
                 code == 204
             } catch (t: Throwable) {
                 probeFailures++
+                if (PortalRoute.isDnsThrow(t::class.java.simpleName, t.message)) dnsFailures++
                 log.add("probe #$n ($why): ${t::class.java.simpleName}: ${t.message} after ${SystemClock.elapsedRealtime() - started}ms")
                 false
             }
+            // The system's own verdict, read rather than measured, and the one success signal on
+            // this screen that needs no DNS and no socket: when a portal is passed, the platform
+            // re-probes and the network turns VALIDATED. On a network whose resolver answers
+            // nothing (light-reports #286) that is the only way through this screen can see.
+            val caps = if (online) null else runCatching {
+                getSystemService(ConnectivityManager::class.java).getNetworkCapabilities(net)
+            }.getOrNull()
+            val systemSaysOnline = caps != null &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
             handler.post {
                 if (done) return@post
+                if (!online && systemSaysOnline) {
+                    done = true
+                    log.add("through: the system says this network is validated and no longer captive")
+                    status.text = "You're online — the system says this network lets you through."
+                    handler.postDelayed({ finish() }, 1500)
+                    return@post
+                }
                 if (!online) {
                     sawClosedGate = true
                     status.text = "sign in above — checking the connection as you go"
+                    // A resolver that answers nothing is the failure that looks like every other
+                    // one, and it has its own way out: the address the lease came from. Tried
+                    // before anything is reported, because a report about a page that then loads
+                    // is a report about nothing.
+                    if (dnsFailures >= 2 && dnsFailures == probeFailures &&
+                        retryAtGateway("$dnsFailures probes could not resolve a name")
+                    ) {
+                        return@post
+                    }
                     // Every probe throwing, rather than being redirected, means the network is not
                     // answering at all: no portal is hijacking anything, and nothing the user does
                     // on this screen can change that. Say so once.
                     if (probeFailures >= PROBE_FAILURES_TO_REPORT && probeFailures == probes) {
+                        val dnsOnly = dnsFailures == probeFailures
                         fail(
-                            what = "reach anything over the Wi-Fi network ($probeFailures probes in a row threw, none answered)",
-                            line = "Nothing answers over this Wi-Fi — not even the login page. " +
-                                "This has been reported; the LOG button shows what happened.",
+                            what = if (dnsOnly) {
+                                "resolve any name over the Wi-Fi network ($dnsFailures probes in a row, " +
+                                    "all of them DNS; the network's own address was tried too)"
+                            } else {
+                                "reach anything over the Wi-Fi network ($probeFailures probes in a row threw, none answered)"
+                            },
+                            line = if (dnsOnly) {
+                                "This network's DNS does not answer for anything outside it, so " +
+                                    "no page can be found by name. This has been reported; the " +
+                                    "LOG button shows what happened."
+                            } else {
+                                "Nothing answers over this Wi-Fi — not even the login page. " +
+                                    "This has been reported; the LOG button shows what happened."
+                            },
                         )
                     }
                     return@post
@@ -603,13 +681,16 @@ class PortalActivity : ComponentActivity() {
             val main = request?.isForMainFrame == true
             log.add("${if (main) "MAIN FRAME" else "subresource"} error ${error?.errorCode} " +
                 "${error?.description} for ${request?.url}")
-            if (main && !pageFinished) {
-                fail(
-                    what = "load the Wi-Fi login page (WebView error ${error?.errorCode}: ${error?.description})",
-                    line = "The login page failed to load (${error?.description}). This has been " +
-                        "reported; the LOG button shows what happened.",
-                )
-            }
+            if (!main || pageFinished) return
+            // A name that will not resolve is not a network that is not there. See
+            // [PortalRoute.gatewayUrl] and light-reports #286/#287: the portal was reachable the
+            // whole time, at an address, while every hostname on the phone was dead.
+            if (error?.errorCode == PortalRoute.ERROR_HOST_LOOKUP && retryAtGateway("DNS did not resolve it")) return
+            fail(
+                what = "load the Wi-Fi login page (WebView error ${error?.errorCode}: ${error?.description})",
+                line = "The login page failed to load (${error?.description}). This has been " +
+                    "reported; the LOG button shows what happened.",
+            )
         }
 
         override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: WebResourceResponse?) {
@@ -644,6 +725,54 @@ class PortalActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Load the login page at the network's own address instead of by name.
+     *
+     * Returns whether it did, so the caller can leave its failure alone: a retry that happens is
+     * not a failure yet, and one that cannot happen is exactly the failure it was about to report.
+     * The page timeout is re-armed from here, because the watchdog that fires 25s after opening
+     * would otherwise land in the middle of this attempt and report a page that is loading.
+     */
+    private fun retryAtGateway(why: String): Boolean {
+        if (triedGateway || done) return false
+        val net = network ?: return false
+        val url = gatewayUrl(net) ?: run {
+            log.add("$why, and this network gave out no address worth trying")
+            return false
+        }
+        triedGateway = true
+        log.add("$why; trying the network's own address: $url")
+        status.text = "This network's DNS is not answering — trying the login page at $url"
+        pageFinished = false
+        webView?.loadUrl(url)
+        handler.postDelayed({
+            if (!done && !pageFinished) {
+                fail(
+                    what = "load the Wi-Fi login page by name or at the network's own address ($url)",
+                    line = "Neither the login page's name nor this network's own address " +
+                        "($url) answered. This has been reported; the LOG button shows what happened.",
+                )
+            }
+        }, PAGE_TIMEOUT_MS)
+        return true
+    }
+
+    /**
+     * The three addresses the phone already knows for the network it is on.
+     *
+     * `getDhcpServerAddress` is API 30 and this app's floor is 29, so on the older end the
+     * gateway and the resolvers do the work. Everything is passed to [PortalRoute] as text -- the
+     * decision belongs somewhere it can be unit-tested.
+     */
+    private fun gatewayUrl(net: Network): String? = runCatching {
+        val lp = getSystemService(ConnectivityManager::class.java).getLinkProperties(net)
+        val dhcp = if (Build.VERSION.SDK_INT >= 30) lp?.dhcpServerAddress?.hostAddress else null
+        val gateway = lp?.routes?.firstOrNull { it.isDefaultRoute }?.gateway?.hostAddress
+        val dns = lp?.dnsServers?.mapNotNull { it.hostAddress }.orEmpty()
+        log.add("addresses on this network: dhcp=${dhcp ?: "-"} gateway=${gateway ?: "-"} dns=${dns.joinToString().ifBlank { "-" }}")
+        PortalRoute.gatewayUrl(dhcp, gateway, dns)
+    }.getOrNull()
+
     private fun sslWhy(e: SslError): String = when (e.primaryError) {
         SslError.SSL_EXPIRED -> "expired"
         SslError.SSL_IDMISMATCH -> "for a different host"
@@ -663,9 +792,13 @@ class PortalActivity : ComponentActivity() {
      * on the phone and nobody can say why, so the log has to leave the phone by itself. A report
      * the user has to agree to is a report that gets dismissed while they are inside the failure.
      */
-    private fun fail(what: String, line: String) {
+    private fun fail(what: String, line: String, report: Boolean = true) {
         status.text = line
         log.add("FAIL: could not $what")
+        if (!report) {
+            log.add("not reported: this failure is already on an open issue for this phone")
+            return
+        }
         if (autoReported) return
         autoReported = true
         val now = System.currentTimeMillis()
@@ -795,7 +928,13 @@ class PortalActivity : ComponentActivity() {
          * on purpose: a portal can only hijack what it can read, and an https probe would surface
          * as a certificate error instead of a login page.
          */
-        private const val PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
+        private const val PROBE_URL = PortalRoute.PROBE_URL
+
+        /**
+         * How long after handing off to the system a re-launch is our own doing rather than a new
+         * problem. Wall-clock, because the handoff is stored across activity deaths.
+         */
+        private const val HANDOFF_WINDOW_MS = 3L * 60L * 1_000L
         private const val PROBE_EVERY_MS = 4000L
 
         /** How long a login page gets to finish before its absence is the failure. */

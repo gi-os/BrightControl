@@ -236,7 +236,10 @@ fun WifiScreen(onBack: () -> Unit, onAdb: () -> Unit) {
                     val wifi = cm.allNetworks.firstOrNull { n ->
                         cm.getNetworkCapabilities(n)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
                     }
-                    when (val o = SystemSignIn.open(context, wifi) { }) {
+                    // No intent to forward: this screen was opened by hand, so the notification
+                    // route is the only one that can produce the system's binder. See
+                    // [SystemSignIn] for what happens when it lands back on this app instead.
+                    when (val o = SystemSignIn.open(context, wifi, null) { }) {
                         SystemSignIn.Opened.ViaNotification -> note = "Opened Android's sign-in page from its notification."
                         is SystemSignIn.Opened.ViaIntent -> note = "Opened Android's sign-in page (${o.pkg}). Sign in there, then refresh THIS NETWORK."
                         is SystemSignIn.Opened.Failed -> {
