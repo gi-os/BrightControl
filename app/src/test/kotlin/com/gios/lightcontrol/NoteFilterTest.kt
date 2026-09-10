@@ -1,6 +1,7 @@
 package com.gios.lightcontrol
 
 import com.gios.lightcontrol.lock.NoteFilter
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -84,5 +85,13 @@ class NoteFilterTest {
         // reminder would still be permanent. The importance exception runs after this test in the
         // caller, never instead of it.
         assertTrue(NoteFilter.isPersistent(ONGOING, "reminder"))
+    }
+
+    @Test
+    fun `the lock-keep key is the one BrightSports writes`() {
+        // A contract between two apps, so the literal is pinned here rather than referred to.
+        // Renaming it on one side would otherwise take the live score card off the lock face
+        // with nothing failing anywhere.
+        assertEquals("com.gios.lightcontrol.extra.LOCK_KEEP", NoteFilter.LOCK_KEEP)
     }
 }

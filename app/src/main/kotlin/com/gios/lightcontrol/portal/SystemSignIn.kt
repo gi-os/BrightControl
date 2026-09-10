@@ -100,17 +100,6 @@ object SystemSignIn {
             }
         }
 
-        return direct(context, network, handed, log)
-    }
-
-    /**
-     * The component launch on its own, with no notification attempt in front of it.
-     *
-     * Its own entry point because the caller that needs it most is the one retrying: a notification
-     * that produced nothing must not be fired a second time by the code cleaning up after it, and
-     * "try the other route" should not have to be spelled as a flag.
-     */
-    fun direct(context: Context, network: Network?, handed: Intent?, log: (String) -> Unit): Opened {
         val pkg = installed(context) ?: run {
             log("no CaptivePortalLogin package installed (${CANDIDATES.joinToString()})")
             return Opened.Failed("this phone has no system sign-in app")

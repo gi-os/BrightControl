@@ -1,46 +1,12 @@
-## BrightControl v4.29 — Wi-Fi login: the handoff was arriving and nobody was home
+## BrightControl v4.29 — an ongoing card can ask to stay on the lock face
 
-**v4.28 forwarded the system's extras onward. The launch that brings them was being thrown away.**
+**The lock face drops every ongoing notification, and that is right nearly always.** A sync, a download, a VPN and a media session are receipts. A face full of receipts is what the filter exists to prevent. One class of card is the exception. Its whole content is the thing you want to read without unlocking.
 
-A phone on a hotel network under a VPN, on v4.28, with the log ending like this:
+**BrightSports' live score is the first of those.** The app runs a foreground service for the length of a game, and the service's notification is the score. The platform stamps the same two flags on it as on a download. No flag can tell the two apart. Only the app that posted it knows.
 
-```
-0.032  system notifications up: android: Sign in to Wi-Fi network
-0.033  fired the system's sign-in notification → true
-0.034  onStart: rebound → false
-```
+**So the app says so, in one boolean.** A card that sets `com.gios.lightcontrol.extra.LOCK_KEEP` skips the persistence rule and the importance gate. Nothing else about it changes. It is still hidden when the user hides that app by name. A swipe still takes it off for the session. It still cannot raise a banner: the banner takes the newest card that is not ongoing, which this one is. The filter treats every other app's permanent notice exactly as before.
 
-Fired, `→ true`, and then the same screen, sitting there. The notification did exactly what it was
-asked. What it opened was **this app again** — and the Wi-Fi login screen is `singleTask`, so
-Android does not build it a second time. It calls `onNewIntent`, with the intent that carries the
-`CaptivePortal` binder, the network and the portal URL on it. There was no `onNewIntent`. The one
-thing the round trip is worth went on the floor, and `onStart: rebound → false` is the whole story:
-the activity was restarted in place and told nothing.
-
-**It listens now.** The new intent is taken (`setIntent`, so the extras forwarding reads the one
-that carries something), binder, network and URL are picked up, and they are spent immediately —
-under a VPN by handing them to the app that is allowed past one, otherwise by loading the page this
-screen came here to load.
-
-**And a fired notification is no longer taken at its word.** A `PendingIntent` reports that it was
-sent, never what opened, so the outcome is measured rather than assumed: Android's own page coming
-up *stops* this activity, and the round trip *lands in `onNewIntent`*. Neither of those, 2.5
-seconds later, and the notification went nowhere — the direct component launch is then taken
-without asking. `SystemSignIn.direct` is that route on its own, so the retry cannot fire the same
-notification a second time.
-
-**Neither handoff route files a report any more.** A notification that resolves back here is the
-expected shape of this feature, and reporting it is how [light-reports#329] and [#330] became two
-issues about one round trip. What reports now is a handoff that produced nothing by either route —
-a state nobody has seen yet, and the only one left worth hearing about.
-
-### How
-
-`PortalActivity.onNewIntent`, `handOff` (one path for the screen's first attempt, the round trip,
-the watchdog and the OPEN ANDROID'S SIGN-IN PAGE AGAIN button), `handoffWatch`, and
-`readSystemExtras` so the intent is read the same way wherever it arrives from. `stopped` is
-tracked across `onStart`/`onStop`, because that is the only local fact that distinguishes a handoff
-that worked from one that vanished.
+Needs BrightSports v2.3 or later, which sets the extra.
 
 ## BrightControl v4.28 — Wi-Fi login: the handoff carries the binder, and a portal is found by address
 

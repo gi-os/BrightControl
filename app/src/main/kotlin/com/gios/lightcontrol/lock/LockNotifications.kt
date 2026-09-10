@@ -704,7 +704,17 @@ class LockNotifications : NotificationListenerService() {
         // puts on its own permanent notice. That notice therefore passed every check here, landed
         // on the face, and could not be swiped off, because the platform refuses to cancel an
         // un-clearable notification by not removing it. See [NoteFilter.isPersistent].
-        if (NoteFilter.isPersistent(n.flags, n.category) && !allowPersistent) return false
+        // An ongoing card that says it is content, not a receipt. A foreground service's
+        // notification carries the same two flags whether it is a download, a VPN, or a live
+        // score, and only the app that posted it knows which. BrightSports sets this on the
+        // card that *is* the score; a navigation could set it on the card that is the next
+        // turn. Everything that does not set it is filtered exactly as before.
+        // The Bundle read stays here, as it does for [NoteText]: a Bundle cannot be built in
+        // a unit test, so the key and the rule live in [NoteFilter] and the reading lives at
+        // the call site.
+        val lockKeep = runCatching { n.extras?.getBoolean(NoteFilter.LOCK_KEEP, false) == true }
+            .getOrDefault(false)
+        if (NoteFilter.isPersistent(n.flags, n.category) && !allowPersistent && !lockKeep) return false
         if (n.category == Notification.CATEGORY_TRANSPORT) return false
         // A call has its own card on the face, with buttons. Listed as well it would be the same
         // call twice, once with something to press and once without.
@@ -715,6 +725,11 @@ class LockNotifications : NotificationListenerService() {
         val ranked = ranking?.getRanking(sbn.key, scratch) ?: false
         if (!ranked) return true
         if (scratch.importance >= NotificationManager.IMPORTANCE_DEFAULT) return true
+        // A card that asked to be kept is kept, importance and all. An ongoing card is quiet
+        // on purpose -- a live score at IMPORTANCE_DEFAULT would make a sound every time the
+        // score moved -- so demanding DEFAULT here would rule out precisely the notifications
+        // this exception exists for.
+        if (lockKeep) return true
         // The one exception to the importance gate. The ranked figure is the channel's importance
         // *as adjusted* -- by the ranker, by an assistant, by anything on the platform that has
         // decided an app is quiet -- and LightOS ships no notification-settings screen, so an
@@ -756,6 +771,26 @@ class LockNotifications : NotificationListenerService() {
  * wanted.
  */
 object NoteFilter {
+
+    /**
+     * The extra an app sets on an ongoing notification to say it is worth a lock screen.
+     *
+     * The persistence rules above are right about almost everything: a sync, a download, a
+     * VPN and a media session are receipts, and a face full of receipts is what the filter is
+     * for. They are wrong about one class of card — the kind whose whole content is the thing
+     * you want to read without unlocking. BrightSports' live score is the first: the app runs
+     * a foreground service for the length of a game, and the service's notification *is* the
+     * score. The platform stamps `FLAG_ONGOING_EVENT` and `FLAG_FOREGROUND_SERVICE` onto it
+     * either way, so no flag can tell the two apart and only the app that posted it knows.
+     *
+     * So the app says so, in one boolean. A card that sets it skips the persistence drop and
+     * the importance gate; nothing else about it changes, and no other app is affected. It is
+     * still hidden by name if the user hides that app, still swipe-away (the platform refuses
+     * to cancel an un-clearable card, so the swipe hides it for the session — see
+     * `LockNotes.dismiss`), and still never a banner: the banner takes the newest
+     * *non*-persistent row, which this is not, so a score cannot interrupt what is on screen.
+     */
+    const val LOCK_KEEP = "com.gios.lightcontrol.extra.LOCK_KEEP"
 
     fun isPersistent(flags: Int, category: String?): Boolean {
         if (flags and Notification.FLAG_ONGOING_EVENT != 0) return true
