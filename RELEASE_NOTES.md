@@ -1,3 +1,52 @@
+## BrightControl v4.28 — Wi-Fi login: the handoff carries the binder, and a portal is found by address
+
+Three reports, two faults, both of them in the ten seconds after the screen opens.
+
+**Android's own sign-in page was being opened with nothing to draw.** `ACTION_CAPTIVE_PORTAL_SIGN_IN`
+is the string `android.net.conn.CAPTIVE_PORTAL`, and two activities on this phone answer it:
+`com.android.captiveportallogin` and this app's own Wi-Fi login screen. That filter is the only
+reason a Light Phone has a sign-in page at all — and it means the *"Sign in to network"*
+notification this app fires can re-launch this app. [light-reports#329] and [#330] are one phone
+twelve minutes apart doing exactly that, the second one carrying the system's `CaptivePortal`
+binder in the intent.
+
+The round trip is not the bug. It is how a screen opened by hand gets hold of a binder it never
+had. The bug was the next step: the direct launch carried the network and nothing else, so the
+platform's login app opened with no URL, no binder, and no reason to stay. It now forwards **the
+whole extras bundle** — binder, portal URL, probe spec, user agent, and anything a future ROM adds
+— and names the component, which cannot resolve back here. When this screen already holds the
+binder it skips the notification entirely. And a launch that arrives with the binder within three
+minutes of our own handoff is recognised as the round trip, so it no longer files a second report
+about itself.
+
+**A portal whose DNS answers nothing.** [light-reports#286] and [#287]: the bind worked, the
+network was flagged CAPTIVE_PORTAL, the WebView was fine — and every hostname died with
+`ERR_NAME_NOT_RESOLVED` after eight and a half seconds. A resolver that answers only for the
+network's own names, or for nothing at all until a device is admitted, is common in cheap hotel
+gear, and it makes every name on the phone useless including the one this screen loads.
+
+The page is still there, at an address. So: the WebView starts at the URL **the system probed**
+(`EXTRA_CAPTIVE_PORTAL_URL`, out of the intent that launched us, checked to be `http` or `https`
+before it is loaded — this activity is exported, and `loadUrl` of an extra is otherwise a hole),
+and when a name will not resolve it falls back once to the network's own address: the DHCP server,
+then the default gateway, then any resolver on a private range. A public resolver is never tried —
+8.8.8.8 has no login page.
+
+**And getting through no longer depends on DNS either.** A failed probe now reads the network's
+capabilities, which costs no socket and no name: VALIDATED without CAPTIVE_PORTAL is the system's
+own probe saying the gate is open, and on a network where nothing resolves it is the only way this
+screen can see it.
+
+The report a dead resolver files now says so, rather than "nothing answers over this Wi-Fi", which
+was true of the name and false of the network.
+
+### How
+
+`portal/PortalRoute.kt` is new and holds the address decisions as pure functions — which URL to
+start at, which of the three known addresses to try, and how to tell a DNS failure from a dead
+network — with eight tests on it. `SystemSignIn.open` takes the launching intent. `PortalActivity`
+gained `retryAtGateway`, the capability read in `probe`, and `Prefs.portalHandedOffAt`.
+
 ## BrightControl v4.27 — the neighbours' grants: passkeys, autofill, the browser
 
 **GRANT ALL now sets up the apps around this one, when they are installed.** LightOS has no page
