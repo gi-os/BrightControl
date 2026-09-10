@@ -1,3 +1,13 @@
+## BrightControl v4.30 — a score on the lock face looks like a score
+
+**BrightSports writes its alert titles in a fixed shape.** `TD SEA · Patriots 7 · Seahawks 21`, `RED ZONE · SEA`, `ONE-SCORE GAME · NE 20 · SEA 24`. The banner has read that shape since v4.25 and drawn the kind large. The lock face drew the whole string as one dim line.
+
+**Now the face reads it too.** What happened comes first, in the heading size, with the team beside it. The score sits under it in the row's usual size, and the play text under that. Same reading, same look, wherever the card lands.
+
+**A red-zone row has no score line and still draws its body.** The old rule printed the body only under a title. That row is a kind and a down and distance, which is the whole point of it.
+
+Nothing changes for any other app. A card whose title is not in that shape looks exactly as it did.
+
 ## BrightControl v4.29 — an ongoing card can ask to stay on the lock face
 
 **The lock face drops every ongoing notification, and that is right nearly always.** A sync, a download, a VPN and a media session are receipts. A face full of receipts is what the filter exists to prevent. One class of card is the exception. Its whole content is the thing you want to read without unlocking.
