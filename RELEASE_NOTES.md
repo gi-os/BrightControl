@@ -1,3 +1,47 @@
+## BrightControl v4.29 — Wi-Fi login: the handoff was arriving and nobody was home
+
+**v4.28 forwarded the system's extras onward. The launch that brings them was being thrown away.**
+
+A phone on a hotel network under a VPN, on v4.28, with the log ending like this:
+
+```
+0.032  system notifications up: android: Sign in to Wi-Fi network
+0.033  fired the system's sign-in notification → true
+0.034  onStart: rebound → false
+```
+
+Fired, `→ true`, and then the same screen, sitting there. The notification did exactly what it was
+asked. What it opened was **this app again** — and the Wi-Fi login screen is `singleTask`, so
+Android does not build it a second time. It calls `onNewIntent`, with the intent that carries the
+`CaptivePortal` binder, the network and the portal URL on it. There was no `onNewIntent`. The one
+thing the round trip is worth went on the floor, and `onStart: rebound → false` is the whole story:
+the activity was restarted in place and told nothing.
+
+**It listens now.** The new intent is taken (`setIntent`, so the extras forwarding reads the one
+that carries something), binder, network and URL are picked up, and they are spent immediately —
+under a VPN by handing them to the app that is allowed past one, otherwise by loading the page this
+screen came here to load.
+
+**And a fired notification is no longer taken at its word.** A `PendingIntent` reports that it was
+sent, never what opened, so the outcome is measured rather than assumed: Android's own page coming
+up *stops* this activity, and the round trip *lands in `onNewIntent`*. Neither of those, 2.5
+seconds later, and the notification went nowhere — the direct component launch is then taken
+without asking. `SystemSignIn.direct` is that route on its own, so the retry cannot fire the same
+notification a second time.
+
+**Neither handoff route files a report any more.** A notification that resolves back here is the
+expected shape of this feature, and reporting it is how [light-reports#329] and [#330] became two
+issues about one round trip. What reports now is a handoff that produced nothing by either route —
+a state nobody has seen yet, and the only one left worth hearing about.
+
+### How
+
+`PortalActivity.onNewIntent`, `handOff` (one path for the screen's first attempt, the round trip,
+the watchdog and the OPEN ANDROID'S SIGN-IN PAGE AGAIN button), `handoffWatch`, and
+`readSystemExtras` so the intent is read the same way wherever it arrives from. `stopped` is
+tracked across `onStart`/`onStop`, because that is the only local fact that distinguishes a handoff
+that worked from one that vanished.
+
 ## BrightControl v4.28 — Wi-Fi login: the handoff carries the binder, and a portal is found by address
 
 Three reports, two faults, both of them in the ten seconds after the screen opens.
