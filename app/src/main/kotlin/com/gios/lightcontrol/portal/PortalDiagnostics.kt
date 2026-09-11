@@ -56,10 +56,8 @@ object PortalDiagnostics {
         val enabled = runCatching { Settings.Global.getString(cr, "captive_portal_detection_enabled") }.getOrNull()
         return when {
             mode == "0" || enabled == "0" ->
-                "Off" to "Android is not looking for login pages (captive_portal_mode=$mode, " +
-                    "detection_enabled=$enabled) — either the ROM set that or you did, below. The phone " +
-                    "stays on a network with a login page instead of routing around it, and nothing " +
-                    "announces the page; this screen fetches it anyway."
+                "Off" to "LightOS has told Android not to look for login pages (captive_portal_mode=$mode, " +
+                    "detection_enabled=$enabled). The system will never announce one; this screen forces the question anyway."
             mode == "2" ->
                 "Avoid" to "Android detects login pages and drops the network instead of offering them (mode 2)"
             mode == null || mode == "1" ->

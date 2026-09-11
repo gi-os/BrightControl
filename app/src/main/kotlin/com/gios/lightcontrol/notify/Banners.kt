@@ -1,6 +1,7 @@
 package com.gios.lightcontrol.notify
 
 import android.app.PendingIntent
+import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
 
@@ -47,6 +48,10 @@ object Banners {
         val postedAt: Long,
         /** The notification's own `contentIntent`, sent on a tap. Null means the box is inert. */
         val open: PendingIntent?,
+        /** The score, when the app sent one. See [SportsCard]. */
+        val card: SportsCard? = null,
+        /** The crest beside it, off the notification's large icon. */
+        val crest: Drawable? = null,
     )
 
     /**

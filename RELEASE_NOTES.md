@@ -1,14 +1,14 @@
-## BrightControl v4.31 — stay on the network instead of arguing with it
+## BrightControl v4.31 — the score is drawn, not parsed
 
-**Android probes every new network for a login page, and that probe is what makes a hotel Wi-Fi useless here.** A reply that is not a 204 marks the network as needing a sign-in. Android then routes around it, keeps mobile data up, and posts *Sign in to network* — into a shade this phone does not have. The network is joined and unused, and nothing on screen says why.
+**The lock face and the banner draw BrightSports' card as a card.** A hairline box. What happened on the left, with the team and its crest. The score on the right. The play under it, and the period and the clock at the foot. The half that is behind goes dim, the way a finished game reads in the app's own feed.
 
-**There is a switch for the probe, and now there is a button for it.** `settings put global captive_portal_mode 0` stops the probing. The phone stays on the network. Nothing announces the login page, so you fetch it: open any plain `http://` address and the gateway answers with its own page instead. Sign in there and you were never routed around.
+**The app says where the design cuts.** v4.30 took the title apart with a regular expression, which held only as long as the wording did. BrightSports v2.5 sends the five pieces as extras and the face reads them. A card without them is drawn like every other row on this face.
 
-Both halves are on the ADB screen, under WI-FI LOGIN, and on the Wi-Fi screen next to the detection row. OPEN THE LOGIN PAGE loads `neverssl.com`, which never redirects to https, so there is something for a portal to interrupt. The write goes through this app when it holds WRITE_SECURE_SETTINGS and over the phone's own shell when it does not, so it works with no connection paired.
+**Barlow Condensed, for scoreboard figures only.** `ONE-SCORE GAME` and `NE 7 · SEA 14` fit one line of a 3.9" panel. In Akkurat both run past the edge. Bundled, two weights, used nowhere else. The rest of the face is the phone's own face.
 
-**What it costs, said where it is offered.** With the probe off, a network with no internet at all also looks healthy to every app on the phone. The DETECTION ON button puts it back.
+**The banner shows the same box.** The swipe hint rides on the foot line rather than taking a line of its own.
 
-**And the login screen no longer believes a flag nobody tested.** With detection off the platform reports every network as validated without asking anyone, which is exactly the signal that screen reads as *you're through*. It would have declared victory at a closed gate. It now checks whether anything is doing the probing before trusting the answer, and starts at a plain page rather than a 204 endpoint when it is not.
+A BrightSports build older than v2.5 falls back to the v4.30 reading. An old app on a new phone still gets a heading and a score.
 
 ## BrightControl v4.30 — a score on the lock face looks like a score
 

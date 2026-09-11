@@ -1046,15 +1046,18 @@ class ControlService : AccessibilityService() {
         // reach the keypad, so there is no face to carry the row — suppressing the box then is a
         // notification that appears nowhere at all.
         if (lockFace.showing || (prefs.lockScreen && locked() && !lockFace.dismissed())) return
-        // A BrightSports alert leads with what happened -- "TD  SEA" -- in the heading size,
-        // with the score under it. Every other app's box is unchanged.
-        val kind = NoteText.sportsKind(note.pkg, note.title)
+        // A score is drawn as a card -- what happened, the figure, the play, the clock -- in
+        // place of the title and body. The title-shape reading below it is what a BrightSports
+        // build older than the card extras still gets. Every other app's box is unchanged.
+        val kind = if (note.card == null) NoteText.sportsKind(note.pkg, note.title) else null
         banner.show(
             app = note.app,
             title = (kind?.rest ?: note.title).ifBlank { if (kind != null) "" else note.app },
             text = note.text,
             dwellMs = dwellMs,
             kind = kind?.let { listOfNotNull(it.label, it.team).joinToString("  ") },
+            card = note.card,
+            crest = note.crest,
         ) {
             runCatching { openBanner(note) }
         }

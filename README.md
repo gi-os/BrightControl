@@ -953,19 +953,6 @@ The state row reads the same capability bits the platform sets, `NET_CAPABILITY_
 when a portal announced itself and `VALIDATED` once traffic flows. So it agrees with what the
 system concluded rather than running a probe of its own.
 
-**The other way through: stop Android looking.** The probe that finds a login page is also what
-makes the phone route around the network, so turning it off keeps the phone on the network and
-hands the sign-in back to you. `CaptiveMode` sets `captive_portal_mode` — in this app when it holds
-`WRITE_SECURE_SETTINGS`, over the phone's own shell when it does not — from the ADB screen and from
-the Wi-Fi screen, with the same button to put it back. Nothing announces the page then, so OPEN THE
-LOGIN PAGE loads `neverssl.com`: a plain `http://` address that never redirects, which is the thing
-a portal can interrupt with its own page.
-
-The cost is printed next to the button. With the probe off, a network with no internet at all also
-looks healthy to every app. It is also why the login screen asks `CaptiveMode.detectionOn` before
-believing `VALIDATED`: with detection off, the platform sets that bit on every network without
-testing anything, so the one success signal that needs no socket becomes a lie.
-
 ### Hotspot. In development
 
 > **This is unfinished and may not work.** It depends on Bluetooth pairing having exchanged an
@@ -1139,7 +1126,6 @@ color/ColorRequests.kt     what each app is asking for, keyed by the binder that
 hotspot/TriggerEngine.kt   the raise and lower decision, with no Android in it
 hotspot/SoftAp.kt          the access point, over the shell this app already holds
 portal/PortalActivity.kt   the captive-portal WebView, bound to the captive network
-portal/CaptiveMode.kt      Android's login-page detection, read and switched
 report/                    shake to report, the crash log, and the queue
 ```
 
@@ -1204,7 +1190,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
-| v4.31 | **Stay on a login-page network instead of being routed around it.** Android's captive-portal probe is what marks a hotel network as needing a sign-in, and then the phone stops using it while the *Sign in to network* notice goes to a shade this phone does not have. `CaptiveMode` turns the probe off (`captive_portal_mode 0`) and back on, from the ADB screen and the Wi-Fi screen, writing it in-process with `WRITE_SECURE_SETTINGS` or over the phone's own shell. With nothing announcing the page, OPEN THE LOGIN PAGE loads `neverssl.com` so the gateway has an ordinary request to interrupt. The login screen stops trusting `VALIDATED` while detection is off, because the platform then sets it on every network without probing, and starts at a plain page rather than a 204 endpoint |
+| v4.31 | **The score is drawn, not parsed.** BrightSports v2.5 sends the card as five extras (`SPORT_KIND`, `SPORT_TEAM`, `SPORT_VALUE`, `SPORT_DETAIL`, `SPORT_FOOT`) with the crest as the large icon; the lock face and the banner draw the boxed card from them, in bundled Barlow Condensed, with the losing half of the score dimmed. A card without the extras falls back to the v4.30 title reading |
 | v4.30 | **A score on the lock face looks like a score.** BrightSports' alert titles are a fixed shape (`TD SEA · …`, `RED ZONE · SEA`), which the banner has read since v4.25; the lock face rows now read it the same way and draw the kind in the heading size, with the score under it. A red-zone row has no score line and draws its body regardless. Any other app's row is unchanged |
 | v4.29 | **An ongoing card can ask to stay on the lock face.** A foreground service's notification carries the same flags whether it is a download or a live score, so the face dropped both. A card that sets `com.gios.lightcontrol.extra.LOCK_KEEP` (`NoteFilter.LOCK_KEEP`) now skips the persistence rule and the importance gate — BrightSports v2.3 sets it on the card that *is* the score. Hiding the app by name still hides it, a swipe still clears it for the session, and it still cannot raise a banner |
 | v4.28 | **Wi-Fi login: the handoff carries the binder, and a portal is found by address.** `ACTION_CAPTIVE_PORTAL_SIGN_IN` is answered by both the system's login app and this one, so the *Sign in to network* notification this app fires can re-launch this app — which is how a hand-opened screen acquires the system's `CaptivePortal` binder, and was useless because the direct launch then carried nothing but the network. It forwards the whole extras bundle now and names the component. Separately, a portal whose resolver answers no outside name (`ERR_NAME_NOT_RESOLVED`, every probe, 8.5s each) left the page unreachable by name: the WebView starts at the URL the system probed and falls back once to the network's own address — DHCP server, gateway, private resolver — and a failed probe reads the network's capabilities, so VALIDATED without CAPTIVE_PORTAL is through with no DNS at all |

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.graphics.fonts.SystemFonts
 import android.os.Build
+import com.gios.lightcontrol.R
 
 /**
  * LightOS's own type scale and grid, for a screen built out of plain Views.
@@ -26,7 +27,7 @@ import android.os.Build
  * Weights follow the app's Compose theme so the two halves of the app agree: the clock light, body
  * regular, the small tracked labels medium.
  */
-class LightType(context: Context) {
+class LightType(private val context: Context) {
 
     private val metrics = context.resources.displayMetrics
     private val screenHeightDp = metrics.heightPixels / metrics.density
@@ -58,6 +59,20 @@ class LightType(context: Context) {
     val light: Typeface? by lazy { akkurat(300) }
     val regular: Typeface? by lazy { akkurat(400) }
     val medium: Typeface? by lazy { akkurat(500) }
+
+    /**
+     * Barlow Condensed, bundled, for scoreboard figures only.
+     *
+     * The one face on this screen that is not the phone's own. A score is read at arm's length
+     * across a room and a condensed face fits `ONE-SCORE GAME` and `NE 7 · SEA 14` on one line
+     * of a 3.9" panel where Akkurat would ellipsise both. It is used for exactly that — the
+     * headline and the figure of a sports card — and nothing else on the face changes.
+     * SIL Open Font License, the same two weights BrightSports ships.
+     */
+    val condensed: Typeface? by lazy { font(R.font.barlow_condensed_extrabold) }
+    val condensedMedium: Typeface? by lazy { font(R.font.barlow_condensed_bold) }
+
+    private fun font(id: Int): Typeface? = runCatching { context.resources.getFont(id) }.getOrNull()
 
     /**
      * Akkurat, off the system font list, at the nearest weight available.

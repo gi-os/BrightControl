@@ -30,7 +30,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.gios.lightcontrol.notify.NoteText
+import com.gios.lightcontrol.notify.SportsCardView
 import com.gios.lightcontrol.Prefs
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1603,48 +1603,52 @@ class LockOverlay(private val context: Context) {
                     }
                 },
             )
-            // A BrightSports alert writes its title in a fixed shape -- `TD SEA · NE 7 · SEA 14`
-            // -- so the row can lead with what happened, in the heading size, the way the box
-            // does. Same reading as the banner, so a score looks the same wherever it lands.
-            val kind = NoteText.sportsKind(note.pkg, note.title)
-            if (kind != null) {
+            // A score is drawn as BrightSports drew it: the whole card, in a box, in place of
+            // the title-and-body pair. See [SportsCardView]. Everything else on the face is
+            // untouched -- a row is a card only when the app said so.
+            val card = note.card
+            if (card != null) {
                 row.addView(
-                    TextView(context).apply {
-                        typeface = type.medium
-                        setTextColor(Color.WHITE)
-                        textSize = type.heading
-                        letterSpacing = type.subheadingTracking
-                        maxLines = 1
-                        ellipsize = TextUtils.TruncateAt.END
-                        text = listOfNotNull(kind.label, kind.team).joinToString("  ")
+                    SportsCardView.build(
+                        context = context,
+                        type = type,
+                        card = card,
+                        big = false,
+                        bordered = true,
+                        crest = note.crest,
+                    ).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply { topMargin = type.gridPx(0.2f) }
                     },
                 )
-            }
-            val headline = if (kind != null) kind.rest else note.title.ifBlank { note.text }
-            if (headline.isNotBlank()) {
-                row.addView(
-                    TextView(context).apply {
-                        typeface = type.regular
-                        setTextColor(Color.WHITE)
-                        textSize = type.copy
-                        maxLines = 1
-                        text = headline
-                    },
-                )
-            }
-            // The body only when there is something above it, so a one-line notification is not
-            // printed twice. A RED ZONE row has a kind and no headline, and its body -- the down
-            // and distance -- is the whole point of it.
-            if ((note.title.isNotBlank() || kind != null) && note.text.isNotBlank()) {
-                row.addView(
-                    TextView(context).apply {
-                        typeface = type.regular
-                        setTextColor(DIM)
-                        textSize = type.detail
-                        maxLines = 2
-                        text = note.text
-                    },
-                )
+            } else {
+                val headline = note.title.ifBlank { note.text }
+                if (headline.isNotBlank()) {
+                    row.addView(
+                        TextView(context).apply {
+                            typeface = type.regular
+                            setTextColor(Color.WHITE)
+                            textSize = type.copy
+                            maxLines = 1
+                            text = headline
+                        },
+                    )
+                }
+                // The body only when there is a title above it, so a one-line notification is
+                // not printed twice.
+                if (note.title.isNotBlank() && note.text.isNotBlank()) {
+                    row.addView(
+                        TextView(context).apply {
+                            typeface = type.regular
+                            setTextColor(DIM)
+                            textSize = type.detail
+                            maxLines = 2
+                            text = note.text
+                        },
+                    )
+                }
             }
             list.addView(row)
         }

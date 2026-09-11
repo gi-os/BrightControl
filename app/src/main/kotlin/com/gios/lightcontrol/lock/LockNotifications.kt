@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -18,6 +19,7 @@ import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.notify.AlertHandoff
 import com.gios.lightcontrol.notify.Banners
 import com.gios.lightcontrol.notify.NoteText
+import com.gios.lightcontrol.notify.SportsCard
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +38,17 @@ data class LockNote(
      * than it sounds but not impossible.
      */
     val open: PendingIntent?,
+    /**
+     * The score, when the app posted one. See [SportsCard].
+     *
+     * Held as data rather than drawn from the title, which is what the face did first: a title
+     * shaped `TD SEA · NE 7 · SEA 14` can be taken apart with a regular expression right up to
+     * the day the wording changes. The poster now says where the design cuts, so the face reads
+     * the answer instead of inferring it.
+     */
+    val card: SportsCard? = null,
+    /** The crest beside it, off the notification's own large icon. */
+    val crest: Drawable? = null,
 )
 
 /**
@@ -429,6 +442,8 @@ class LockNotifications : NotificationListenerService() {
                 text = said.text,
                 postedAt = sbn.postTime,
                 open = sbn.notification.contentIntent,
+                card = sportsCard(sbn.notification),
+                crest = crest(sbn.notification),
             )
         }
         LockNotes.publish(notes)
@@ -456,6 +471,8 @@ class LockNotifications : NotificationListenerService() {
                         text = said.text,
                         postedAt = sbn.postTime,
                         open = sbn.notification.contentIntent,
+                        card = sportsCard(sbn.notification),
+                        crest = crest(sbn.notification),
                     )
                 },
             // The box is one reason to run this and the wake is the other. Gated on `banner`
@@ -742,6 +759,37 @@ class LockNotifications : NotificationListenerService() {
         // in on this.
         return NoteFilter.isTimeCritical(n.category)
     }
+
+    /**
+     * The five strings BrightSports writes alongside the title and the text.
+     *
+     * A notification that does not carry them is not a card and is drawn the way every other
+     * row on this face is. The reading lives here because a `Bundle` cannot be built in a unit
+     * test; the keys and the rules are in [SportsCard], which is tested without a phone.
+     */
+    private fun sportsCard(n: Notification?): SportsCard? {
+        val extras = n?.extras ?: return null
+        return runCatching {
+            SportsCard.of(
+                kind = extras.getCharSequence(SportsCard.KIND)?.toString(),
+                team = extras.getCharSequence(SportsCard.TEAM)?.toString(),
+                value = extras.getCharSequence(SportsCard.VALUE)?.toString(),
+                detail = extras.getCharSequence(SportsCard.DETAIL)?.toString(),
+                foot = extras.getCharSequence(SportsCard.FOOT)?.toString(),
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * The large icon, loaded once here rather than at draw time.
+     *
+     * [fillNotes] runs on every notification the phone receives; decoding a crest inside it
+     * would put a file read on the main thread behind the lock screen. This runs on the
+     * listener's own callback, which is where the rest of the reading already happens.
+     */
+    private fun crest(n: Notification?): Drawable? = runCatching {
+        n?.getLargeIcon()?.loadDrawable(this)
+    }.getOrNull()
 
     private companion object {
         /** `Notification.EXTRA_SUBSTITUTE_APP_NAME`, which the public SDK does not expose. */

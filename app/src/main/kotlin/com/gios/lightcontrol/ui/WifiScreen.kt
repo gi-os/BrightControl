@@ -27,10 +27,8 @@ import androidx.compose.ui.unit.dp
 import com.gios.lightcontrol.adb.AdbManager
 import com.gios.lightcontrol.adb.AdbWifi
 import com.gios.lightcontrol.lock.LockNotes
-import com.gios.lightcontrol.portal.CaptiveMode
 import com.gios.lightcontrol.portal.PortalActivity
 import com.gios.lightcontrol.portal.PortalDiagnostics
-import com.gios.lightcontrol.portal.PortalRoute
 import com.gios.lightcontrol.portal.SystemSignIn
 import com.gios.lightcontrol.wifi.WifiShell
 import com.gios.lightcontrol.wifi.WifiSuggest
@@ -456,8 +454,7 @@ fun WifiScreen(onBack: () -> Unit, onAdb: () -> Unit) {
 
         SectionLabel("THIS PHONE")
         val webView = remember { PortalDiagnostics.webView() }
-        var captive by remember { mutableStateOf(CaptiveMode.label(context.contentResolver)) }
-        val mode = remember(captive) { PortalDiagnostics.captiveModeLine(context.contentResolver) }
+        val mode = remember { PortalDiagnostics.captiveModeLine(context.contentResolver) }
         MenuRow(
             label = if (PortalDiagnostics.hasWebView()) "WebView present" else "No WebView",
             sub = if (PortalDiagnostics.hasWebView()) {
@@ -468,52 +465,6 @@ fun WifiScreen(onBack: () -> Unit, onAdb: () -> Unit) {
             dim = true,
         )
         MenuRow(label = "Login-page detection: ${mode.first}", sub = mode.second, dim = true)
-        // The other way through a portal, and on this phone often the better one: stop Android
-        // probing, so it stays on the network instead of routing around it, and fetch the login
-        // page by hand. Offered here because this is the screen you are on when it matters.
-        MenuRow(
-            label = if (captive == "Off") "Turn login-page detection back on" else "Stay on a login-page network",
-            detail = if (captive == "Off") "ON" else "OFF",
-            sub = if (captive == "Off") {
-                "Detection is off, so this phone stays on a network with a login page — and also " +
-                    "calls a network with no internet at all healthy. Put it back when you leave."
-            } else {
-                "Stops Android probing (captive_portal_mode 0), so it keeps using the network " +
-                    "instead of routing around the login page. Then open a plain page to sign in."
-            },
-            // Off the main thread: the write is in-process when the permission is held, and a
-            // command over the shell when it is not, and the second one can sit in a socket read
-            // for seconds.
-            onClick = if (busy == null) {
-                {
-                    val want = if (captive == "Off") CaptiveMode.PROMPT else CaptiveMode.IGNORE
-                    busy = "changing login-page detection…"
-                    scope.launch {
-                        val r = withContext(Dispatchers.IO) { CaptiveMode.set(context, want) }
-                        captive = CaptiveMode.label(context.contentResolver)
-                        note = when {
-                            !r.ok -> r.detail
-                            want == CaptiveMode.IGNORE ->
-                                "Detection off. Sign in below, or from any plain http page."
-                            else -> "Detection on — back to how Android ships."
-                        }
-                        busy = null
-                    }
-                }
-            } else null,
-        )
-        MenuRow(
-            label = "Open the login page at a plain address",
-            detail = "OPEN",
-            sub = "Loads ${PortalRoute.PLAIN_URL} — a page that never redirects to https, so the " +
-                "network can answer with its own. The way in when nothing announced a login page.",
-            onClick = {
-                context.startActivity(
-                    Intent(context, PortalActivity::class.java)
-                        .putExtra(PortalRoute.EXTRA_PORTAL_URL, PortalRoute.PLAIN_URL),
-                )
-            },
-        )
         MenuRow(
             label = "Shell: " + when (shellUp) {
                 true -> "reachable"

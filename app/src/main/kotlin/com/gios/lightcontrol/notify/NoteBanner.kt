@@ -6,6 +6,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -73,6 +74,7 @@ class NoteBanner(private val context: Context) {
     private var appLine: TextView? = null
     private var titleLine: TextView? = null
     private var kindLine: TextView? = null
+    private var cardSlot: FrameLayout? = null
     private var bodyLine: TextView? = null
 
     /**
@@ -131,8 +133,21 @@ class NoteBanner(private val context: Context) {
      * @param kind a large first line for an alert that has one -- BrightSports' "TD  SEA",
      * "RED ZONE  SEA" -- drawn above the title in the heading size. Null for every other app,
      * and the box is exactly what it was.
+     * @param card the whole score, when the app sent one. It replaces the title and the body
+     * rather than sitting above them: the card already says everything those two lines said,
+     * and drawing both would be the score twice on a box four seconds tall.
+     * @param crest the team's mark, off the notification's large icon.
      */
-    fun show(app: String, title: String, text: String, dwellMs: Long, kind: String? = null, onTap: () -> Unit) {
+    fun show(
+        app: String,
+        title: String,
+        text: String,
+        dwellMs: Long,
+        kind: String? = null,
+        card: SportsCard? = null,
+        crest: Drawable? = null,
+        onTap: () -> Unit,
+    ) {
         this.onTap = onTap
         // A box already up swaps its text and stays where it is. Sliding again for the second of
         // two messages would animate the same rectangle back into the place it already occupies.
@@ -143,17 +158,36 @@ class NoteBanner(private val context: Context) {
         // find out it is going to be ellipsised at line two.
         val message = text.trim().take(300)
         appLine?.text = app.uppercase()
+        cardSlot?.let { slot ->
+            slot.removeAllViews()
+            if (card != null) {
+                slot.addView(
+                    SportsCardView.build(
+                        context = context,
+                        type = type,
+                        card = card,
+                        big = true,
+                        // The box is already a hairline rectangle; a second one inside it would
+                        // be a border around a border.
+                        bordered = false,
+                        crest = crest,
+                        footSuffix = SWIPE_HINT,
+                    ),
+                )
+            }
+            slot.visibility = if (card == null) View.GONE else View.VISIBLE
+        }
         kindLine?.let {
             it.text = kind.orEmpty()
-            it.visibility = if (kind.isNullOrBlank()) View.GONE else View.VISIBLE
+            it.visibility = if (card != null || kind.isNullOrBlank()) View.GONE else View.VISIBLE
         }
         titleLine?.let {
             it.text = title
-            it.visibility = if (title.isBlank()) View.GONE else View.VISIBLE
+            it.visibility = if (card != null || title.isBlank()) View.GONE else View.VISIBLE
         }
         bodyLine?.let {
             it.text = message
-            it.visibility = if (message.isBlank()) View.GONE else View.VISIBLE
+            it.visibility = if (card != null || message.isBlank()) View.GONE else View.VISIBLE
         }
         if (fresh) slideIn()
         handler.removeCallbacks(autoHide)
@@ -279,6 +313,15 @@ class NoteBanner(private val context: Context) {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = type.gridPx(0.15f) }
         }
+        // Where a score goes. Empty and gone for everything else, so a chat banner is the box it
+        // has always been and nothing about it moved.
+        val cardBox = FrameLayout(context).apply {
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = type.gridPx(0.25f) }
+        }
         val heading = TextView(context).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, type.paragraph)
@@ -320,6 +363,7 @@ class NoteBanner(private val context: Context) {
             val padV = type.gridPx(0.7f)
             setPadding(padH, padV, padH, padV)
             addView(source)
+            addView(cardBox)
             addView(kind)
             addView(heading)
             addView(body)
@@ -419,6 +463,7 @@ class NoteBanner(private val context: Context) {
                 root = frame
                 appLine = source
                 kindLine = kind
+                cardSlot = cardBox
                 titleLine = heading
                 bodyLine = body
             }
@@ -435,6 +480,7 @@ class NoteBanner(private val context: Context) {
         params = null
         appLine = null
         kindLine = null
+        cardSlot = null
         titleLine = null
         bodyLine = null
         onTap = null
@@ -460,6 +506,15 @@ class NoteBanner(private val context: Context) {
          *  taken down by a tap does not keep the panel lit while it leaves. */
         const val IN_MS = 190L
         const val OUT_MS = 150L
+
+        /**
+         * Appended to a score card's foot line on the banner and nowhere else.
+         *
+         * The box takes a swipe up and the lock face does not, and a score is the one thing on
+         * this phone somebody reaches for mid-play. It rides on the foot line rather than taking
+         * a line of its own because the box is four seconds tall.
+         */
+        const val SWIPE_HINT = "SWIPE UP TO DISMISS"
 
         /** The app name. contentSecondary, dimmed -- the smallest thing on the box. */
         val SOURCE = Color.argb(87, 255, 255, 255)
