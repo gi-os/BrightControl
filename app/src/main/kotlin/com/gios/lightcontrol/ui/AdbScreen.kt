@@ -45,6 +45,10 @@ import com.gios.lightcontrol.adb.GrantRun
 import com.gios.lightcontrol.adb.Outcome
 import com.gios.lightcontrol.adb.SelfGrant
 import com.gios.lightcontrol.adb.StepResult
+import com.gios.lightcontrol.keys.Grants
+import com.gios.lightcontrol.portal.CaptiveMode
+import com.gios.lightcontrol.portal.PortalActivity
+import com.gios.lightcontrol.portal.PortalRoute
 import com.gios.lightcontrol.ui.theme.Dim
 import com.gios.lightcontrol.ui.theme.Faint
 import com.gios.lightcontrol.ui.theme.RuleGray
@@ -90,6 +94,11 @@ fun AdbScreen(
 
     var busy by remember { mutableStateOf(false) }
     var connected by remember { mutableStateOf(false) }
+    // Read once, rewritten by the buttons that change it. The captive-portal mode is a global
+    // setting, so the label is the phone's answer rather than this screen's memory of it.
+    var captiveLabel by remember { mutableStateOf(CaptiveMode.label(context.contentResolver)) }
+    val captiveOff = captiveLabel == "Off"
+    val canWriteSecure = remember { Grants.canWriteSecureSettings(context) }
     var log by remember { mutableStateOf(listOf<String>()) }
     fun say(line: String) { log = (log + line).takeLast(80) }
 
@@ -707,6 +716,68 @@ fun AdbScreen(
                 }
                 Rule()
             }
+
+            SectionLabel("WI-FI LOGIN — STAY ON A PORTAL NETWORK")
+            Guide(
+                "Hotel and café networks put a login page in front of the internet. Android probes " +
+                    "every new network, sees that page, marks the network as needing a sign-in and " +
+                    "routes around it — so the phone joins and then quietly stops using it, with no " +
+                    "shade to tap the sign-in notice from.\n\nTurning the probe off " +
+                    "(\"settings put global captive_portal_mode 0\") makes the phone stay on the " +
+                    "network instead. Then open any plain page — " + PortalRoute.PLAIN_URL + " is the " +
+                    "usual one, it never redirects to https — and the network answers with its login " +
+                    "page. Sign in and you are through.\n\nThe catch: with the probe off, a network " +
+                    "with no internet at all also looks fine to every app. Turn it back on when you " +
+                    "leave.\n\nRuns in this app when it holds WRITE_SECURE_SETTINGS, over the shell " +
+                    "otherwise.",
+            )
+            MenuRow(
+                label = "Login-page detection: $captiveLabel",
+                sub = CaptiveMode.command(if (captiveOff) CaptiveMode.PROMPT else CaptiveMode.IGNORE),
+                dim = true,
+            )
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                BigButton(
+                    label = "DETECTION OFF",
+                    enabled = !busy && (connected || canWriteSecure) && !captiveOff,
+                    modifier = Modifier.weight(1f).padding(end = 4.dp),
+                ) {
+                    run(CaptiveMode.command(CaptiveMode.IGNORE)) {
+                        val r = CaptiveMode.set(context, CaptiveMode.IGNORE)
+                        captiveLabel = CaptiveMode.label(context.contentResolver)
+                        if (r.ok) {
+                            "Detection off — the phone will stay on a login-page network. Open " +
+                                "${PortalRoute.PLAIN_URL} to sign in."
+                        } else {
+                            r.detail
+                        }
+                    }
+                }
+                BigButton(
+                    label = "DETECTION ON",
+                    enabled = !busy && (connected || canWriteSecure) && captiveOff,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                ) {
+                    run(CaptiveMode.command(CaptiveMode.PROMPT)) {
+                        val r = CaptiveMode.set(context, CaptiveMode.PROMPT)
+                        captiveLabel = CaptiveMode.label(context.contentResolver)
+                        if (r.ok) "Back to normal — Android probes each new network again." else r.detail
+                    }
+                }
+            }
+            BigButton(
+                label = "OPEN THE LOGIN PAGE",
+                filled = false,
+                enabled = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                context.startActivity(
+                    Intent(context, PortalActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(PortalRoute.EXTRA_PORTAL_URL, PortalRoute.PLAIN_URL),
+                )
+            }
+            Rule()
 
             SectionLabel("NFC — FOR CHIP MODS")
             Guide(

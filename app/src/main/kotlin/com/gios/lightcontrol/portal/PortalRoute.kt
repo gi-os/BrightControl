@@ -13,6 +13,17 @@ object PortalRoute {
     const val PROBE_URL = "http://connectivitycheck.gstatic.com/generate_204"
 
     /**
+     * A plain `http://` page that is never redirected to `https://` and never cached.
+     *
+     * The 204 endpoint above proves a gate is shut; it does not make the gate *draw* itself,
+     * because a 204 carries no page. A portal answers an ordinary web request with its own login
+     * page, so an ordinary web request is what fetches it — this is the address people type at a
+     * café for exactly that reason. Used when captive-portal detection has been turned off
+     * ([CaptiveMode]) and the system will therefore never hand this screen a portal URL.
+     */
+    const val PLAIN_URL = "http://neverssl.com"
+
+    /**
      * `ConnectivityManager.EXTRA_CAPTIVE_PORTAL_URL`, which is `@SystemApi` and so not a constant
      * this app may name.
      *
@@ -34,10 +45,14 @@ object PortalRoute {
      * extra is whatever the sender put there, and a `loadUrl` of `javascript:` or `file:` out of an
      * intent this activity exports is a hole, not a fallback.
      */
-    fun startUrl(fromSystem: String?): String {
+    fun startUrl(fromSystem: String?, detectionOn: Boolean = true): String {
         val url = fromSystem?.trim().orEmpty()
         val http = url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
-        return if (http && !url.contains(' ')) url else PROBE_URL
+        if (http && !url.contains(' ')) return url
+        // With detection off the system has no portal URL to give and never will, and the 204
+        // endpoint returns a page-less answer by design. An ordinary page is what a portal
+        // interrupts with its own.
+        return if (detectionOn) PROBE_URL else PLAIN_URL
     }
 
     /**

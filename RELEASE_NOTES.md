@@ -1,3 +1,15 @@
+## BrightControl v4.31 — stay on the network instead of arguing with it
+
+**Android probes every new network for a login page, and that probe is what makes a hotel Wi-Fi useless here.** A reply that is not a 204 marks the network as needing a sign-in. Android then routes around it, keeps mobile data up, and posts *Sign in to network* — into a shade this phone does not have. The network is joined and unused, and nothing on screen says why.
+
+**There is a switch for the probe, and now there is a button for it.** `settings put global captive_portal_mode 0` stops the probing. The phone stays on the network. Nothing announces the login page, so you fetch it: open any plain `http://` address and the gateway answers with its own page instead. Sign in there and you were never routed around.
+
+Both halves are on the ADB screen, under WI-FI LOGIN, and on the Wi-Fi screen next to the detection row. OPEN THE LOGIN PAGE loads `neverssl.com`, which never redirects to https, so there is something for a portal to interrupt. The write goes through this app when it holds WRITE_SECURE_SETTINGS and over the phone's own shell when it does not, so it works with no connection paired.
+
+**What it costs, said where it is offered.** With the probe off, a network with no internet at all also looks healthy to every app on the phone. The DETECTION ON button puts it back.
+
+**And the login screen no longer believes a flag nobody tested.** With detection off the platform reports every network as validated without asking anyone, which is exactly the signal that screen reads as *you're through*. It would have declared victory at a closed gate. It now checks whether anything is doing the probing before trusting the answer, and starts at a plain page rather than a 204 endpoint when it is not.
+
 ## BrightControl v4.30 — a score on the lock face looks like a score
 
 **BrightSports writes its alert titles in a fixed shape.** `TD SEA · Patriots 7 · Seahawks 21`, `RED ZONE · SEA`, `ONE-SCORE GAME · NE 20 · SEA 24`. The banner has read that shape since v4.25 and drawn the kind large. The lock face drew the whole string as one dim line.

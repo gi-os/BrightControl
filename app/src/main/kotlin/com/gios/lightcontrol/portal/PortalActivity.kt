@@ -443,8 +443,15 @@ class PortalActivity : ComponentActivity() {
         // screen with Home does not destroy the activity, so binding once here left every other
         // thing this app does -- shake-to-report, the ADB screen's own traffic -- pointed at a
         // network that goes nowhere, for as long as the activity stayed in the back stack.
-        val start = PortalRoute.startUrl(systemUrl)
-        log.add("loadUrl $start" + if (start != PROBE_URL) " (the system's own portal url)" else "")
+        val detecting = CaptiveMode.detectionOn(contentResolver)
+        val start = PortalRoute.startUrl(systemUrl, detecting)
+        log.add(
+            "loadUrl $start" + when (start) {
+                PROBE_URL -> ""
+                PortalRoute.PLAIN_URL -> " (login-page detection is off — starting at a plain page)"
+                else -> " (the system's own portal url)"
+            },
+        )
         web.loadUrl(start)
 
         // The classic failure is a page that never comes, and a page that never comes raises no
@@ -546,7 +553,13 @@ class PortalActivity : ComponentActivity() {
             // this screen that needs no DNS and no socket: when a portal is passed, the platform
             // re-probes and the network turns VALIDATED. On a network whose resolver answers
             // nothing (light-reports #286) that is the only way through this screen can see.
-            val caps = if (online) null else runCatching {
+            //
+            // Only while the platform is still probing. With detection off
+            // (`captive_portal_mode = 0`, which this app now offers as a way to stay on a portal
+            // network) every network is reported validated without anyone asking it anything —
+            // so this signal would say "you're online" to a closed gate, and mean it.
+            val trustCaps = CaptiveMode.detectionOn(contentResolver)
+            val caps = if (online || !trustCaps) null else runCatching {
                 getSystemService(ConnectivityManager::class.java).getNetworkCapabilities(net)
             }.getOrNull()
             val systemSaysOnline = caps != null &&
@@ -641,11 +654,24 @@ class PortalActivity : ComponentActivity() {
             val caps = cm.getNetworkCapabilities(net)
             val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
             val captive = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) == true
-            log.add("verdict #$n ($why): ${if (caps == null) "network gone" else "validated=$validated captive=$captive"}")
+            // Same reservation as in probe(): a validated flag the platform never tested is not a
+            // verdict. This route has nothing else to offer when detection is off, so it says so
+            // rather than guessing.
+            val trustCaps = CaptiveMode.detectionOn(contentResolver)
+            val read = if (caps == null) {
+                "network gone"
+            } else {
+                "validated=$validated captive=$captive" +
+                    if (trustCaps) "" else " (detection off — not trusted)"
+            }
+            log.add("verdict #$n ($why): $read")
             handler.post {
                 if (done) return@post
                 when {
                     caps == null -> status.text = "The Wi-Fi network is gone."
+                    !trustCaps -> status.text = "Login-page detection is off on this phone, so the " +
+                        "system marks every network online and cannot answer this. Sign in above, " +
+                        "then try loading any page."
                     validated && !captive -> {
                         done = true
                         status.text = "You're online — the system says this network lets you through."
