@@ -1,3 +1,15 @@
+## BrightControl v4.32 — every notification gets the box, and the shade scrolls
+
+**The hairline outline is now around every row on the lock face.** The banner had it. The score card had it. The rest of the shade was a column of text under a clock, and where one notification ended and the next began was left to the spacing. A box each, with a gap between them, and the face reads as a list.
+
+**The shade scrolls.** Drag up on it and the rows move. Until now anything that did not fit was counted on the `+N MORE` line and reachable only by swiping the rows above it away. That was the honest answer while every vertical drag meant something else, and it stopped being true when swipe-up for the keypad was replaced by the Home button. A drag up the face had nothing left to mean.
+
+**A drag only scrolls when it starts on the shade and the shade has somewhere to go.** Over the clock, over the player, or on an evening when everything fits, it does nothing, as before. Swiping a row left still dismisses it, and the axis is still locked at the first movement, so a diagonal never does both.
+
+**The `+N MORE` line stays**, pinned at the foot, counting what is still below. It reads zero at the bottom of the list.
+
+**Twelve rows are built instead of six.** The limit used to be what a screen could hold. It is now what a person reads on a lock screen before unlocking the phone.
+
 ## BrightControl v4.31 — the score is drawn, not parsed
 
 **The lock face and the banner draw BrightSports' card as a card.** A hairline box. What happened on the left, with the team and its crest. The score on the right. The play under it, and the period and the clock at the foot. The half that is behind goes dim, the way a finished game reads in the app's own feed.

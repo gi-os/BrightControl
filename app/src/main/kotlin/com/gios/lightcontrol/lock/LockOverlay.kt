@@ -391,6 +391,9 @@ class LockOverlay(private val context: Context) {
             face?.animate()?.cancel()
             face?.alpha = 0f
             resetEnter()
+            // A locked phone is read from the top. A face that survived a lock cycle would
+            // otherwise come back scrolled to wherever it was left last night.
+            notes?.resetScroll()
             // A window that survived the cycle kept its watchers; a fresh lock cycle still
             // re-asks the two providers, which is the "query on face show" half of the contract.
             nav.requery()
@@ -733,6 +736,9 @@ class LockOverlay(private val context: Context) {
 
         private var downX = 0f
         private var downY = 0f
+
+        /** Where the last move was, for a scroll — which is measured in steps, not in totals. */
+        private var lastY = 0f
         private var drag = Drag.NONE
 
         /** The row under the finger, while it is being pushed. */
@@ -754,7 +760,15 @@ class LockOverlay(private val context: Context) {
                 MotionEvent.ACTION_DOWN -> begin(ev)
                 MotionEvent.ACTION_MOVE -> {
                     recognise(ev)
-                    if (drag == Drag.SIDEWAYS) push(ev.rawX - downX)
+                    when (drag) {
+                        Drag.SIDEWAYS -> push(ev.rawX - downX)
+                        // A finger dragging up pulls the list up, which is the direction every
+                        // list on every phone moves. The delta is per event, so a scroll that
+                        // hits the end and comes back does not have to unwind a total first.
+                        Drag.SCROLL -> notes?.scrollNotes(lastY - ev.rawY)
+                        else -> Unit
+                    }
+                    lastY = ev.rawY
                 }
                 MotionEvent.ACTION_UP -> finish(ev)
                 MotionEvent.ACTION_CANCEL -> settle()
@@ -765,6 +779,7 @@ class LockOverlay(private val context: Context) {
         private fun begin(ev: MotionEvent) {
             downX = ev.rawX
             downY = ev.rawY
+            lastY = ev.rawY
             drag = Drag.NONE
             settle()
         }
@@ -772,9 +787,11 @@ class LockOverlay(private val context: Context) {
         /**
          * Which gesture this is, decided once and kept. True once there is one to take over.
          *
-         * A sideways drag that started over nothing dismissable is [Drag.DEAD], and so is anything
-         * more vertical than horizontal now that a swipe up means nothing: reading a lazy diagonal
-         * as anything at all is how a row gets wiped when nothing was meant.
+         * A sideways drag that started over nothing dismissable is [Drag.DEAD]. A vertical one is
+         * a scroll of the shade, but **only when it began on the shade and the shade has somewhere
+         * to go** — a drag over the clock, or over a list that already fits, is still nothing, and
+         * reading a lazy diagonal as anything at all is how a row gets wiped when nothing was
+         * meant.
          */
         private fun recognise(ev: MotionEvent): Boolean {
             if (drag != Drag.NONE) return true
@@ -790,7 +807,12 @@ class LockOverlay(private val context: Context) {
                     Drag.SIDEWAYS
                 }
             } else {
-                Drag.DEAD
+                val list = notes
+                if (list != null && list.scrollable() && hits(list, downX, downY)) {
+                    Drag.SCROLL
+                } else {
+                    Drag.DEAD
+                }
             }
             return true
         }
@@ -1528,13 +1550,17 @@ class LockOverlay(private val context: Context) {
         // what keeps the optimistic filter from outliving the round trip it is covering for.
         dismissed.retainAll(all.mapTo(HashSet()) { it.key })
         val current = all.filter { it.key !in dismissed }
-        val pad = type.gridPx(0.55f)
+        val padH = type.gridPx(0.8f)
+        val padV = type.gridPx(0.6f)
+        val gap = type.gridPx(0.45f)
         // The SDK's list row is `copy` over `detail`; the app name above it is the small tracked
         // label the rest of the phone uses for a section.
         current.take(MAX_NOTES).forEach { note ->
+            // Two views, not one. The outer carries the gap between rows and is what a finger
+            // grabs; the inner is the box, and a margin cannot live inside a background.
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, pad, 0, pad)
+                setPadding(0, 0, 0, gap)
                 // What a swipe on this row dismisses. Read back off the View in [LockFrame],
                 // because the row a finger landed on is found by hit test, not by index -- an
                 // index would be a promise that the list has not been rebuilt since, and it is
@@ -1552,12 +1578,28 @@ class LockOverlay(private val context: Context) {
                     }
                 }
             }
+            // The hairline box the banner and the score card already use, now around every
+            // notification on the face. It is what turns a column of text under a clock into a
+            // list of separate things, and it is the only border in this app.
+            val box = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    setColor(Color.BLACK)
+                    setStroke(hairline(), EDGE)
+                }
+                setPadding(padH, padV, padH, padV)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
+            }
+            row.addView(box)
             // The app name and the age share one line: the name takes the room it needs and the
             // age is pinned to the right edge, so a long app name ellipsises rather than pushing
             // the timestamp off the screen. Its own line would have cost a row -- [LockNoteList]
             // hands rows out of the space left under the clock, so height here is measured in
             // notifications you can no longer see.
-            row.addView(
+            box.addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     layoutParams = LinearLayout.LayoutParams(
@@ -1608,13 +1650,15 @@ class LockOverlay(private val context: Context) {
             // untouched -- a row is a card only when the app said so.
             val card = note.card
             if (card != null) {
-                row.addView(
+                box.addView(
                     SportsCardView.build(
                         context = context,
                         type = type,
                         card = card,
                         big = false,
-                        bordered = true,
+                        // The row is the box now. A card with its own border inside it would be
+                        // a border around a border.
+                        bordered = false,
                         crest = note.crest,
                     ).apply {
                         layoutParams = LinearLayout.LayoutParams(
@@ -1626,7 +1670,7 @@ class LockOverlay(private val context: Context) {
             } else {
                 val headline = note.title.ifBlank { note.text }
                 if (headline.isNotBlank()) {
-                    row.addView(
+                    box.addView(
                         TextView(context).apply {
                             typeface = type.regular
                             setTextColor(Color.WHITE)
@@ -1639,7 +1683,7 @@ class LockOverlay(private val context: Context) {
                 // The body only when there is a title above it, so a one-line notification is
                 // not printed twice.
                 if (note.title.isNotBlank() && note.text.isNotBlank()) {
-                    row.addView(
+                    box.addView(
                         TextView(context).apply {
                             typeface = type.regular
                             setTextColor(DIM)
@@ -1801,9 +1845,16 @@ class LockOverlay(private val context: Context) {
             ?.let { SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(it.triggerTime)) }
     }.getOrNull()
 
+    /** One physical pixel, the way every other hairline in this app is drawn. */
+    private fun hairline(): Int =
+        (context.resources.displayMetrics.density * 0.5f).toInt().coerceAtLeast(1)
+
     private companion object {
         /** The SDK's `contentSecondary`. Three colors in LightOS, and this is the third. */
         val DIM = Color.rgb(0xBB, 0xBB, 0xBB)
+
+        /** The outline around a notification. The same 50% white the banner's box uses. */
+        val EDGE = Color.argb(128, 255, 255, 255)
         /**
          * How long the panel stays black before the face appears. See [wake].
          *
@@ -1817,11 +1868,13 @@ class LockOverlay(private val context: Context) {
         const val FADE_MS = 320L
 
         /**
-         * The most rows worth building. What actually appears is decided by [LockNoteList], which
-         * measures against the room left under the clock -- this is only the point past which
-         * building more would be work for rows nothing could ever show.
+         * The most rows worth building.
+         *
+         * Six while the list could only ever show what fitted; the shade scrolls now, so the
+         * limit is no longer "what a screen holds" but "what a person would read on a lock
+         * screen before unlocking the phone". Past this the `+N MORE` line still says so.
          */
-        const val MAX_NOTES = 6
+        const val MAX_NOTES = 12
 
         /** A row leaving. Quick, because the decision was already made when the finger lifted. */
         const val SWIPE_OUT_MS = 180L
@@ -1851,4 +1904,4 @@ class LockOverlay(private val context: Context) {
  * decision rather than a fall-through, or a lazy diagonal across the middle of the screen would
  * take a row with it.
  */
-private enum class Drag { NONE, DEAD, SIDEWAYS }
+private enum class Drag { NONE, DEAD, SIDEWAYS, SCROLL }

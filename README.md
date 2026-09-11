@@ -630,17 +630,25 @@ notification is already dropped is still there to be hidden for good. Hiding a s
 lock face and nothing else. Nothing is cancelled, nothing about the notification is stored, and the
 shade, Glance and the app itself are untouched.
 
-**And the shade is clamped to the room it has.** The list used to draw four rows into whatever
-space was left under the clock and draw them whether they fit or not, so a busy morning showed two
-notifications and the top half of a third, with nothing to scroll — this window holds no focus, and
-every drag on it already means something else. It now measures against the space it is actually
-given, draws only whole rows, and says how many are missing on the `+N MORE` line. Clearing the top
-ones brings the rest up.
+**Every row is a box** (v4.32): the same hairline outline the banner and the score card use, with
+a gap between rows, so where one notification ends and the next begins is drawn rather than implied
+by the spacing.
 
-One touch gesture on the face now: **left** on a row to clear it, which has to be impossible to
-do by accident, because this window covers the whole panel and a pocket presses the whole panel.
-The axis is locked at the first movement past the touch slop and never revisited, so a lazy
-diagonal cannot take a row with it. Reaching the keypad and going in once the phone is unlocked
+**And the shade is clamped to the room it has, then scrolled through.** The list used to draw four
+rows into whatever space was left under the clock and draw them whether they fit or not, so a busy
+morning showed two notifications and the top half of a third. It now measures against the space it
+is actually given and clips at the fold. Since v4.32 a vertical drag that starts on the list moves
+it (`LockNoteList.scrollNotes`, clamped at both ends, never sprung), the `+N MORE` line is pinned
+at the foot counting what is still below, and `MAX_NOTES` is twelve. Clearing the top ones still
+brings the rest up.
+
+Two touch gestures on the face: **left** on a row to clear it, and **up or down on the shade** to
+scroll it. Clearing has to be impossible to do by accident, because this window covers the whole
+panel and a pocket presses the whole panel. The axis is locked at the first movement past the touch
+slop and never revisited, so a lazy diagonal cannot take a row with it; a vertical drag scrolls only
+when it began on the list *and* the list has somewhere to go, so the clock and the player are as
+inert as they were. Scrolling became possible at all only because swipe-up for the keypad went
+away — while that existed, a drag up the face already meant something. Reaching the keypad and going in once the phone is unlocked
 used to be a swipe up and a press-and-hold; both are gone in favour of the **Home button** — press
 it and the face either drops to the keypad (the sensor has not let you in yet) or goes straight to
 whatever the phone was doing before it slept (it already has). A pocket cannot press a button by
@@ -1190,6 +1198,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.32 | **Every lock-screen notification gets the hairline box**, with a gap between rows, so the shade reads as a list rather than a column of text — and **the shade scrolls**: a vertical drag that starts on it moves the rows (`LockNoteList.scrollNotes`), `+N MORE` is pinned at the foot counting what is still below, and twelve rows are built instead of six |
 | v4.31 | **The score is drawn, not parsed.** BrightSports v2.5 sends the card as five extras (`SPORT_KIND`, `SPORT_TEAM`, `SPORT_VALUE`, `SPORT_DETAIL`, `SPORT_FOOT`) with the crest as the large icon; the lock face and the banner draw the boxed card from them, in bundled Barlow Condensed, with the losing half of the score dimmed. A card without the extras falls back to the v4.30 title reading |
 | v4.30 | **A score on the lock face looks like a score.** BrightSports' alert titles are a fixed shape (`TD SEA · …`, `RED ZONE · SEA`), which the banner has read since v4.25; the lock face rows now read it the same way and draw the kind in the heading size, with the score under it. A red-zone row has no score line and draws its body regardless. Any other app's row is unchanged |
 | v4.29 | **An ongoing card can ask to stay on the lock face.** A foreground service's notification carries the same flags whether it is a download or a live score, so the face dropped both. A card that sets `com.gios.lightcontrol.extra.LOCK_KEEP` (`NoteFilter.LOCK_KEEP`) now skips the persistence rule and the importance gate — BrightSports v2.3 sets it on the card that *is* the score. Hiding the app by name still hides it, a swipe still clears it for the session, and it still cannot raise a banner |
