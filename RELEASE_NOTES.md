@@ -1,3 +1,23 @@
+## BrightControl v4.33 — an app may ask to be the browser
+
+**A new thing an app can ask this phone's shell for: the browser role.** The proper route is a
+system dialog, LightOS ships no such dialog and no Default apps screen either, and the role stays
+empty however politely an app asks. That is not cosmetic — with no role holder, a web address opens
+nowhere, so a link in a message, a pass, or a scanned poster goes nowhere. One `cmd role` line sets
+it, and this app has a shell.
+
+**The request names nothing.** Whatever line arrives, the command that runs is rebuilt here against
+the package the phone says sent the intent, so the only thing an app can ask for is that *it*
+becomes the browser — the same rule every other verb on this screen follows. A request naming
+another app is refused and says so. Any role other than the browser is refused too.
+
+**The role service still has the last word.** It hands the role only to an app that qualifies for
+it, so an app that is not a browser cannot become one by saying it is, and the holder is read back
+afterwards rather than the command being trusted for printing nothing.
+
+Web Tools 3.5 is the first app to ask. Its Settings row now opens this screen with the one line
+already filled in, instead of telling you to come here and find GRANT ALL.
+
 ## BrightControl v4.32 — every notification gets the box, and the shade scrolls
 
 **The hairline outline is now around every row on the lock face.** The banner had it. The score card had it. The rest of the shade was a column of text under a clock, and where one notification ended and the next began was left to the spacing. A box each, with a gap between them, and the face reads as a list.

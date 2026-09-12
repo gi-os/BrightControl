@@ -335,4 +335,64 @@ class GrantRequestTest {
             ok(roll, "appops set $roll SYSTEM_ALERT_WINDOW deny").steps.single().check,
         )
     }
+
+    // ---- the browser role ---------------------------------------------------
+
+    private val webtools = "com.gios.webtools"
+
+    /**
+     * The role dialog does not exist on LightOS, so the shell line is the only way an app becomes
+     * the browser. Accepted in both spellings, and rebuilt either way.
+     */
+    @Test
+    fun `an app may ask to be the browser`() {
+        val forms = listOf(
+            "cmd role add-role-holder android.app.role.BROWSER com.gios.webtools",
+            "adb shell cmd role add-role-holder android.app.role.BROWSER com.gios.webtools 0",
+            "be the browser",
+            "Set as default browser",
+        )
+        forms.forEach { line ->
+            val step = ok(webtools, line).steps.single()
+            assertEquals(
+                "cmd role add-role-holder android.app.role.BROWSER com.gios.webtools",
+                step.command,
+            )
+            assertEquals(
+                GrantCheck.ShellSays("cmd role get-role-holders android.app.role.BROWSER", webtools),
+                step.check,
+            )
+        }
+    }
+
+    /**
+     * The point of the whole file: an app may only make *itself* the browser. Handing the role to
+     * a package the sender named would be one app quietly rerouting every link on the phone.
+     */
+    @Test
+    fun `an app may not make something else the browser`() {
+        val why = refused(roll, "cmd role add-role-holder android.app.role.BROWSER com.gios.webtools").why
+        assertTrue(why, why.contains("com.gios.webtools"))
+        assertTrue(why, why.contains("only set up itself"))
+    }
+
+    /** The declaration carries no package at all, so it cannot name one. */
+    @Test
+    fun `the spoken form is always about the sender`() {
+        assertEquals(
+            "cmd role add-role-holder android.app.role.BROWSER com.gios.roll",
+            ok(roll, "be the browser").steps.single().command,
+        )
+    }
+
+    /** Only the browser role. Every other role is somebody else's business. */
+    @Test
+    fun `other roles are refused`() {
+        val lines = listOf(
+            "cmd role add-role-holder android.app.role.SMS com.gios.roll",
+            "cmd role add-role-holder android.app.role.HOME com.gios.roll",
+            "cmd role remove-role-holder android.app.role.BROWSER com.gios.roll",
+        )
+        lines.forEach { line -> refused(roll, line) }
+    }
 }

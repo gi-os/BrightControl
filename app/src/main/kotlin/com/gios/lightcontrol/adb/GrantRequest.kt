@@ -156,6 +156,12 @@ object GrantRequest {
                 check = GrantCheck.SecureListHas("enabled_accessibility_services", "$pkg/$cls"),
             )
         }
+        ROLE_BROWSER.matchEntire(line)?.let { m ->
+            val target = m.groupValues[1]
+            if (target != pkg) return null
+            return browserStep(pkg)
+        }
+        if (BE_BROWSER.matches(line)) return browserStep(pkg)
         if (SHIZUKU.matches(line)) {
             // Nothing to read back: Shizuku asks the user per app in its own UI, so the phone
             // holds no state that says this worked. Reported as unknown, never as done.
@@ -272,6 +278,41 @@ object GrantRequest {
     }
 
     /**
+     * Make the requesting app the phone's browser.
+     *
+     * ### Why an app cannot do this itself
+     *
+     * The proper route is `RoleManager.createRequestRoleIntent(ROLE_BROWSER)`, which raises a
+     * system dialog. LightOS ships no PermissionController role UI, so on this phone the dialog
+     * does not exist, the Default apps settings screen does not exist either, and the role stays
+     * empty however politely an app asks for it. The consequence is not cosmetic: with no role
+     * holder, `ACTION_VIEW` on an `https` address resolves to nothing at all, and every link in
+     * every other app — a scanned poster, a pass, a message — goes nowhere.
+     *
+     * `cmd role` sets it in one line, and this app has a shell.
+     *
+     * ### Why it is safe to accept from outside
+     *
+     * The package is never taken from the request. Whatever the line said, the command is rebuilt
+     * here against the package the activity manager says sent the intent, so the only thing an app
+     * can ask for is that *it* becomes the browser — which is a thing a user who installed a
+     * browser already meant. The exclusive role means asking is also visible: it moves, so the
+     * previous holder stops being the browser, which is exactly what the consent screen shows
+     * before anything runs.
+     *
+     * The role service still gets the last word. It hands the role only to a package that
+     * qualifies for it — an activity with an `ACTION_VIEW` + `BROWSABLE` filter covering all web
+     * addresses with no host of its own — so an app that is not a browser cannot become one by
+     * saying it is. [GrantCheck.ShellSays] reads the holder back afterwards rather than trusting
+     * that the command printed nothing.
+     */
+    private fun browserStep(pkg: String) = Step(
+        label = "Browser · links open in this app",
+        command = "cmd role add-role-holder android.app.role.BROWSER $pkg",
+        check = GrantCheck.ShellSays("cmd role get-role-holders android.app.role.BROWSER", pkg),
+    )
+
+    /**
      * Start Shizuku, which is the one thing here that is not about the requesting app.
      *
      * ### Why this is a verb and not a command
@@ -302,7 +343,7 @@ object GrantRequest {
 
     /** Why a line was turned down, in words worth showing someone. */
     private fun refusalFor(pkg: String, line: String): String {
-        val named = listOf(PM_GRANT, APPOPS, NOTIFICATION_LISTENER, ACCESSIBILITY)
+        val named = listOf(PM_GRANT, APPOPS, NOTIFICATION_LISTENER, ACCESSIBILITY, ROLE_BROWSER)
             .firstNotNullOfOrNull { it.matchEntire(line)?.groupValues?.getOrNull(1) }
         val repairing = REPAIR_LINE.matchEntire(line)?.groupValues?.getOrNull(1)
         return when {
@@ -317,7 +358,8 @@ object GrantRequest {
                     "installed code to run it from"
             else ->
                 "not a permission, app op, notification listener, accessibility service, " +
-                    "\"repair settings\", \"confirm pairing <MAC>\", or \"start shizuku\""
+                    "\"be the browser\", \"repair settings\", \"confirm pairing <MAC>\", or " +
+                    "\"start shizuku\""
         }
     }
 
@@ -362,6 +404,19 @@ object GrantRequest {
      * anything with an argument on it is a different request, and there is only one thing to say.
      */
     private val SHIZUKU = Regex("""(?:start|run) shizuku""", RegexOption.IGNORE_CASE)
+
+    /**
+     * The command spelling, as a README or another app's settings row would carry it. The package
+     * is captured only so it can be checked against the requester and then thrown away — what runs
+     * is built by [browserStep]. A trailing flags argument is accepted because `cmd role`'s own
+     * usage prints one.
+     */
+    private val ROLE_BROWSER =
+        Regex("""cmd role add-role-holder android\.app\.role\.BROWSER ($PKG)(?: \d+)?""")
+
+    /** The declaration form, like [ACCESSIBILITY] and [SHIZUKU]: a word, not a command. */
+    private val BE_BROWSER =
+        Regex("""(?:be|become|set as) (?:the )?(?:default )?browser""", RegexOption.IGNORE_CASE)
 
     /**
      * The system apps a request may ask to have reset, by the word that names each one. A map and
