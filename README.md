@@ -1065,10 +1065,16 @@ through entirely. The ringing check below catches only the moment audio plays. A
 a pre-alarm screen and a snooze countdown are all a clock in front with something urgent to
 dismiss and no sound to detect.
 
-**Nothing gets intercepted while something rings, or for thirty seconds afterwards.** Any active
-playback with a ring-like usage passes every key through, as does the ringer or call audio mode.
-The grace window exists because the moment an alarm goes silent looks identical to silence,
-while the screen with the stop button on it is still up.
+**Nothing gets intercepted while something rings, or for thirty seconds afterwards.** An alarm
+or a ringtone playing passes every key through, as does the ringer audio mode. The grace window
+exists because the moment an alarm goes silent looks identical to silence, while the screen with
+the stop button on it is still up.
+
+**A call already answered is not a ring** (v4.34). It used to be read as one, and every button on
+the phone was dead for the length of every call and the grace window after it. Nothing is waiting
+to be dismissed on an answered call, LightOS's in-call screen is a touch screen, and no hardware
+key here ends a call. Answering also releases the ringtone's grace early, because it is the one
+thing that proves the ring's screen has gone. An alarm's grace is untouched. `keys/KeyHush.kt`.
 
 **Four presses of the same binding and the service stands down.** Someone pressing the same
 button over and over is someone whose phone is not doing what they asked.
@@ -1198,6 +1204,8 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.34 | **The buttons work during a call, and one press switches layers.** The key filter read an answered call as a ring and stood down for the whole of it, so no binding did anything from pickup until thirty seconds after hangup. Ringing and being on a call are separate facts now (`keys/KeyHush.kt`), and answering releases the ringtone's grace. Plus a new `Switch layer` action: one binding, both directions — LightOS if you are not on it, your own launcher if you are |
+| v4.33 | **An app may ask to be the browser.** LightOS ships no Default apps screen, so the browser role stays empty and a web address opens nowhere. One `cmd role` line sets it. The request names nothing: the command is rebuilt against the package the phone says sent the intent, and any other role is refused |
 | v4.32 | **Every lock-screen notification gets the hairline box**, with a gap between rows, so the shade reads as a list rather than a column of text — and **the shade scrolls**: a vertical drag that starts on it moves the rows (`LockNoteList.scrollNotes`), `+N MORE` is pinned at the foot counting what is still below, and twelve rows are built instead of six |
 | v4.31 | **The score is drawn, not parsed.** BrightSports v2.5 sends the card as five extras (`SPORT_KIND`, `SPORT_TEAM`, `SPORT_VALUE`, `SPORT_DETAIL`, `SPORT_FOOT`) with the crest as the large icon; the lock face and the banner draw the boxed card from them, in bundled Barlow Condensed, with the losing half of the score dimmed. A card without the extras falls back to the v4.30 title reading |
 | v4.30 | **A score on the lock face looks like a score.** BrightSports' alert titles are a fixed shape (`TD SEA · …`, `RED ZONE · SEA`), which the banner has read since v4.25; the lock face rows now read it the same way and draw the kind in the heading size, with the score under it. A red-zone row has no score line and draws its body regardless. Any other app's row is unchanged |

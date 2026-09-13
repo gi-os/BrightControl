@@ -339,7 +339,8 @@ class VolumeWatcher(
      * and it expires with the strip. When [pinnedStream] is null — which is always, until you
      * choose — volume keys are untouched, exactly as they have always been. And a pin cannot
      * survive a ring: [takeKey] is only ever called from a path the service does not reach while
-     * anything is ringing or a call is up, so the keys that dismiss an alarm are never in question.
+     * anything is *ringing*, so the keys that dismiss an alarm are never in question. A call in
+     * progress is not a ring and does reach it — which is the state the VOICE_CALL pin exists for.
      */
     fun onPick(stream: Int) {
         if (!wanted() || !pinningAllowed()) return

@@ -1,3 +1,17 @@
+## BrightControl v4.34 — the buttons work during a call, and one press switches layers
+
+**Every button on the phone went dead for the length of every call.** The key filter stands down while something is ringing, and it should. An alarm or an incoming call owns every key until someone dismisses it. A call already answered was folded into that same answer. So from the moment you picked up until thirty seconds after you hung up, no binding did anything: the wheel, the camera button, home, all of it. It arrived as "switching layers works, but not during a call". That is what it looks like from a thumb. The refusal happens upstream of every log line and leaves nothing behind to read.
+
+**Ringing and being on a call are two different facts now.** An alarm or a ringing phone still takes every key, unchanged. A call in progress does not. Nothing is waiting to be dismissed, LightOS's in-call screen is a touch screen, and no hardware key on this phone ends a call.
+
+**The thirty-second grace after a ring now ends when you answer.** That window exists so a silenced alarm keeps its STOP button. Without it, half a minute of dead keys followed every ring. Answering is the one thing that proves the ring's screen has gone, so it releases the window. Most calls are shorter than the window used to cost them. An alarm's window stays exactly as it was, because nothing observable says an alarm has been dealt with.
+
+**A new action: Switch layer.** One binding, both directions. LightOS if you are not on it, your own launcher if you are. *Home* and *LightOS home* could always do this between them, and that was the problem. Two gestures for a line people cross all day, and working out which one went which way was a puzzle before it was a feature. Bind it to any button, any gesture, or an edge swipe.
+
+**On the home button it takes the key.** Bound there, the toggle claims the press on LightOS's own screens, so home no longer walks through LightOS's menu while you stand on it. The wheel still does. That is the trade a toggle on that key is, and it is what makes the second press bring you back.
+
+**The key log now says which state the filter is in.** `on a call · filter live`, where it used to say `ringing` and mean something else.
+
 ## BrightControl v4.33 — an app may ask to be the browser
 
 **A new thing an app can ask this phone's shell for: the browser role.** The proper route is a

@@ -198,6 +198,25 @@ sealed interface Action {
     data object LightOsHome : Action
 
     /**
+     * Toggle between LightOS and whatever launcher is default — one binding, both directions.
+     *
+     * [DefaultHome] and [LightOsHome] have always been able to do this between them, and that is
+     * the problem: it takes two gestures to cross a line people cross all day, and working out
+     * which one goes which way is a puzzle before it is a feature. The most common thing anyone
+     * binds this app to is "put me on the other side", and until now there was no way to say it.
+     *
+     * Which way is worked out from the app in front: on LightOS's own screens it goes to the
+     * default launcher, and everywhere else it goes to LightOS. Standing in a third-party app is
+     * "not on Light", so the first press brings the dashboard over — which is what a thumb means
+     * by the gesture, and it is also what makes the toggle work with one finger from anywhere.
+     *
+     * It picks a destination in both directions, so the home button takes the key for it rather
+     * than shadowing the press — see [picksDestination]. A toggle that lost a coin flip against
+     * LightOS half the time would be worse than the two actions it replaces.
+     */
+    data object SwitchLayer : Action
+
+    /**
      * Go back — `GLOBAL_ACTION_BACK`.
      *
      * Bindable anywhere now rather than being the left edge's private behaviour. It is the one
@@ -304,8 +323,8 @@ sealed interface Action {
      * `performGlobalAction`, which needs no grant and answers honestly.
      */
     val needsActivityStart: Boolean
-        get() = this is Launch || this == LightOsHome || this == OpenCamera || this == Resume ||
-            this == OpenSettings
+        get() = this is Launch || this == LightOsHome || this == SwitchLayer ||
+            this == OpenCamera || this == Resume || this == OpenSettings
 
     /**
      * True if this action names a destination of its own — somewhere that is *not* wherever a
@@ -321,7 +340,8 @@ sealed interface Action {
      * [DefaultHome] is absent on purpose: it agrees with what LightOS was going to do anyway.
      */
     val picksDestination: Boolean
-        get() = this is Launch || this == Resume || this == LightOsHome || this == OpenSettings
+        get() = this is Launch || this == Resume || this == LightOsHome || this == SwitchLayer ||
+            this == OpenSettings
 
     fun store(): String = when (this) {
         PassThrough -> "pass"
@@ -331,6 +351,7 @@ sealed interface Action {
         is Launch -> "launch:$pkg"
         DefaultHome -> "home"
         LightOsHome -> "lightoshome"
+        SwitchLayer -> "switchlayer"
         Resume -> "resume"
         Back -> "back"
         Switcher -> "switcher"
@@ -365,6 +386,7 @@ sealed interface Action {
             OpenCamera -> "CAMERA"
             DefaultHome -> "HOME"
             LightOsHome -> "LIGHTOS"
+            SwitchLayer -> "SWITCH"
             Resume -> "RESUME"
             Back -> "BACK"
             Switcher -> "APPS"
@@ -403,6 +425,7 @@ sealed interface Action {
             raw == "camera" -> OpenCamera
             raw == "home" -> DefaultHome
             raw == "lightoshome" -> LightOsHome
+            raw == "switchlayer" -> SwitchLayer
             raw == "resume" -> Resume
             raw == "back" -> Back
             raw == "switcher" -> Switcher

@@ -176,12 +176,16 @@ class ControlService : AccessibilityService() {
     private var lastRefusalReason = ""
     private var lastRefusalLogAt = 0L
 
-    /** When something last rang. See [ringing]. */
+    /** When an alarm last played, and when the phone last rang. See [hush]. */
+    private var lastAlarmAt = 0L
     private var lastRingAt = 0L
 
-    /** [ringing]'s last answer, and when it was worked out. See the note there. */
+    /** [hush]'s last answer, and when it was worked out. See the note there. */
     private var lastRingCheckAt = 0L
-    private var lastRingAnswer = false
+    private var lastHush = Hush.None
+
+    /** The last [Hush.Call] line written to the key log, deduped like a refusal. */
+    private var lastCallLogAt = 0L
 
     /** When an activity was last started from here, and where it was going. See [start]. */
     private var lastStartAt = 0L
@@ -1127,16 +1131,20 @@ class ControlService : AccessibilityService() {
         // conditions folded into one silent `false`, upstream of every log line — so a filter
         // standing down here was indistinguishable, from the phone, from a filter that never got
         // the key. Days were lost to exactly that.
+        val hush = hush()
         val refusal = when {
             !prefs.enabled -> "switched off"
             dormant() -> "dormant"
-            ringing() -> "ringing"
+            // Only a ring stops the filter. A call in progress is [Hush.Call] and falls through
+            // to [handleKey] like any other moment -- see [KeyHush] for why those are two facts.
+            hush == Hush.Ring -> "ringing"
             else -> null
         }
         if (refusal != null) {
             logRefusal(refusal, event)
             false
         } else {
+            if (hush == Hush.Call) logCall(event)
             handleKey(event)
         }
     } catch (t: Throwable) {
@@ -1166,16 +1174,18 @@ class ControlService : AccessibilityService() {
     }
 
     /**
-     * Whether something is ringing, alarming, or in a call — now or in the last [RING_GRACE_MS].
+     * What the phone is doing that this filter has to respect — see [KeyHush] for the decision.
      *
-     * Nothing is worth intercepting in that moment. The dismiss gesture belongs to whatever is
-     * making the noise, and being clever about which key it needs is exactly the kind of guess
-     * that fails at 6am — which it duly did: LightOS went down during an alarm, and LightOS runs as
-     * uid 1000, so that is the whole interface. Widened afterwards from "alarm or ringtone playing"
-     * to every ring-ish usage, the ringer and call audio modes, and a grace window, because the
-     * previous version could only see the seconds when audio was actually coming out.
+     * An alarm or a ringing phone is worth nothing at all: the dismiss gesture belongs to whatever
+     * is making the noise, and being clever about which key it needs is exactly the kind of guess
+     * that fails at 6am — which it duly did, LightOS went down during an alarm, and LightOS runs as
+     * uid 1000, so that is the whole interface.
+     *
+     * A call already answered is a different fact and used to be folded into the same answer, which
+     * cost every button on the phone for the length of every call. [KeyHush] separates them; this
+     * method only gathers what it needs.
      */
-    private fun ringing(): Boolean = runCatching {
+    private fun hush(): Hush = runCatching {
         val now = SystemClock.uptimeMillis()
         // **Answered from cache for a quarter of a second.** This runs inside `onKeyEvent`, and an
         // accessibility filter's `onKeyEvent` is *blocking* -- the input dispatcher holds the key
@@ -1184,37 +1194,40 @@ class ControlService : AccessibilityService() {
         // the way up. On a single press nobody notices. Held or spammed, the volume keys repeat
         // faster than four binder round trips take, and the volume climbs in steps you can count.
         //
-        // Nothing can be missed by this. The busy answer already carries a thirty-second grace
-        // below; this caches the *quiet* one, and an alarm that starts ringing does not need
-        // dismissing within 250 ms of the last time we looked.
-        if (now - lastRingCheckAt < RING_CHECK_MS) return@runCatching lastRingAnswer
+        // Nothing can be missed by this: the grace windows below are measured in half-minutes, and
+        // an alarm that starts ringing does not need dismissing within 250 ms of the last look.
+        if (now - lastRingCheckAt < RING_CHECK_MS) return@runCatching lastHush
         lastRingCheckAt = now
-        // Still inside the grace window from the last thing that rang. Sampling only at key events
-        // means the moment an alarm is *silenced* looks identical to silence, while the screen with
-        // the "stop" button on it is still up and being pressed at. Half a minute of hands-off
-        // after a ring costs nothing and covers the whole of that.
-        if (lastRingAt != 0L && now - lastRingAt < RING_GRACE_MS) {
-            lastRingAnswer = true
-            return true
-        }
         val audio = getSystemService(AudioManager::class.java) ?: run {
-            lastRingAnswer = false
-            return false
+            lastHush = Hush.None
+            return Hush.None
         }
-        val playing = audio.activePlaybackConfigurations.any {
-            it.audioAttributes.usage in ringUsages
-        }
+        val usages = audio.activePlaybackConfigurations.map { it.audioAttributes.usage }.toSet()
+        val mode = audio.mode
+        val alarming = AudioAttributes.USAGE_ALARM in usages
         // Ringer and call modes are the other half of the same question, and they answer it even
         // when nothing is coming out of the speaker yet.
-        val mode = audio.mode
-        val busy = playing ||
-            mode == AudioManager.MODE_RINGTONE ||
-            mode == AudioManager.MODE_IN_CALL ||
-            mode == AudioManager.MODE_IN_COMMUNICATION
-        if (busy) lastRingAt = now
-        lastRingAnswer = busy
-        busy
-    }.getOrDefault(false)
+        val ringing = AudioAttributes.USAGE_NOTIFICATION_RINGTONE in usages ||
+            mode == AudioManager.MODE_RINGTONE
+        val inCall = mode == AudioManager.MODE_IN_CALL ||
+            mode == AudioManager.MODE_IN_COMMUNICATION ||
+            usages.any { it in callUsages }
+        // Charged separately, because only one of the two can be ended early by an answer.
+        if (alarming) lastAlarmAt = now
+        if (ringing) lastRingAt = now
+        val answer = KeyHush.of(
+            alarming = alarming,
+            ringing = ringing,
+            inCall = inCall,
+            withinAlarmGrace = lastAlarmAt != 0L && now - lastAlarmAt < RING_GRACE_MS,
+            withinRingGrace = lastRingAt != 0L && now - lastRingAt < RING_GRACE_MS,
+        )
+        // An answered call ends the ringtone's grace for good, not just for this press -- the next
+        // look would otherwise charge nothing and read the same stale stamp all over again.
+        if (answer == Hush.Call) lastRingAt = 0L
+        lastHush = answer
+        answer
+    }.getOrDefault(Hush.None)
 
     /**
      * One line for a key the whole filter declined to look at, deduped hard.
@@ -1236,6 +1249,24 @@ class ControlService : AccessibilityService() {
         }
     }
 
+
+    /**
+     * One line saying the filter is working *through* a call, deduped the same way.
+     *
+     * Its opposite used to be the whole story: the filter stood down for the length of every call
+     * and said so in the log as "ringing", which read as a phone that was ringing rather than a
+     * phone in the middle of a conversation. Nobody reading that log would have guessed. A call is
+     * now a state the filter runs in, and the log says which of the two it is.
+     */
+    private fun logCall(event: KeyEvent) {
+        runCatching {
+            if (!isFreshDown(event)) return
+            val now = SystemClock.uptimeMillis()
+            if (now - lastCallLogAt < REFUSAL_LOG_MS) return
+            lastCallLogAt = now
+            log("on a call \u00b7 filter live")
+        }
+    }
     /**
      * One line in the on-screen key log.
      *
@@ -1327,8 +1358,11 @@ class ControlService : AccessibilityService() {
         // A stream pinned by tapping the volume strip. The only place this app moves a volume
         // itself, and the only place it consumes a volume key — both of which need an explicit tap
         // first and expire with the strip. Note where this sits: after the alarm and clock refusals
-        // above, and inside a method the service does not reach at all while anything is ringing, so
-        // a pin can never be holding the keys that dismiss an alarm.
+        // above, and inside a method the service does not reach at all while anything is *ringing*,
+        // so a pin can never be holding the keys that dismiss an alarm. A call in progress does
+        // reach here now, which is what finally makes the VOICE_CALL pin do something: it was
+        // selectable on the strip and then unreachable from the keys, in the one state it exists
+        // for. See [KeyHush].
         if (key == LightKey.VolumeUp || key == LightKey.VolumeDown) {
             if (volume.takeKey(key == LightKey.VolumeUp, event)) {
                 if (isFreshDown(event)) log("${key.name} pinned stream")
@@ -2564,6 +2598,7 @@ class ControlService : AccessibilityService() {
         // Arriving by this action is what makes LightOS a visit rather than a landing, which is
         // what hands it the home button while you're there. See [visitHome].
         Action.LightOsHome -> goLightOsHome().also { if (it) visitingLightOs = true }
+        Action.SwitchLayer -> switchLayer()
         Action.Resume -> resume()
         Action.Back -> performBack()
         // The same window a double press of home opens, and false when there was nothing to show.
@@ -3210,6 +3245,42 @@ class ControlService : AccessibilityService() {
         return goHome()
     }
 
+    /**
+     * The layer toggle: on LightOS go to the launcher, anywhere else go to LightOS.
+     *
+     * Two destinations behind one binding, which is the whole point — see [Action.SwitchLayer].
+     * The direction is read from the app in front rather than from a remembered side, because a
+     * remembered side is wrong the moment anything else moves the phone: an app opened from a
+     * notification, a call, a launcher coming forward on its own. What is on screen cannot be out
+     * of date.
+     *
+     * **Leaving is not [goHome].** LightOS holds the HOME role on this phone, so a `CATEGORY_HOME`
+     * intent from LightOS lands straight back on LightOS. The way out is the launcher the user
+     * actually chose, resolved the same way the switcher's Home row and the visit's hold-to-leave
+     * resolve it. [HomeApp] never answers [Action.SwitchLayer], so this cannot call itself.
+     *
+     * **And it never starts a visit.** [Action.LightOsHome] sets `visitingLightOs` so that LightOS
+     * keeps its own home presses while you are on it, escaped by a double press. That is right for
+     * an action that only goes one way and wrong for this one: the visit outranks every binding on
+     * the home button, so a toggle that set it would work going over and do nothing coming back.
+     * A toggle has to be the same press twice. Binding this to home therefore costs LightOS its
+     * home-press menu navigation while you are on its screens — the wheel still moves through it,
+     * and the trade is the thing you asked for by binding a toggle to the key.
+     */
+    private fun switchLayer(): Boolean {
+        val front = if (OwnWindow.resumed) packageName else foreground
+        return when (LayerSwitch.to(front, LIGHTOS)) {
+            Layer.Launcher -> {
+                visitingLightOs = false
+                visitTapAt = 0L
+                val home = runCatching { HomeApp.target(prefs, packageManager).action }
+                    .getOrDefault(Action.DefaultHome)
+                home.acts && performAction(home)
+            }
+            Layer.LightOs -> goLightOsHome()
+        }
+    }
+
     /** Whether the launcher the system would go home to is LightOS's own. */
     private fun defaultHomeIsLightOs(): Boolean = runCatching {
         packageManager.resolveActivity(
@@ -3370,7 +3441,7 @@ class ControlService : AccessibilityService() {
         /** Window in which the same binding twice over is one binding. See [act]. */
         const val DEDUPE_MS = 350L
 
-        /** How long [ringing]'s quiet answer is reused. See the note there. */
+        /** How long [hush]'s answer is reused. See the note there. */
         const val RING_CHECK_MS = 250L
 
         /**
@@ -3385,7 +3456,7 @@ class ControlService : AccessibilityService() {
         const val MASH_PRESSES = 4
         const val MASH_WINDOW_MS = 4_000L
 
-        /** Hands off for this long after anything last rang. See [ringing]. */
+        /** Hands off for this long after an alarm or a ring. See [hush] and [KeyHush]. */
         const val RING_GRACE_MS = 30_000L
 
         /** One refusal line per reason per this window. See [logRefusal]. */
@@ -3457,20 +3528,19 @@ class ControlService : AccessibilityService() {
         const val SWITCHER_SETTLE_MS = 80L
 
         /**
-         * Playback usages that mean something is *demanding* the user — a screen with a dismiss
-         * gesture on it that must own every key.
+         * Playback usages that mean a call is up, as opposed to a phone that is ringing.
          *
-         * `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` were in this set and must never
-         * come back. A notification ping is one second of sound that asks for nothing — but with
-         * the 30-second grace window it turned every text message into half a minute of dead
+         * `USAGE_ALARM` and `USAGE_NOTIFICATION_RINGTONE` used to sit in this set beside them,
+         * under one name, and that was the bug: an alarm demands a key and a conversation does
+         * not. They are read separately now — see [hush] and [KeyHush].
+         *
+         * `USAGE_NOTIFICATION` and `USAGE_NOTIFICATION_EVENT` were once in that set too and must
+         * never come back. A notification ping is one second of sound that asks for nothing — but
+         * with the 30-second grace window it turned every text message into half a minute of dead
          * keys: home passing through to LightOS, wheel dead, all of it refused upstream of every
-         * log line. Intermittent, self-healing, and invisible — it cost days. The guard is for
-         * alarms, ringing calls, and calls in progress, which are the things with a dismiss
-         * gesture to protect.
+         * log line. Intermittent, self-healing, and invisible — it cost days.
          */
-        val ringUsages = setOf(
-            AudioAttributes.USAGE_ALARM,
-            AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
+        val callUsages = setOf(
             AudioAttributes.USAGE_VOICE_COMMUNICATION,
             AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING,
         )

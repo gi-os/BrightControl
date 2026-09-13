@@ -24,6 +24,7 @@ class BindingsTest {
         Action.OpenCamera,
         Action.DefaultHome,
         Action.LightOsHome,
+        Action.SwitchLayer,
         Action.Resume,
         Action.Back,
         Action.Switcher,

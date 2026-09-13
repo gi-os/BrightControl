@@ -72,6 +72,11 @@ fun PickerScreen(
             listOf(
                 Choice(Action.DefaultHome, "Home", "whichever launcher is default"),
                 Choice(Action.LightOsHome, "LightOS home", "Light's dashboard, by name"),
+                Choice(
+                    Action.SwitchLayer,
+                    "Switch layer",
+                    "LightOS if you are not on it, your launcher if you are",
+                ),
                 Choice(Action.Back, "Go back", "the back this phone has no button for"),
                 Choice(Action.Switcher, "App switcher", "the list of apps you have been in"),
                 Choice(
