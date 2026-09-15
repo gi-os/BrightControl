@@ -2,6 +2,8 @@
 
 # BrightControl
 
+[**⬇ Download the latest APK**](https://github.com/gi-os/BrightControl/releases/latest) · free, open source.
+
 The Light Phone III hardware, working everywhere. Plus the settings LightOS never shipped a
 screen for.
 
