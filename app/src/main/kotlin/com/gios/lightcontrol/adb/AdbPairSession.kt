@@ -300,16 +300,37 @@ object AdbPairSession {
                 connected = runCatching { adb.connectPort(context, port) }.getOrDefault(false)
             }
         }
+        if (!connected) {
+            // **The cause the report names, checked rather than guessed.** The pairing was
+            // accepted, so the daemon was listening a moment ago. A connect that now finds
+            // nothing is usually wireless debugging switched off by the very trip through
+            // Settings this pairing walk just made — readable without any permission, and
+            // writable with the grant this app already holds. So flip it back on and try once
+            // more before reporting a pairing that worked as one that failed.
+            if (AdbWifi.on(context) != true) {
+                val turned = AdbWifi.turnOn(context)
+                prefs.notePairStep(
+                    if (turned.ok) "debugging was off — switched it back on"
+                    else "debugging off and would not switch on — ${turned.said}",
+                )
+                if (turned.ok) {
+                    connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
+                }
+            }
+        }
         prefs.notePairStep(if (connected) "connected" else "connect FAILED after pairing")
         if (!connected) {
             main.post {
                 phase = Phase.Failed
-                message = "paired, but could not connect — use CONNECT below"
+                message = "paired, but could not connect. Wireless debugging was likely switched " +
+                    "off by the trip through Settings — the button at the top switches it back " +
+                    "on, then GRANT ALL reconnects."
             }
             com.gios.lightcontrol.report.Trouble.record(
                 "connect after a pairing the daemon accepted",
                 "the pairing was accepted and mDNS then found nothing to connect to. Wireless " +
-                    "debugging may have been switched off by the trip through Settings.",
+                    "debugging may have been switched off by the trip through Settings — the app " +
+                    "checked, switched it back on if it was off, and tried again.",
             )
             return
         }

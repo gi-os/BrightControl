@@ -1,3 +1,15 @@
+## BrightControl v4.35 — a pairing the phone accepted no longer dies on the way back
+
+**The pairing succeeded, the phone had already accepted it, and the connect that followed found nothing to connect to.** The report read "could not connect after a pairing the daemon accepted": the pairing was accepted, mDNS then found nothing, and the app told you to use a CONNECT button that no longer exists. The pairing itself was never the problem — the key and certificate were on disk the whole time.
+
+**The cause is the trip through Settings.** The automatic pairing walks the Settings screens to read the six-digit code off the box. One of those screens is the Wireless debugging list, and the thing that screen is famous for is that leaving it can switch wireless debugging off. When that happens the daemon stops listening, the connect port is gone, and there is nothing for mDNS to find — so a pairing that worked a moment ago comes back empty.
+
+**The app now checks before it reports.** After a pairing is accepted, if the connect finds nothing, the app reads whether wireless debugging is actually on. If it is not, it switches it back on — the same write the TURN WIRELESS DEBUGGING ON button makes, using the `WRITE_SECURE_SETTINGS` grant this app already holds — and tries the connect once more. A pairing that was never broken now completes on its own instead of filing a report about it.
+
+**The message that was wrong is fixed too.** The failure no longer points at a CONNECT button that was removed. It names the likely cause and the two buttons that are actually on the screen.
+
+Fixes [light-reports#416] — the phone accepted a pairing and then could not connect, because the trip through Settings had switched wireless debugging off.
+
 ## BrightControl v4.34 — the buttons work during a call, and one press switches layers
 
 **Every button on the phone went dead for the length of every call.** The key filter stands down while something is ringing, and it should. An alarm or an incoming call owns every key until someone dismisses it. A call already answered was folded into that same answer. So from the moment you picked up until thirty seconds after you hung up, no binding did anything: the wheel, the camera button, home, all of it. It arrived as "switching layers works, but not during a call". That is what it looks like from a thumb. The refusal happens upstream of every log line and leaves nothing behind to read.
