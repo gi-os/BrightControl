@@ -21,10 +21,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
 import com.gios.lightcontrol.Prefs
 import com.gios.lightcontrol.keys.Grants
 import com.gios.lightcontrol.notify.AlertHandoff
 import com.gios.lightcontrol.report.CrashLog
+import com.gios.lightcontrol.report.Reports
+import kotlinx.coroutines.launch
 
 /**
  * The top of the app: a master switch, a one-line health line, and a door to each section.
@@ -52,6 +55,7 @@ fun HomeScreen(
     onWifiLogin: () -> Unit,
     onHotspot: () -> Unit,
     onSetup: () -> Unit,
+    onPresets: () -> Unit,
     onDiagnostics: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -68,6 +72,8 @@ fun HomeScreen(
     val total = granted.size
 
     var enabled by remember { mutableStateOf(prefs.enabled) }
+    val scope = rememberCoroutineScope()
+    var sent by remember { mutableStateOf(false) }
 
     // The settings file (light-reports#137). SAF both ways, because it is the one file picker
     // this phone actually has — LightOCR already leans on it — and a file the person placed in
@@ -152,6 +158,16 @@ fun HomeScreen(
                 },
                 dim = serviceOn && ok == total,
                 onClick = onSetup,
+            )
+            // Second row on the home screen, and high up on purpose. The commonest question
+            // this app gets is not about a setting, it is "what am I supposed to switch on" --
+            // and somebody who has already turned everything on and broken their navigation is
+            // looking for a way back, not for a row halfway down a list.
+            MenuRow(
+                label = "Presets",
+                detail = "\u203a",
+                sub = "a whole working setup in one tap, or back to how the app ships",
+                onClick = onPresets,
             )
             if (anyTrouble) {
                 MenuRow(
@@ -285,6 +301,30 @@ fun HomeScreen(
                 sub = "applies as it lands; a screen already open may show old numbers until " +
                     "reopened",
                 onClick = { importer.launch(arrayOf("application/json", "text/*", "*/*")) },
+            )
+            MenuRow(
+                label = "Send my settings to the developer",
+                detail = if (sent) "SENT" else null,
+                sub = if (sent) {
+                    "queued. It goes out as soon as the phone has a connection."
+                } else {
+                    "files your configuration where the bug reports go, so a setup that behaves " +
+                        "strangely can be read rather than described. The hotspot password and " +
+                        "the adb address are removed first"
+                },
+                onClick = {
+                    sent = true
+                    scope.launch {
+                        Reports.submit(
+                            context,
+                            Reports.composeSettings(
+                                context,
+                                prefs.exportJson(redactSecrets = true),
+                                "Sent from the phone.",
+                            ),
+                        )
+                    }
+                },
             )
             Gap(20)
         }

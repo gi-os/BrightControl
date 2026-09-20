@@ -1,3 +1,18 @@
+## BrightControl v4.36 — presets: a whole working setup in one tap
+
+**The question this app gets asked most is not about a setting.** It is "what am I supposed to switch on". Every row here explains itself and none of them answers that, so people answer it by turning everything on. That is the one configuration nobody tests: the lock face over a third-party launcher, both edges live inside an app that already uses them, a home button bound three ways. The navigation then goes strange and the app looks broken rather than misconfigured, and there is no way back short of an uninstall, which costs every grant.
+
+**Presets.** Second row on the home screen, and the first thing the intro offers. A preset is a whole configuration, not a setting. It lists what it will do before it does anything, and the second tap applies it.
+
+- **DEFAULT** is the app as it ships. It is also the repair: a phone somebody has turned everything on in comes back in one tap, with no uninstall and no re-pairing.
+- **DEV'S CHOICE** is the setup the person who writes this app runs. Flashlight on the wheel click, the switcher on its hold, the lock face on the camera hold, both edges live, readouts on, per-app color on.
+
+**Applying one wipes first, then writes.** The result is exactly the preset and not a layer over whatever was there. A merge leaves a phone that matches no preset and no default, which is the state this feature exists to get people out of. What survives is state and not settings: the adb pairing, your lock-screen photo, the hotspot credentials, and the fault and crash log.
+
+**The launcher is read, not asked.** Which launcher is default decides what the home button should be bound to, and the phone already knows. On stock LightOS the home hold opens system settings, which LightOS ships no other way to reach. With Luma, Before or anything else installed, the hold reaches the LightOS dashboard, and the switcher's pinned Home row opens your launcher.
+
+**Send my settings to the developer.** A new row under the settings file. Nearly every "the navigation went strange" report is a configuration rather than a bug, and a configuration is the one thing a report cannot describe. This files yours where the bug reports go. The hotspot password, the pairing trail and the adb address are removed before it leaves the phone.
+
 ## BrightControl v4.35 — a pairing the phone accepted no longer dies on the way back
 
 **The pairing succeeded, the phone had already accepted it, and the connect that followed found nothing to connect to.** The report read "could not connect after a pairing the daemon accepted": the pairing was accepted, mDNS then found nothing, and the app told you to use a CONNECT button that no longer exists. The pairing itself was never the problem — the key and certificate were on disk the whole time.

@@ -122,6 +122,60 @@ object Reports {
     }
 
     /**
+     * The phone's whole configuration, as an issue, with the secrets taken out.
+     *
+     * ### Why a settings file is worth an issue of its own
+     *
+     * Almost every "the navigation went strange" report is a configuration and not a bug, and a
+     * configuration is the one thing a report cannot describe. Somebody writes "I turned
+     * everything on"; what reaches the repo is five words, and the forty values that would
+     * explain it are sitting in a file on a phone with no computer attached to it. This is the
+     * path off the phone for that file.
+     *
+     * It is also how a preset gets maintained. `Presets.DevsChoice` is a description of a real
+     * phone kept up to date by hand, and hand-kept descriptions drift; a settings file sent from
+     * that phone is the phone itself, and it drops straight into `assets/presets/`.
+     *
+     * [Prefs.exportJson] is asked for the redacted copy. A settings file saved to Downloads is
+     * the user's own business, and one that leaves the phone is not.
+     */
+    fun composeSettings(context: Context, settings: String, note: String): Report {
+        val trimmed = note.trim()
+        val body = buildString {
+            appendLine("### Why this was sent")
+            appendLine()
+            appendLine(trimmed.takeIf { it.isNotEmpty() } ?: "No note.")
+            appendLine()
+            appendLine("### Build")
+            appendLine()
+            appendLine("| | |")
+            appendLine("|-|-|")
+            appendLine("| App | ${ReportApp.NAME} ${versionName(context)} |")
+            appendLine("| Android | ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) |")
+            appendLine("| Device | ${Build.MANUFACTURER} ${Build.MODEL} |")
+            appendLine("| Firmware | ${Build.DISPLAY} |")
+            appendLine("| Sent | ${stamp()} |")
+            appendLine()
+            appendLine("### Settings")
+            appendLine()
+            appendLine("```json")
+            // An issue body is capped at 64k and a settings file is a few, so this only ever
+            // trims a store that has gone wrong -- which is itself worth seeing trimmed rather
+            // than not seeing at all.
+            appendLine(settings.take(48_000))
+            appendLine("```")
+        }
+        val headline = trimmed.takeIf { it.isNotEmpty() }?.let { first(it) } ?: "settings"
+        return Report(
+            title = "${ReportApp.LABEL}: settings — $headline",
+            // Existing labels only. A label this repo has never seen is a 422, and a 422 is
+            // dropped rather than retried by [post] -- the report would vanish quietly.
+            labels = listOf(ReportApp.LABEL, "other"),
+            body = body,
+        )
+    }
+
+    /**
      * Write the report to disk, then try to send everything waiting.
      *
      * Queue first, always. See the class comment.

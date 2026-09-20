@@ -48,6 +48,7 @@ import com.gios.lightcontrol.ui.LockBackgroundScreen
 import com.gios.lightcontrol.ui.LockScreenScreen
 import com.gios.lightcontrol.ui.NotificationsScreen
 import com.gios.lightcontrol.ui.PickerScreen
+import com.gios.lightcontrol.ui.PresetsScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
@@ -82,6 +83,9 @@ private sealed interface Screen {
     data object Intro : Screen
     data object Home : Screen
     data object Setup : Screen
+
+    /** Whole configurations, applied in one tap. See [com.gios.lightcontrol.Presets]. */
+    data object Presets : Screen
     data object Buttons : Screen
     data object Wheel : Screen
     data object PerAppWheel : Screen
@@ -258,6 +262,13 @@ class MainActivity : ComponentActivity() {
                     when (val current = screen) {
                         Screen.Intro -> IntroScreen(
                             onSetup = { screen = Screen.Setup },
+                            onPresets = {
+                                // Seen, whichever door they leave by. Somebody who goes straight
+                                // to a preset has read the page; making them come back to it is
+                                // the app arguing with them.
+                                prefs.introSeen = true
+                                screen = Screen.Presets
+                            },
                             onDone = {
                                 prefs.introSeen = true
                                 screen = Screen.Home
@@ -280,11 +291,18 @@ class MainActivity : ComponentActivity() {
                             onWifiLogin = { screen = Screen.WifiLogin },
                             onHotspot = { screen = Screen.Hotspot },
                             onSetup = { screen = Screen.Setup },
+                            onPresets = { screen = Screen.Presets },
                             onDiagnostics = { screen = Screen.Diagnostics },
                         )
 
                         Screen.Setup -> SetupScreen(
                             onAdb = { screen = Screen.Adb },
+                            onPresets = { screen = Screen.Presets },
+                            onBack = home,
+                        )
+
+                        Screen.Presets -> PresetsScreen(
+                            onSetup = { screen = Screen.Setup },
                             onBack = home,
                         )
 

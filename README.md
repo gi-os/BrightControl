@@ -139,6 +139,51 @@ adb shell settings put secure accessibility_enabled 1
 That setting is a list, not a flag. Writing it replaces whatever was there. If you also run the
 LightVoice push-to-talk service, colon-join the two components instead.
 
+## Presets
+
+**A preset is a whole configuration, not a setting.** It sits second on the home screen and it
+is the first thing the intro screen offers.
+
+Every row in this app explains itself. None of them answers the question people actually ask,
+which is what to switch on. People answer it by switching everything on, and that is the one
+combination nobody tests. The lock face goes over a third-party launcher, both edges go live
+inside an app that already uses them, and the home button carries three bindings. The phone then
+behaves strangely and the app looks broken rather than misconfigured.
+
+| Preset | What it is |
+|--------|------------|
+| DEFAULT | The app as it ships. It is also the repair. A phone with everything switched on returns to a known state in one tap, with no uninstall and no new pairing |
+| DEV'S CHOICE | The setup the person who writes this app runs. Flashlight on the wheel click, the app switcher on its hold, the lock face on the camera hold, both edges live, readouts on, per-app color on |
+
+**Applying a preset clears every setting first, then writes its own.** The result is exactly the
+preset. A merge leaves a phone that matches no preset and no default, which is the state this
+feature exists to repair. `Prefs.resetToShipped` keeps what is state rather than a setting: the
+adb pairing, the lock-screen photo, the hotspot name and password, the recents list, and the
+fault and crash log. A reset is often what somebody tries before they report a problem, and a
+report with no log in it cannot be read.
+
+**The launcher is read, not asked.** `Launcher.detect` resolves a `CATEGORY_HOME` intent, because
+which launcher is default decides what the home button should do and the phone already knows the
+answer. On stock LightOS the home hold opens system settings, which LightOS ships no other way to
+reach. With Luma or Before or any other launcher installed, the hold reaches the LightOS
+dashboard, and the switcher's pinned Home row opens the launcher.
+
+**A settings file beats anything written in Kotlin.** `Preset.DevsChoice` describes a real phone
+and a description kept by hand drifts from the phone it describes. A preset may therefore also
+ship as a settings file in `app/src/main/assets/presets/<id>.json`, in exactly the format **Save
+settings to a file** writes. When the file is present it wins. Keeping the preset honest is then
+an export, a copy and a commit rather than an edit to a class.
+
+### Send my settings to the developer
+
+A row under the settings file. Nearly every report about strange navigation describes a
+configuration rather than a bug, and a configuration is the one thing a report cannot describe.
+This files the settings where the bug reports go.
+
+The hotspot password, the pairing trail and the adb endpoint are replaced with `[redacted]`
+before the file leaves the phone. See `Prefs.SECRET_KEYS`. A settings file saved to Downloads is
+the user's own. A settings file that leaves the phone is not.
+
 ## Controls
 
 ### Defaults, and why
@@ -1096,6 +1141,7 @@ than a button that says why.
 
 ```
 Bindings.kt                buttons, gestures, actions, and the out-of-the-box defaults
+Presets.kt                 whole configurations, and the launcher question they turn on
 Prefs.kt                   settings, plus the table that decides untouched apps
 MainActivity.kt            the settings hub and its section screens; parentOf encodes Back
 
@@ -1206,6 +1252,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.36 | **Presets: a whole working setup in one tap.** DEFAULT is the app as it ships and is also the repair for a phone with everything switched on. DEV'S CHOICE is the setup this app is written on. Applying one clears every setting first, so the result is the preset and not a layer over whatever was there (`Presets.kt`, `Prefs.resetToShipped`). The default launcher is read rather than asked, because it decides what the home button should do. Plus **Send my settings to the developer**, which files a configuration where the bug reports go, with the hotspot password, the pairing trail and the adb endpoint redacted |
 | v4.35 | **A pairing the phone accepted no longer dies on the way back.** The connect after pairing found nothing because the trip through Settings had switched wireless debugging off; the app now reads the state, switches it back on with the grant it already holds, and tries again before filing a report — and the failure message no longer points at a CONNECT button that was removed (`adb/AdbPairSession.kt`) |
 | v4.34 | **The buttons work during a call, and one press switches layers.** The key filter read an answered call as a ring and stood down for the whole of it, so no binding did anything from pickup until thirty seconds after hangup. Ringing and being on a call are separate facts now (`keys/KeyHush.kt`), and answering releases the ringtone's grace. Plus a new `Switch layer` action: one binding, both directions — LightOS if you are not on it, your own launcher if you are |
 | v4.33 | **An app may ask to be the browser.** LightOS ships no Default apps screen, so the browser role stays empty and a web address opens nowhere. One `cmd role` line sets it. The request names nothing: the command is rebuilt against the package the phone says sent the intent, and any other role is refused |

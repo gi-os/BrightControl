@@ -1773,9 +1773,24 @@ class Prefs(context: Context) {
      * different type tomorrow, and an untyped import that guessed wrong would corrupt exactly
      * the setting somebody went to the trouble of carrying over.
      */
-    fun exportJson(): String {
+    fun exportJson(): String = exportJson(redactSecrets = false)
+
+    /**
+     * The same document with the secrets taken out, for a copy that leaves the phone.
+     *
+     * A settings file saved to Downloads is the user's own. A settings file *sent* somewhere is
+     * not, and this store holds three things that have no business travelling: the hotspot's
+     * password, the pairing trail, and the adb endpoint. Redacted rather than merely skipped, so
+     * a file with a key missing reads as a file with a key missing and not as a phone that never
+     * set one.
+     */
+    fun exportJson(redactSecrets: Boolean): String {
         val values = JSONObject()
         for ((key, value) in sp.all) {
+            if (redactSecrets && key in SECRET_KEYS) {
+                values.put(key, JSONObject().put("t", "s").put("v", "[redacted]"))
+                continue
+            }
             val cell = JSONObject()
             when (value) {
                 is Boolean -> cell.put("t", "b").put("v", value)
@@ -1793,6 +1808,33 @@ class Prefs(context: Context) {
             .put("format", 1)
             .put("values", values)
             .toString(2)
+    }
+
+    /**
+     * Forget every setting, and keep everything that is not one.
+     *
+     * The store is one file holding two different kinds of thing, and only one of them is a
+     * setting. A wipe that took the other kind with it would charge somebody a fresh adb pairing,
+     * their own lock-screen photo and the crash that is the reason they came here, for the
+     * privilege of putting the wheel back the way it shipped.
+     *
+     * So this removes everything except [KEPT_KEYS]. Note which direction the list runs: anything new is wiped unless somebody says otherwise, because a
+     * setting that survives a reset is invisible -- the screen says DEFAULT and the phone does
+     * not behave like one -- while a piece of state that gets wiped announces itself at once.
+     *
+     * Every default in this app lives in the getter that reads it, so an empty store is not a
+     * blank phone. It is a new one.
+     */
+    fun resetToShipped() {
+        val edit = sp.edit()
+        for (key in sp.all.keys) {
+            if (key in KEPT_KEYS) continue
+            edit.remove(key)
+        }
+        // The migration stamps are kept true rather than kept: re-running a migration over an
+        // empty store is harmless, and leaving them set means the init block does no work.
+        edit.putBoolean(DOUBLE_MIGRATED, true)
+        edit.commit()
     }
 
     /**
@@ -1910,6 +1952,40 @@ class Prefs(context: Context) {
 
         /** How much of a stack trace to keep. Enough for the cause and the top frames. */
         const val CRASH_CHARS = 1600
+
+        /**
+         * What a settings file must never carry off the phone. See [exportJson].
+         */
+        val SECRET_KEYS = setOf(HOTSPOT_PASSWORD, PAIR_TRAIL, "adb_host", "adb_port")
+
+        /**
+         * What survives [resetToShipped]: state, not settings.
+         *
+         * Grouped by why, because "why is this one here" is the only question anybody will ever
+         * ask of this list:
+         *
+         *  - **The adb connection.** Losing it costs a pairing walk through Settings.
+         *  - **The hotspot's own name and password**, and the devices it is paired with. A
+         *    credential is not a preference.
+         *  - **The lock-screen photo.** Theirs, and not recoverable from anywhere else.
+         *  - **The evidence.** Faults, the last crash, the key log -- a reset is often what
+         *    somebody tries *before* reporting, and wiping the log makes the report useless.
+         *  - **Bookkeeping** nothing reads as a setting: the recents list, networks seen, which
+         *    failures were already reported, a grant request still in flight.
+         */
+        val KEPT_KEYS = setOf(
+            "adb_host", "adb_port", PAIR_TRAIL,
+            HOTSPOT_SSID, HOTSPOT_PASSWORD, HOTSPOT_TRIGGERS, HOTSPOT_TRUSTED,
+            "lock_bg", "lock_bg_stamp",
+            "fault", "fault_dormant", "home_fault", "lock_fault", "last_crash",
+            "key_log", "color_log",
+            RECENTS, LAST_FRONT, LAST_FRONT_AT,
+            WIFI_SEEN, WIFI_SILENCED, WIFI_OVERRIDDEN, "wifi_ringer_last",
+            "split_last", "split_boosted",
+            "intro_seen", "handoff_told_at", DOUBLE_MIGRATED,
+            AUTO_REPORTED, PENDING_PKG, PENDING_LINES, PENDING_AT,
+            PORTAL_LAST_AUTO_REPORT, PORTAL_HANDED_OFF_AT,
+        )
     }
 }
 

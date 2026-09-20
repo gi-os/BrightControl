@@ -11,7 +11,7 @@ import com.gios.lightcontrol.keys.LightKeys
  * the ADB screen, which can run those lines against the phone itself with no computer attached.
  */
 @Composable
-fun SetupScreen(onAdb: () -> Unit, onBack: () -> Unit) {
+fun SetupScreen(onAdb: () -> Unit, onPresets: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
 
     val serviceOn = Grants.serviceEnabled(context)
@@ -26,6 +26,12 @@ fun SetupScreen(onAdb: () -> Unit, onBack: () -> Unit) {
             "once over adb. Every row below shows its command; tap a row to see it. Or open the " +
             "ADB screen and let the phone grant itself everything.",
     ) {
+        MenuRow(
+            label = "Start from a preset",
+            detail = "\u203a",
+            sub = "a whole working configuration in one tap, or back to how the app ships",
+            onClick = onPresets,
+        )
         MenuRow(
             label = "Grant everything on the phone",
             detail = "›",

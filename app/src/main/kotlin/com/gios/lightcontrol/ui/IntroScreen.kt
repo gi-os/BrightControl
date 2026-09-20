@@ -24,7 +24,7 @@ import com.gios.lightcontrol.ui.theme.Dim
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
+fun IntroScreen(onSetup: () -> Unit, onPresets: () -> Unit, onDone: () -> Unit) {
     val scroll = rememberScrollState()
     WheelScroll(scroll)
 
@@ -68,6 +68,14 @@ fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
                     "overlays, color — is a second set of grants the same two ways can give.",
             )
 
+            Heading("You do not have to set it all up")
+            Para(
+                "Every feature above is off or at a sensible default until you say otherwise, and " +
+                    "switching all of them on at once is the one combination nobody enjoys. Pick " +
+                    "a preset instead: it is a whole working configuration, and you can change " +
+                    "any part of it afterwards.",
+            )
+
             Heading("If a button ever misbehaves")
             Para(
                 "There is an EVERYTHING OFF switch at the top of the app. It hands every key back " +
@@ -75,6 +83,8 @@ fun IntroScreen(onSetup: () -> Unit, onDone: () -> Unit) {
             )
 
             Gap(8)
+            PresetCta(onPresets)
+            Gap(4)
             SetupCta(onSetup)
             Gap(4)
             DoneCta(onDone)
@@ -113,6 +123,16 @@ private fun Bullet(label: String, rest: String) {
         style = MaterialTheme.typography.bodyMedium,
         color = Dim,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun PresetCta(onPresets: () -> Unit) {
+    MenuRow(
+        label = "Start from a preset",
+        detail = "\u203a",
+        sub = "a setup that works, in one tap — including the one the app ships with",
+        onClick = onPresets,
     )
 }
 
