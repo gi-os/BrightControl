@@ -42,10 +42,16 @@ data class StripBounds(val top: Int, val height: Int)
  *
  * Free of Android types so it can be exercised without one. See `EdgeSwipeBoundsTest`.
  */
-fun stripBounds(screenPx: Int, topDeadPx: Int): StripBounds {
+fun stripBounds(screenPx: Int, topDeadPx: Int, bottomDeadPx: Int = 0): StripBounds {
     val top = topDeadPx.coerceIn(0, (screenPx / 2).coerceAtLeast(0))
-    if (top <= 0) return StripBounds(0, WindowManager.LayoutParams.MATCH_PARENT)
-    return StripBounds(top, (screenPx - top).coerceAtLeast(1))
+    // **The keyboard is a dead zone too, and for the same reason the corner is.** A strip that ran
+    // down over the keyboard's left column took the first touch on Q, A and shift and turned it
+    // into a back gesture; a strip that merely ignored those touches would have made the keys
+    // unreachable. So the window ends where the keyboard begins. Capped so a keyboard height the
+    // keyboard misreported can never leave less than a quarter of the screen to swipe in.
+    val bottom = bottomDeadPx.coerceIn(0, (screenPx * 3 / 4 - top).coerceAtLeast(0))
+    if (top <= 0 && bottom <= 0) return StripBounds(0, WindowManager.LayoutParams.MATCH_PARENT)
+    return StripBounds(top, (screenPx - top - bottom).coerceAtLeast(1))
 }
 
 /**
@@ -170,6 +176,8 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         showIndicator: Boolean,
         withHaptics: Boolean,
         face: EdgeFace,
+        /** How much of the bottom of the screen the keyboard has, in pixels; 0 when it is down. */
+        bottomDeadPx: Int = 0,
     ) {
         if (!wanted) {
             hide()
@@ -185,12 +193,14 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         // to any of them needs the strip rebuilt. Rebuilt rather than adjusted in place: a window
         // resized mid-stroke retargets the touch it is holding, and a gesture whose thresholds move
         // under a finger already down cannot be reasoned about at all.
-        val shape = "$widthDp:$topDeadDp:$triggerDp:$longDp:$slopDp"
+        // The keyboard's height is in the shape too: it going up or down is a rebuild, which is
+        // the one way a window's touchable area can change without retargeting a stroke.
+        val shape = "$widthDp:$topDeadDp:$triggerDp:$longDp:$slopDp:$bottomDeadPx"
         if (strip != null) {
             if (shape == stripShape) return
             hide()
         }
-        attach(widthDp, topDeadDp, triggerDp, longDp, slopDp)
+        attach(widthDp, topDeadDp, triggerDp, longDp, slopDp, bottomDeadPx)
         if (strip != null) stripShape = shape
     }
 
@@ -228,7 +238,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
      */
     private var stripShape = ""
 
-    private fun attach(widthDp: Int, topDeadDp: Int, triggerDp: Int, longDp: Int, slopDp: Int) {
+    private fun attach(widthDp: Int, topDeadDp: Int, triggerDp: Int, longDp: Int, slopDp: Int, bottomDeadPx: Int) {
         val wm = context.getSystemService(WindowManager::class.java) ?: return
         val density = context.resources.displayMetrics.density
         // A long threshold past the edge of the screen is a gesture that cannot be completed, and
@@ -246,7 +256,7 @@ class EdgeSwipe(private val context: Context, private val side: EdgeSide) {
         view.setBackgroundColor(Color.TRANSPARENT)
         view.setOnTouchListener { _, event -> onTouch(g, event) }
 
-        val bounds = stripBounds(screenHeight(wm), (topDeadDp * density).toInt())
+        val bounds = stripBounds(screenHeight(wm), (topDeadDp * density).toInt(), bottomDeadPx)
         val params = WindowManager.LayoutParams(
             (widthDp * density).toInt().coerceAtLeast(1),
             bounds.height,

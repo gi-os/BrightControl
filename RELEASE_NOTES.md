@@ -1,3 +1,18 @@
+## BrightControl v4.37 — the edge strips end where the keyboard begins
+
+**With the keyboard up, a touch on Q, A or shift could start a back gesture instead.** The
+edge strips are overlay windows the full height of the panel, and an overlay that receives a
+touch has taken it; on a keyboard whose left column sits under the strip, the first key of a
+word was sometimes a swipe. Gio: "the swipe to go back shouldn't work over the keyboard."
+
+This service reads nothing on screen by design, so it cannot ask the system where the keyboard
+is. BrightKeyboard already says so itself: it has broadcast every show and hide since the lock
+face work, and from its 4.4 the broadcast carries its height. The strips now end at that line
+and come back to full height when the keyboard goes. A keyboard build without the height is
+taken at 42% of the panel, its default. The bottom dead zone is capped so a misreported height
+can never leave less than a quarter of the screen to swipe in — a strip nothing can reach is a
+phone with no way back. `stripBounds` gained the third number and four tests.
+
 ## BrightControl v4.36 — presets: a whole working setup in one tap
 
 **The question this app gets asked most is not about a setting.** It is "what am I supposed to switch on". Every row here explains itself and none of them answers that, so people answer it by turning everything on. That is the one configuration nobody tests: the lock face over a third-party launcher, both edges live inside an app that already uses them, a home button bound three ways. The navigation then goes strange and the app looks broken rather than misconfigured, and there is no way back short of an uninstall, which costs every grant.

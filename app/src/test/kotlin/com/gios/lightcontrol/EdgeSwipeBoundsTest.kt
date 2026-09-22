@@ -59,4 +59,32 @@ class EdgeSwipeBoundsTest {
         assertEquals(0, b.top)
         assertEquals(matchParent, b.height)
     }
+
+    @Test
+    fun `a keyboard takes the bottom off the strip`() {
+        // A 1920 px screen with an 800 px keyboard up: the strip stops where the keys begin, so
+        // the first touch on Q is a Q and not the start of a back gesture.
+        val b = stripBounds(screenPx = 1920, topDeadPx = 0, bottomDeadPx = 800)
+        assertEquals(0, b.top)
+        assertEquals(1120, b.height)
+    }
+
+    @Test
+    fun `the corner and the keyboard both come off`() {
+        val b = stripBounds(screenPx = 1920, topDeadPx = 240, bottomDeadPx = 800)
+        assertEquals(240, b.top)
+        assertEquals(1920 - 240 - 800, b.height)
+    }
+
+    @Test
+    fun `a keyboard that claims the whole screen still leaves a quarter to swipe in`() {
+        val b = stripBounds(screenPx = 1920, topDeadPx = 0, bottomDeadPx = 5000)
+        assertEquals(480, b.height)
+    }
+
+    @Test
+    fun `a keyboard going down restores the full strip`() {
+        val b = stripBounds(screenPx = 1920, topDeadPx = 0, bottomDeadPx = 0)
+        assertEquals(matchParent, b.height)
+    }
 }

@@ -496,6 +496,16 @@ class ControlService : AccessibilityService() {
                 registerReceiver(screenOff, filter)
             }
         }
+        // The keyboard's own word on whether it is up. Exported, because it comes from another
+        // package; a forged one can only shorten a strip, and only until the real keyboard speaks.
+        runCatching {
+            val filter = IntentFilter(IME_VISIBILITY_ACTION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(imeVisibility, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(imeVisibility, filter)
+            }
+        }
         // The strip belongs up from the moment the service binds, for the app [recoverForeground]
         // just guessed at. A rebind is an app update, and the phone is usually awake for it.
         refreshEdges()
@@ -884,6 +894,8 @@ class ControlService : AccessibilityService() {
                     showIndicator = indicator,
                     withHaptics = prefs.edgeHaptics,
                     face = edgeFace(side),
+                    // The keyboard's rows are not somewhere a back gesture can start.
+                    bottomDeadPx = imeHeightPx,
                 )
             }
         }
@@ -989,6 +1001,41 @@ class ControlService : AccessibilityService() {
      * and the broadcast arrived while nothing was listening. A bound accessibility service is
      * never stopped and never frozen, so it cannot miss it.
      */
+    /**
+     * How tall the keyboard on screen is, in pixels, or 0 while it is down.
+     *
+     * The edge strips are overlay windows the full height of the panel, and an overlay that
+     * receives a touch has taken it — so with a keyboard up, the left strip ran down over Q, A
+     * and shift and the first touch on each began a back gesture instead. Gio, 2026-09-22: "the
+     * swipe to go back shouldn't work over the keyboard." This service reads no window content by
+     * design, so it cannot ask the system where the keyboard is; instead BrightKeyboard says so
+     * itself, in the same broadcast it has sent on every show and hide since its lock-face work,
+     * now carrying its height. The strips end where the keyboard begins. See [stripBounds].
+     */
+    private var imeHeightPx = 0
+
+    private val imeVisibility = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            runCatching {
+                if (intent?.action != IME_VISIBILITY_ACTION) return
+                val visible = intent.getBooleanExtra(IME_EXTRA_VISIBLE, false)
+                // A keyboard build that predates the height extra says only that it is up; a
+                // guess is better than a strip down its whole left column. 0.42 of the panel is
+                // BrightKeyboard's default height with the suggestion strip.
+                val screen = resources.displayMetrics.heightPixels
+                val reported = intent.getIntExtra(IME_EXTRA_HEIGHT, 0)
+                val next = when {
+                    !visible -> 0
+                    reported > 0 -> reported
+                    else -> (screen * IME_HEIGHT_GUESS).toInt()
+                }
+                if (next == imeHeightPx) return
+                imeHeightPx = next
+                refreshEdges()
+            }
+        }
+    }
+
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             runCatching {
@@ -2266,6 +2313,7 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         bound = false
         runCatching { unregisterReceiver(screenOff) }
+        runCatching { unregisterReceiver(imeVisibility) }
         if (::dac.isInitialized) runCatching { dac.stop() }
         colorObserver?.let { observer ->
             colorObserver = null
@@ -3362,6 +3410,12 @@ class ControlService : AccessibilityService() {
     }
 
     companion object {
+        /** BrightKeyboard's broadcast on every show and hide; `height` was added in its 4.4. */
+        const val IME_VISIBILITY_ACTION = "app.lightphonekeyboard.IME_VISIBILITY"
+        const val IME_EXTRA_VISIBLE = "visible"
+        const val IME_EXTRA_HEIGHT = "height"
+        const val IME_HEIGHT_GUESS = 0.42f
+
         /**
          * True while a live instance of this service is bound.
          *
