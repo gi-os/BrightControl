@@ -1172,6 +1172,7 @@ lock/LockGallery.kt        DCIM walked directly, because MediaStore is never cur
 lock/LightType.kt          the light-sdk type scale and grid, for plain Views
 
 notify/Banners.kt          which notification is worth a box, and the two seconds before it
+notify/CallBanner.kt       an incoming call on an unlocked phone: DECLINE and ANSWER at the top
 notify/NoteBanner.kt       the box itself, as one window that moves to slide
 notify/NoteText.kt         what a notification says, out of the eight places it may be written
 notify/BannerWake.kt       the panel lit and held, without ever occluding the keyguard
@@ -1252,6 +1253,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.38 | **Answer a call from inside an app.** A call that rings on an unlocked phone shows a box at the top of the app in front, with DECLINE and ANSWER. ANSWER opens the call screen; swipe up hides the box and the phone keeps ringing. No box while LightOS's call screen is in front or the phone is locked. Settings → Notifications → Incoming calls, on by default (`notify/CallBanner.kt`, `CallBannerRule`) |
 | v4.37 | **The edge strips end where the keyboard begins.** BrightKeyboard broadcasts its height on show and hide; the strips shorten to it and come back when it goes, so a touch on Q or shift is a key and not the start of a back gesture (`stripBounds(screen, top, bottom)`) |
 | v4.36 | **Presets: a whole working setup in one tap.** DEFAULT is the app as it ships and is also the repair for a phone with everything switched on. DEV'S CHOICE is the setup this app is written on. Applying one clears every setting first, so the result is the preset and not a layer over whatever was there (`Presets.kt`, `Prefs.resetToShipped`). The default launcher is read rather than asked, because it decides what the home button should do. Plus **Send my settings to the developer**, which files a configuration where the bug reports go, with the hotspot password, the pairing trail and the adb endpoint redacted |
 | v4.35 | **A pairing the phone accepted no longer dies on the way back.** The connect after pairing found nothing because the trip through Settings had switched wireless debugging off; the app now reads the state, switches it back on with the grant it already holds, and tries again before filing a report — and the failure message no longer points at a CONNECT button that was removed (`adb/AdbPairSession.kt`) |

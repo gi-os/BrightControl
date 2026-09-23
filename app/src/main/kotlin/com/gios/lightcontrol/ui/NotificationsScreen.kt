@@ -26,6 +26,7 @@ fun NotificationsScreen(onHiddenApps: () -> Unit, onBack: () -> Unit) {
 
     var banner by remember { mutableStateOf(prefs.banner) }
     var wake by remember { mutableStateOf(prefs.bannerWake) }
+    var callBox by remember { mutableStateOf(prefs.callBanner) }
     var dwell by remember { mutableStateOf(prefs.bannerDwellMs) }
     val lockFace = prefs.lockScreen
     var persistent by remember { mutableStateOf(prefs.lockPersistent) }
@@ -96,6 +97,21 @@ fun NotificationsScreen(onHiddenApps: () -> Unit, onBack: () -> Unit) {
             onClick = {
                 wake = !wake
                 prefs.bannerWake = wake
+            },
+        )
+        MenuRow(
+            label = "Incoming calls",
+            detail = if (callBox) "ON" else "OFF",
+            sub = if (callBox) {
+                "a call that rings while you are in an app shows a box at the top with DECLINE " +
+                    "and ANSWER. Tap the name to open the call screen. Swipe up to hide the box; " +
+                    "the phone keeps ringing. Works without Banners."
+            } else {
+                "off. A call that rings while you are in an app shows nothing from this app."
+            },
+            onClick = {
+                callBox = !callBox
+                prefs.callBanner = callBox
             },
         )
         if (banner) {

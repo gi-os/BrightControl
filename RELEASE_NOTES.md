@@ -1,3 +1,32 @@
+## BrightControl v4.38 — answer a call from inside an app
+
+**A call that rang while you were in an app showed nothing.** The lock face has had a call card
+since v3.34, but only on a locked phone. On an unlocked phone in a sideloaded app, the ringer was
+the only sign of a call. To answer, you had to find the dialer yourself. Gio: "if you are using
+the phone when you get a call a notification should pop up at the top that allows you to accept
+or decline."
+
+**Now a box comes down from the top**, the same box as Banners, with the caller's name or number
+and two buttons: DECLINE and ANSWER, in the same order as the lock face card.
+
+- **ANSWER** answers the call and opens LightOS's call screen, which has mute, speaker, the
+  keypad and END.
+- **DECLINE** declines the call. The box goes, and you stay in the app.
+- **Tap the name** to open the call screen without answering.
+- **Swipe up** to hide the box. The phone keeps ringing, and the call does not get declined.
+
+The box stays up while the phone rings. It goes when the call is answered, declined or missed.
+When LightOS's own call screen is in front, no box shows, because that screen already has
+ANSWER on it. On a locked phone, the lock face card is used instead.
+
+If this app has no way to answer (the dialer posted no notification and `ANSWER_PHONE_CALLS` was
+not granted), ANSWER and DECLINE open the call screen so you can use its buttons.
+The ADB screen grants the permission in one line.
+
+**Settings → Notifications → Incoming calls.** On by default and separate from Banners, which
+is off by default: a call is not something to find out about later. The rule is
+`CallBannerRule`, with nine tests.
+
 ## BrightControl v4.37 — the edge strips end where the keyboard begins
 
 **With the keyboard up, a touch on Q, A or shift could start a back gesture instead.** The

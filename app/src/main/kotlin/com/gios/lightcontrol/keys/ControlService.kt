@@ -49,6 +49,8 @@ import com.gios.lightcontrol.lock.LockNotes
 import com.gios.lightcontrol.lock.LockOverlay
 import com.gios.lightcontrol.notify.BannerWake
 import com.gios.lightcontrol.notify.Banners
+import com.gios.lightcontrol.notify.CallBanner
+import com.gios.lightcontrol.notify.CallBannerRule
 import com.gios.lightcontrol.notify.NoteBanner
 import com.gios.lightcontrol.notify.NoteText
 import com.gios.lightcontrol.switcher.HomeApp
@@ -203,6 +205,12 @@ class ControlService : AccessibilityService() {
 
     /** The box a notification puts over the front app. A window at layer 31, like the face. */
     private lateinit var banner: NoteBanner
+
+    /** An incoming call on an unlocked phone, as a box with DECLINE and ANSWER. See [CallBanner]. */
+    private lateinit var callBanner: CallBanner
+
+    /** The call box was swiped away for this ring. Cleared when the ring ends. */
+    private var callBannerSwiped = false
 
     /** What turns the panel on for one, when it is off. Never an activity; see [BannerWake]. */
     private lateinit var bannerWake: BannerWake
@@ -369,6 +377,21 @@ class ControlService : AccessibilityService() {
         swipe = WheelSwipe(this)
         lockFace = LockOverlay(this)
         banner = NoteBanner(this)
+        callBanner = CallBanner(this)
+        callBanner.onAnswer = { runCatching { answerFromBanner() } }
+        callBanner.onDecline = { runCatching { declineFromBanner() } }
+        callBanner.onOpen = {
+            runCatching {
+                callBanner.dismiss()
+                callBannerSwiped = true
+                callScreenOpened = false
+                openCallScreen("banner tap")
+            }
+        }
+        callBanner.onSwipedAway = {
+            callBannerSwiped = true
+            log("call banner · swiped away, still ringing")
+        }
         bannerWake = BannerWake(this)
         // The listener decides what is worth a box and when; this owns the window and the panel.
         // Same seam as the face: one object knows what happened, another does something about it.
@@ -416,6 +439,9 @@ class ControlService : AccessibilityService() {
         lockCall.onChange = { state -> runCatching { onCallChanged(state) } }
         lockCall.onTick = {
             runCatching { callAudio.check() }
+            // Every second of a call. The app in front can change mid-ring -- the dialer's own
+            // screen arriving, the phone unlocking -- and no call event says so.
+            runCatching { syncCallBanner(lockCall.state) }
             // Keeps the SPEAKER label honest against a route that moved for a reason of its own —
             // a headset, the dialer's own screen. Cheap: only runs while a call is up.
             runCatching { lockFace.setSpeakerOn(callAudio.isOnSpeaker()) }
@@ -2369,6 +2395,7 @@ class ControlService : AccessibilityService() {
         // second later, by which time this object is on its way out and nothing is left
         // to finish taking it down.
         runCatching { banner.dismiss(animated = false) }
+        runCatching { callBanner.dismiss(animated = false) }
         // Same rule for the wake's own window. It is a single transparent pixel and lives 1.5s,
         // so this is only ever reached by an unbind that lands inside that window -- and a pixel
         // at layer 31 that nothing can remove is still a pixel at layer 31 until a reboot.
@@ -2973,6 +3000,9 @@ class ControlService : AccessibilityService() {
         // the two settings that gate the face are not the setting that gates this -- a person who
         // turned the call card off did not turn the ringer off.
         runCatching { ringerSplit.onCall(state) }
+        // Also before every early return. The call box is for an unlocked phone and has its own
+        // setting, which is not the lock face's.
+        runCatching { syncCallBanner(state) }
         if (!prefs.enabled || !prefs.lockScreen || !prefs.lockCalls) {
             runCatching { lockFace.setCall(null) }
             // With the card switched off, the face still cannot be allowed to sit on top of a
@@ -3043,6 +3073,61 @@ class ControlService : AccessibilityService() {
         if (!ok) return
         standDownForCall("answered")
         openCallScreen("answered")
+    }
+
+    /**
+     * Put the call box up or take it down, to match the call and the screen.
+     *
+     * Up only while the phone rings, is awake and unlocked, and has an app in front that is not
+     * the dialer. The lock face has its own card for a locked phone. See [CallBannerRule].
+     */
+    private fun syncCallBanner(state: LockCallState?) {
+        val ringing = state?.stage == LockCallState.Stage.Ringing
+        if (!ringing) callBannerSwiped = false
+        val show = CallBannerRule.shows(
+            enabled = prefs.enabled && prefs.callBanner,
+            ringing = ringing,
+            awake = awake(),
+            front = foreground,
+            dialer = lockCall.dialerPackage(),
+            swipedAway = callBannerSwiped,
+            switcherUp = switcher.showing,
+        )
+        if (!show) {
+            if (callBanner.showing) callBanner.dismiss()
+            return
+        }
+        val fresh = !callBanner.showing
+        // One box at the top at a time. A text banner under a ringing phone is old news.
+        if (fresh) runCatching { banner.dismiss(animated = false) }
+        callBanner.show(state?.who.orEmpty(), state?.sub.orEmpty())
+        if (fresh) log("call banner · up over " + (foreground?.substringAfterLast('.') ?: "?"))
+    }
+
+    /**
+     * ANSWER, pressed on the call box. On success the dialer's call screen comes up, because that
+     * screen has mute, speaker, the keypad and END. With no route to answer from here, the call
+     * screen comes up anyway so the call can be answered there.
+     */
+    private fun answerFromBanner() {
+        val ok = lockCall.answer()
+        log("call banner answer" + if (ok) "" else " · NO ROUTE, opening the dialer")
+        callBanner.dismiss()
+        callBannerSwiped = true
+        callScreenOpened = false
+        openCallScreen(if (ok) "banner answered" else "banner no route")
+    }
+
+    /** DECLINE, pressed on the call box. With no route, the dialer comes up so it can be declined there. */
+    private fun declineFromBanner() {
+        val ok = lockCall.decline()
+        log("call banner decline" + if (ok) "" else " · NO ROUTE, opening the dialer")
+        callBanner.dismiss()
+        callBannerSwiped = true
+        if (!ok) {
+            callScreenOpened = false
+            openCallScreen("banner no route")
+        }
     }
 
     private fun declineCall() {

@@ -1336,6 +1336,17 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("banner", v).apply()
 
     /**
+     * Whether an incoming call on an unlocked phone shows a box with DECLINE and ANSWER at the top
+     * of the app in front.
+     *
+     * On. It is separate from [banner], which is off by default: a call is not a notification you
+     * can find out about later.
+     */
+    var callBanner: Boolean
+        get() = sp.getBoolean("call_banner", true)
+        set(v) = sp.edit().putBoolean("call_banner", v).apply()
+
+    /**
      * Whether a notification on a sleeping phone turns the panel on.
      *
      * On, because a box nobody is shown is a box that did nothing -- and the whole reason to have
