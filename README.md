@@ -22,7 +22,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.24.** See [Version history](#version-history).
+**Current version: v4.39.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1253,6 +1253,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.39 | **The Wi-Fi login page no longer reports itself as not loaded when it is on screen.** A portal that draws and sets its title but never fires `onPageFinished` (Aislelabs splash pages) tripped the 25s watchdog and filed "could not load the Wi-Fi login page" against a page that was visible. A received page title now counts as the page having drawn, the same as `onPageFinished` (`portal/PortalActivity.kt`) |
 | v4.38 | **Answer a call from inside an app.** A call that rings on an unlocked phone shows a box at the top of the app in front, with DECLINE and ANSWER. ANSWER opens the call screen; swipe up hides the box and the phone keeps ringing. No box while LightOS's call screen is in front or the phone is locked. Settings → Notifications → Incoming calls, on by default (`notify/CallBanner.kt`, `CallBannerRule`) |
 | v4.37 | **The edge strips end where the keyboard begins.** BrightKeyboard broadcasts its height on show and hide; the strips shorten to it and come back when it goes, so a touch on Q or shift is a key and not the start of a back gesture (`stripBounds(screen, top, bottom)`) |
 | v4.36 | **Presets: a whole working setup in one tap.** DEFAULT is the app as it ships and is also the repair for a phone with everything switched on. DEV'S CHOICE is the setup this app is written on. Applying one clears every setting first, so the result is the preset and not a layer over whatever was there (`Presets.kt`, `Prefs.resetToShipped`). The default launcher is read rather than asked, because it decides what the home button should do. Plus **Send my settings to the developer**, which files a configuration where the bug reports go, with the hotspot password, the pairing trail and the adb endpoint redacted |

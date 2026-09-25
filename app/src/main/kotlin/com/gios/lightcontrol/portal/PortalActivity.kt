@@ -98,7 +98,7 @@ class PortalActivity : ComponentActivity() {
     /** One automatic report per opening of this screen. The LOG button is not counted. */
     private var autoReported = false
 
-    /** Set the first time the WebView finishes *any* page. Its absence is the classic failure. */
+    /** Set the first time the WebView finishes *any* page, or the first title it receives. */
     private var pageFinished = false
     private var openedAt = 0L
     private var probes = 0
@@ -351,6 +351,13 @@ class PortalActivity : ComponentActivity() {
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 log.add("page title: ${title ?: "<none>"}")
+                // Some portals (Aislelabs splash pages in particular) render the page and set a
+                // title but never call onPageFinished — the page keeps its sockets open or the
+                // renderer never signals the load as done. Without this, the watchdog fires 25s
+                // after opening and files "could not load the login page" against a page that is
+                // plainly on screen (light-reports #519: title arrived at 4.7s, page never
+                // "finished", false FAIL at 25.5s). A title arriving is the page having drawn.
+                if (!title.isNullOrBlank()) pageFinished = true
             }
         }
         frame.addView(web, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
