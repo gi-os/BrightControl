@@ -1,17 +1,7 @@
-## BrightControl v4.39 — the Wi-Fi login page no longer reports itself as not loaded when it is on screen
+## BrightControl v4.40: the pairing reader gives the dialog a second window instead of failing a user still in Settings
 
-**A portal that rendered fine filed "could not load the Wi-Fi login page within 25s".** The report
-carried the log, and the log told the story: the page started, navigated through a redirect, drew,
-and set its title — "Aislelabs" — at 4.7 seconds, and the screen never "finished". Aislelabs splash
-pages keep their sockets open and never signal the load as done, so the `onPageFinished` callback
-that the watchdog waits for never came. At 25 seconds the watchdog fired anyway and filed a report
-against a login page that was sitting on the screen the whole time.
+**The 90-second pairing window expired on a user who was still looking for the box.** light-reports#540 is the shape: the reader saw Developer options and Wireless debugging but the "Pair device with pairing code" box was never opened, so the window ran out on someone mid-flow and filed a failure.
 
-**A page title arriving is the page having drawn.** The watchdog now accepts the first title the
-WebView receives as proof the login page came up, exactly as it accepts `onPageFinished`. A portal
-that sets its title and then holds its connections open is no longer reported as unloaded; a page
-that truly never draws still raises the watchdog after 25 seconds, unchanged.
+**One automatic second window when the user is evidently still in Settings.** If the dialog was never seen but Settings screens were, the reader now re-arms itself once for another 90 seconds instead of failing, with a fresh scroll budget and the screens seen so far kept for the report if the second window also expires. If the reader's sweeps stop partway through (the helper switched off, or its process gone), the report now says so instead of listing screens.
 
-Fixes [light-reports#519] — a mall's Aislelabs portal drew its login page but never fired
-`onPageFinished`, so the 25s watchdog filed "could not load the Wi-Fi login page" against a page
-that was on screen.
+Fixes [light-reports#540]: the pairing window expired before the "Pair device with pairing code" box was ever opened.

@@ -19,7 +19,8 @@ import android.view.accessibility.AccessibilityNodeInfo
  * `packageNames="com.android.settings"`, so it is structurally incapable of seeing any other
  * app — not by policy, by registration. On top of that it does nothing at all unless
  * [AdbPairSession.armed] is true, which lasts for one 90-second window that the user starts by
- * tapping a button.
+ * tapping a button, plus a single automatic second window when the dialog was never seen but the
+ * user is evidently still in Settings.
  *
  * Once pairing is done the service has no further purpose, and the ADB screen offers to switch
  * it back off.
@@ -48,10 +49,13 @@ class AdbPairReader : AccessibilityService() {
             wasArmed = false
             return
         }
-        // A fresh arming is a fresh scroll budget. Watched here rather than pushed from
-        // [AdbPairSession.arm] so the session keeps knowing nothing about the walk.
-        if (!wasArmed) {
+        AdbPairSession.noteRead()
+        // A fresh arming, or the automatic second window, is a fresh scroll budget.
+        // Watched here rather than pushed from [AdbPairSession.arm] so the session keeps
+        // knowing nothing about the walk.
+        if (!wasArmed || AdbPairSession.windowId != lastWindowId) {
             wasArmed = true
+            lastWindowId = AdbPairSession.windowId
             scrolls = 0
             lastTarget = null
             lastActedAt = 0L
@@ -165,6 +169,9 @@ class AdbPairReader : AccessibilityService() {
     private var scrolls = 0
 
     private var wasArmed = false
+
+    /** The [AdbPairSession.windowId] the budget above belongs to. Starts unmatched on purpose. */
+    private var lastWindowId = -1L
 
     /**
      * Flatten a window's text, one node per line. Line-per-node matters: [AdbPairSession] looks

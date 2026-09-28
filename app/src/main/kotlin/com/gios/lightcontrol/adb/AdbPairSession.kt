@@ -113,6 +113,41 @@ object AdbPairSession {
      */
     private val seen = LinkedHashSet<String>()
 
+    /**
+     * When the reader last made a pass while armed, or 0 before its first one this window.
+     *
+     * The reader sweeps every 500 ms while armed, so a window that has seen screens and then gone
+     * quiet for far longer than that is a helper that stopped, not a user who is slow. The expiry
+     * needs to tell those two apart: one deserves a second window, the other does not.
+     */
+    @Volatile
+    var lastReadAt = 0L
+        private set
+
+    /** Called by the reader on every pass while armed; the expiry uses it to tell a dead helper from a slow user. */
+    fun noteRead() {
+        lastReadAt = SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * Which arming this is, bumped by every [arm].
+     *
+     * The automatic second window is armed from inside the first one's expiry, so [armed] never
+     * drops between the two and the reader cannot see the boundary by watching it. This number is
+     * the boundary: the reader resets its per-window scroll budget when it changes.
+     */
+    @Volatile
+    var windowId = 0L
+        private set
+
+    /**
+     * Whether this attempt has already had its one automatic second window.
+     *
+     * Reset by every [arm], and set only after the expiry's own [arm] call, so the second window
+     * cannot hand itself a third.
+     */
+    private var reArmed = false
+
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var expire: Runnable? = null
@@ -140,23 +175,46 @@ object AdbPairSession {
         grants = emptyList()
         unreadable = null
         synchronized(seen) { seen.clear() }
+        lastReadAt = 0L
+        windowId++
+        reArmed = false
         phase = Phase.Waiting
         message = "waiting for the pairing dialog — open Wireless debugging → Pair device with pairing code"
         armed = true
         expire = Runnable {
             if (armed) {
+                val windows = synchronized(seen) { seen.toList() }
+                val now = SystemClock.elapsedRealtime()
+                // Screens seen but no sweep for far longer than the sweep interval: the helper
+                // died partway through, switched off in Settings or its process gone, and no
+                // second window would help.
+                val helperQuiet = windows.isNotEmpty() && now - lastReadAt > HELPER_QUIET_MS
+                if (!reArmed && windows.isNotEmpty() && !helperQuiet) {
+                    // The user is evidently still in Settings and the dialog simply never came up
+                    // in this window (light-reports#540). One automatic second window, not a
+                    // failure: failing someone who is still fumbling through Settings helps
+                    // nobody. Bounded: a phone put down mid-flow still ends, and ends reported.
+                    arm(fresh = false)
+                    // After the call, not before: [arm] clears this flag for every new attempt.
+                    reArmed = true
+                    // Keep the first window's trail, which [arm] just cleared: the question the
+                    // report answers is whether the dialog was ever among the screens seen, all
+                    // attempt long.
+                    synchronized(seen) { windows.forEach { seen += it } }
+                    message = "still waiting for the pairing dialog: open Wireless debugging, then Pair device with pairing code"
+                    return@Runnable
+                }
                 armed = false
                 phase = Phase.Failed
-                val windows = synchronized(seen) { seen.toList() }
                 message = "timed out after ${WINDOW_MS / 1000}s without seeing a pairing code"
                 // Reported, not just shown: a window that ends in silence is the case that needs
                 // explaining most, and the list of screens it did see is the whole explanation.
                 com.gios.lightcontrol.report.Trouble.record(
                     "find the pairing dialog in ${WINDOW_MS / 1000} seconds",
-                    if (windows.isEmpty()) {
-                        "no Settings window was read at all — the pairing helper may not be running"
-                    } else {
-                        "windows seen while waiting:\n" + windows.joinToString("\n")
+                    when {
+                        helperQuiet -> "the pairing helper stopped partway through the window. It may have been switched off in Settings > Accessibility"
+                        windows.isEmpty() -> "no Settings window was read at all, so the pairing helper may not be running"
+                        else -> "windows seen while waiting:\n" + windows.joinToString("\n")
                     },
                 )
             }
@@ -477,6 +535,13 @@ object AdbPairSession {
      * unreadable dialog is still reported while the user is standing in front of it.
      */
     private const val UNREADABLE_GRACE_MS = 3_000L
+
+    /**
+     * How long the reader may go without a pass, after seeing screens, before the expiry treats it
+     * as stopped rather than waiting on a slow user. The reader sweeps every 500 ms, so ten
+     * seconds is twenty missed sweeps: no busy phone drops that many.
+     */
+    private const val HELPER_QUIET_MS = 10_000L
 
     /** Automatic goes at a key the daemon will not trust, before the user is told. */
     private const val STALE_KEY_RECOVERIES = 1
