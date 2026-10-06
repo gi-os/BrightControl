@@ -380,8 +380,27 @@ class PortalActivity : ComponentActivity() {
         // an unbound WebView would fetch the probe URL over whatever the system prefers -- which
         // is the *other* network, the one that works, so the portal never sees the request and
         // never gets a chance to redirect.
-        val bound = cm.bindProcessToNetwork(net)
+        var bound = cm.bindProcessToNetwork(net)
         log.add("bindProcessToNetwork → $bound; process's bound network now ${cm.boundNetworkForProcess}")
+        val vpn = PortalDiagnostics.vpn(cm)
+        // **A failed bind with no VPN up is usually a dead network.** light-reports #640: the
+        // Network the system's captive-portal intent handed over was already gone by the time of
+        // the bind. The log showed it missing from the network list, with no capabilities and no
+        // link properties, and the bind returned false with no VPN anywhere. Android does not
+        // refuse a live Wi-Fi to an app that is not under a VPN, so the likelier story is that the
+        // network was torn down (or replaced by a new one for the same Wi-Fi) between the system
+        // noticing the portal and this screen opening. So resolve the current Wi-Fi afresh and
+        // give the bind one more chance before calling it a failure. The field is reassigned, not
+        // a local, so onStart, the probes, send() and onDestroy all follow the network that bound.
+        if (!bound && vpn == null) {
+            val fresh = findWifi()
+            if (fresh != null && fresh != net) {
+                log.add("first bind failed on a stale network; retrying the bind on $fresh")
+                network = fresh
+                bound = cm.bindProcessToNetwork(fresh)
+                log.add("bindProcessToNetwork → $bound (retry); process's bound network now ${cm.boundNetworkForProcess}")
+            }
+        }
         if (!bound) {
             // **This is the VPN.** light-reports #242–#244: the phone was on the portal network,
             // flagged CAPTIVE_PORTAL, WebView present, detection on — and the bind returned false,
@@ -390,7 +409,6 @@ class PortalActivity : ComponentActivity() {
             // network, unless the VPN app allows bypass; the system's own CaptivePortalLogin is
             // exempt by privilege, and this app is not. Nothing here can lift that. What it can do
             // is say so, name the VPN when the phone will, and not spend 25 s pretending to load.
-            val vpn = PortalDiagnostics.vpn(cm)
             if (vpn != null) {
                 val app = PortalDiagnostics.alwaysOnVpnApp(contentResolver)
                 val appLabel = app?.let { pkg ->
@@ -435,6 +453,14 @@ class PortalActivity : ComponentActivity() {
                     line = "A VPN is on" + (appLabel?.let { " ($it)" } ?: "") + ", and Android does not let an " +
                         "app under a VPN talk to any other network — so the login page cannot be loaded " +
                         "while it is up. Turn the VPN off, sign in here, then turn it back on.",
+                )
+                return
+            }
+            // No Wi-Fi left at all: "Android refused to route" would blame the wrong thing.
+            if (findWifi() == null) {
+                fail(
+                    what = "find a Wi-Fi network to sign in to",
+                    line = "The Wi-Fi network is gone. Connect to the network in Settings first, then come back here.",
                 )
                 return
             }
