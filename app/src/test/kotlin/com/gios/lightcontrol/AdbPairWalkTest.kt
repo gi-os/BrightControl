@@ -123,6 +123,47 @@ class AdbPairWalkTest {
     }
 
     @Test
+    fun `the top-level settings list taps system`() {
+        // light-reports#654: the user started here and walked Settings, Network & internet,
+        // Connected devices, Security, System, About phone and Developer options by hand, and the
+        // walk never engaged on any of them.
+        val settings = """
+            Settings
+            Search settings
+            Network & internet
+            Mobile, Wi-Fi, hotspot
+            Connected devices
+            Bluetooth, pairing
+            Apps
+            Security
+            Screen lock, face unlock
+            System
+            Languages, gestures, time, backup
+            About phone
+            Pixel
+        """.trimIndent()
+        assertEquals(Step.Tap(AdbPairWalk.SYSTEM_ROW), AdbPairWalk.next(settings))
+    }
+
+    @Test
+    fun `the system screen taps developer options instead of scrolling`() {
+        // "Developer options" is a row here, not the heading, so scrolling this list would never
+        // reach the Wireless debugging row.
+        val system = """
+            System
+            Languages & input
+            Gestures
+            Date & time
+            Backup
+            Reset options
+            Multiple users
+            Developer options
+            System update
+        """.trimIndent()
+        assertEquals(Step.Tap(AdbPairWalk.DEVELOPER_OPTIONS_ROW), AdbPairWalk.next(system))
+    }
+
+    @Test
     fun `an unrelated settings screen is left alone`() {
         // light-reports#299 and #317 are a user wandering: Storage, Apps storage, About phone,
         // Gestures, Navigation mode. None of them is on the way, and none of them gets touched.

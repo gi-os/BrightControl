@@ -63,16 +63,52 @@ object AdbPairWalk {
      *    title above an on/off switch rather than a row that goes somewhere.
      * 4. The Wireless debugging row, on any other screen — which in practice means Developer
      *    options with the list already scrolled down to it.
-     * 5. Developer options with the row still below the fold: scroll.
+     * 5. The top-level Settings list: tap System. light-reports#654 is a user who started on that
+     *    screen and walked through Settings by hand for the whole ninety seconds, and no arm
+     *    matched any screen they passed, so the walk never engaged. Matched on the heading being
+     *    exactly "Settings" plus two category rows, "About phone" and "Network & internet", that
+     *    appear together only on that list. The heading alone is not enough, since search results
+     *    and some vendor screens carry the same word; the two rows are what make it the top level.
+     *    The misfire is some other Settings-headed screen that lists both rows, where pressing
+     *    "System" opens the System screen. That is one screen deeper and changes nothing, so the
+     *    risk is accepted.
+     * 6. The System screen: tap Developer options. Without this arm the "Developer options" row on
+     *    that screen satisfies arm 7, which scrolls a list that will never show the Wireless
+     *    debugging row. Matched on the heading being exactly "System" and the row being present.
+     *    The misfire is another screen headed "System" that lists a Developer options row, and
+     *    pressing that row lands on Developer options, which is where the walk is headed anyway.
+     * 7. Developer options with the row still below the fold: scroll.
+     *
+     * Arms 5 and 6 carry the same language limit as [looksLikeDeveloperOptions]: the labels are
+     * English, and a phone set to another language is not walked from these screens either.
      */
     fun next(text: String): Step = when {
         AdbPairCode.looksLikePairingDialog(text) -> Step.Nothing
         text.contains(PAIRING_ROW, ignoreCase = true) -> Step.Tap(PAIRING_ROW)
         onTheWirelessDebuggingScreen(text) -> Step.Scroll
         text.contains(WIRELESS_ROW, ignoreCase = true) -> Step.Tap(WIRELESS_ROW)
+        onTheTopLevelSettingsScreen(text) -> Step.Tap(SYSTEM_ROW)
+        onTheSystemScreen(text) -> Step.Tap(DEVELOPER_OPTIONS_ROW)
         looksLikeDeveloperOptions(text) -> Step.Scroll
         else -> Step.Nothing
     }
+
+    /**
+     * The first non-blank line of the flattened text, trimmed. The reader names windows the same
+     * way in AdbPairSession, because the window's title is the first node it flattens.
+     */
+    private fun heading(text: String): String =
+        text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: ""
+
+    /** The top-level Settings list, told apart from other screens titled "Settings" by two rows. */
+    private fun onTheTopLevelSettingsScreen(text: String): Boolean =
+        heading(text) == "Settings" &&
+            text.contains("About phone", ignoreCase = true) &&
+            text.contains("Network & internet", ignoreCase = true)
+
+    /** The System screen, which holds the Developer options row once developer options are on. */
+    private fun onTheSystemScreen(text: String): Boolean =
+        heading(text) == "System" && text.contains(DEVELOPER_OPTIONS_ROW, ignoreCase = true)
 
     /**
      * The Wireless debugging screen, told apart from every screen that merely mentions it.
@@ -100,6 +136,10 @@ object AdbPairWalk {
     const val PAIRING_ROW = "Pair device with pairing code"
 
     const val WIRELESS_ROW = "Wireless debugging"
+
+    const val SYSTEM_ROW = "System"
+
+    const val DEVELOPER_OPTIONS_ROW = "Developer options"
 
     /**
      * How many scrolls one armed window is allowed.

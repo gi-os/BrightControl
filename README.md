@@ -22,7 +22,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.41.** See [Version history](#version-history).
+**Current version: v4.42.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1253,6 +1253,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.42 | **The pairing walk starts from the top-level Settings screen.** With the reader armed on the main Settings list, the walk now taps System, and on the System screen it taps Developer options instead of scrolling past it, so a user who wanders Settings by hand is carried to the pairing dialog. Both screens are matched on their heading plus rows only they carry (`adb/AdbPairWalk.kt`) |
 | v4.41 | **The Wi-Fi login screen retries the bind on the current Wi-Fi when the network it was handed is already gone.** When the first bind fails with no VPN up, the screen looks up the current Wi-Fi afresh and binds once more, following the network that bound from then on; with no Wi-Fi left at all it says the network is gone instead of blaming Android for refusing to route the app (`portal/PortalActivity.kt`) |
 | v4.40 | **The pairing reader gives the dialog a second window instead of failing a user still in Settings.** When the 90-second window runs out with Settings screens seen but the pairing box never opened, the reader re-arms once for another 90 seconds with a fresh scroll budget, keeping the first window's screens for the report. A reader whose sweeps stopped partway through is reported as the helper stopping rather than given a second window (`adb/AdbPairSession.kt`) |
 | v4.39 | **The Wi-Fi login page no longer reports itself as not loaded when it is on screen.** A portal that draws and sets its title but never fires `onPageFinished` (Aislelabs splash pages) tripped the 25s watchdog and filed "could not load the Wi-Fi login page" against a page that was visible. A received page title now counts as the page having drawn, the same as `onPageFinished` (`portal/PortalActivity.kt`) |

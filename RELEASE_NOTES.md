@@ -1,9 +1,9 @@
-## BrightControl v4.41: the Wi-Fi login screen retries the bind on the current Wi-Fi when the network it was handed is already gone
+## BrightControl v4.42 -- the pairing walk starts from the top-level Settings screen
 
-**Wi-Fi login could not bind the app to the Wi-Fi network (bindProcessToNetwork returned false, no VPN up).** light-reports#640 is the shape: the network the system's captive-portal notification handed to the screen was already dead by the time it was used, missing from the network list with no capabilities and no link properties, and the screen blamed Android for refusing to route the app.
+**Could not find the pairing dialog in 90 seconds: the reader was armed while the phone sat on the top-level Settings screen, and the walk never engaged.** light-reports#654 lists the windows seen while waiting: Settings, Network & internet, Connected devices, Security, System, About phone, Developer options. The user went through Settings by hand for the whole window and nothing was tapped for them.
 
-**One fresh look for the Wi-Fi and a second bind before giving up. When there is no Wi-Fi left at all, the screen now says so.**
+The walk only knew how to move from Developer options onward. On the main Settings list there is no pairing row, no Wireless debugging row and no Developer options row, so it decided there was nothing to do and waited. The System screen had a second problem: it lists Developer options as a row, and the walk took that as a sign it was already on Developer options and scrolled a list that would never show Wireless debugging.
 
-When the first bind fails and no VPN is up, the screen no longer trusts the network it was handed. It looks up the current Wi-Fi again, the same way it does when opened by hand, and if that turns up a different network it binds to that one instead and carries on with it for the page, the success checks and the log. If no Wi-Fi exists anymore, the message tells the user the network is gone and to reconnect in Settings, rather than reporting a routing refusal that never happened. A failed bind under a VPN is handled exactly as before.
+The walk now recognizes both screens by their heading, the first line the reader sees, together with rows that only those screens carry. On the main Settings list, headed "Settings" and showing both "Network & internet" and "About phone", it taps System. On the System screen, headed "System" with a Developer options row, it taps that row. From Developer options the existing walk takes over as before. Like the rest of the walk, these matches use English labels.
 
-Fixes [light-reports#640]: Wi-Fi login could not bind the app to the Wi-Fi network (bindProcessToNetwork returned false, no VPN up).
+Fixes [light-reports#654] -- could not find the pairing dialog in 90 seconds; the walk never engaged on the top-level Settings screen.
