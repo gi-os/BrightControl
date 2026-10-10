@@ -51,4 +51,26 @@ class PortalLogTest {
         assertEquals(2, seen.size)
         assertEquals(log.last(), seen.last())
     }
+
+    @Test
+    fun sendLogBookkeepingDoesNotCountAsSignal() {
+        val log = PortalLog(now = { 0L })
+        log.add("findWifi: 0 wifi network(s)")
+        log.add("FAIL: could not find a Wi-Fi network to sign in to")
+        val before = log.signal()
+        log.add("SEND LOG tapped")
+        log.add("report posted or queued")
+        log.add("report queued (no token in this build)")
+        log.add("SEND LOG: nothing new since the last one, not sent again")
+        assertEquals(before, log.signal())
+        log.add("page finished")
+        assertEquals(before + 1, log.signal())
+    }
+
+    @Test
+    fun signalKeepsCountingPastOverflow() {
+        val log = PortalLog(now = { 0L }, maxChars = 60)
+        repeat(10) { log.add("line $it") }
+        assertEquals(10, log.signal())
+    }
 }

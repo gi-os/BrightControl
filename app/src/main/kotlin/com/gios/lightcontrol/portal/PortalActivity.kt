@@ -98,6 +98,9 @@ class PortalActivity : ComponentActivity() {
     /** One automatic report per opening of this screen. The LOG button is not counted. */
     private var autoReported = false
 
+    /** [PortalLog.signal] when SEND LOG last filed, so a repeat tap with nothing new files nothing. */
+    private var sentByHandAt = -1
+
     /** Set the first time the WebView finishes *any* page, or the first title it receives. */
     private var pageFinished = false
     private var openedAt = 0L
@@ -846,6 +849,12 @@ class PortalActivity : ComponentActivity() {
 
     /** The SEND LOG button. Always files, whatever the throttles say — it is the user asking. */
     private fun sendLogByHand() {
+        if (log.signal() == sentByHandAt) {
+            log.add("SEND LOG: nothing new since the last one, not sent again")
+            status.text = "Already sent — nothing new in the log since."
+            return
+        }
+        sentByHandAt = log.signal()
         log.add("SEND LOG tapped")
         val what = when {
             done -> "report anything wrong — the user sent the Wi-Fi login log after getting through"
