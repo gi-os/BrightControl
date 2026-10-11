@@ -415,14 +415,17 @@ class PortalActivity : ComponentActivity() {
                 log.add("bindProcessToNetwork → $bound (retry); process's bound network now ${cm.boundNetworkForProcess}")
             }
         }
-        // **A Wi-Fi that has only just joined.** light-reports #672: the screen found the Wi-Fi
-        // 0.4 s after opening, listed but with no DNS yet and not yet validated, and the bind
-        // failed. The retry above looked again at once, found the same network and did nothing,
-        // so the screen gave up 4 ms after its first try. Android lists a Wi-Fi as soon as it
-        // starts joining, before it has an address, and a bind to it fails until the platform has
-        // finished setting it up. That takes a moment, so wait and try again ([BindRetry]) before
-        // calling it a failure. Only with no VPN up: a VPN refusal does not go away with time.
-        if (!bound && vpn == null && findWifi() != null) {
+        // **A Wi-Fi that is still joining, or between networks.** light-reports #672: the screen
+        // found the Wi-Fi 0.4 s after opening, listed but with no DNS yet and not yet validated,
+        // and the bind failed; waiting and trying again fixed it. light-reports #686: the network
+        // the system's intent handed over was already torn down, and no Wi-Fi was listed at all
+        // when the screen looked, so the screen skipped the retry and filed the failure; the
+        // replacement Wi-Fi appeared a moment later, between two successive lookups. A network
+        // list sampled twice in the same millisecond can say two different things while a Wi-Fi
+        // is tearing down and rejoining, so one empty lookup is not a verdict. The retries look
+        // the Wi-Fi up afresh on every attempt, and a Wi-Fi that never comes back is reported as
+        // gone once they are spent. Only with no VPN up: a VPN refusal does not go away with time.
+        if (!bound && vpn == null) {
             status.text = "waiting for the Wi-Fi to finish connecting…"
             retryBind(1)
             return
@@ -537,7 +540,7 @@ class PortalActivity : ComponentActivity() {
         }
         bindPending = true
         nextBindAttempt = attempt
-        log.add("bind retry $attempt of ${BindRetry.ATTEMPTS} in ${delay}ms: the Wi-Fi may still be joining")
+        log.add("bind retry $attempt of ${BindRetry.ATTEMPTS} in ${delay}ms: the Wi-Fi may still be joining or rejoining")
         handler.postDelayed(bindRetryTask, delay)
     }
 
@@ -554,7 +557,10 @@ class PortalActivity : ComponentActivity() {
         val cm = getSystemService(ConnectivityManager::class.java)
         val target = findWifi()
         if (target == null) {
-            bindFailed()
+            // The Wi-Fi is mid-handoff and not listed yet (light-reports #686). Failing now would
+            // file a report against a network that is about to exist; the next retry looks again.
+            log.add("bind retry $attempt: no Wi-Fi listed yet, waiting for the next retry")
+            retryBind(attempt + 1)
             return
         }
         network = target

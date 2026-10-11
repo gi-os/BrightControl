@@ -1,14 +1,15 @@
 package com.gios.lightcontrol.portal
 
 /**
- * When the Wi-Fi login screen tries the bind again after Android refuses it with no VPN up and the
- * Wi-Fi still listed.
+ * When the Wi-Fi login screen tries the bind again after Android refuses it with no VPN up.
  *
  * light-reports #672: the screen opened 0.4 s after the phone started joining the Wi-Fi. The
  * network was listed, but had no DNS and was not yet validated, and the bind failed. The only
- * retry ran 2 ms later on the same network. A network that is still joining needs a moment, not a
- * second look, so the retries are spaced out: about six and a half seconds in all before the
- * screen calls it a failure.
+ * retry ran 2 ms later on the same network. light-reports #686: the network the system's intent
+ * handed over was already torn down and no Wi-Fi was listed at all, the replacement appearing a
+ * moment later. A network that is still joining, or between networks, needs a moment, not a
+ * verdict, so the retries are spaced out: about six and a half seconds in all before the
+ * screen calls it a failure. Each attempt looks the Wi-Fi up afresh.
  *
  * No Android imports, so the schedule is checked without a phone.
  */

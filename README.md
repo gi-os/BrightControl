@@ -22,7 +22,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.44.** See [Version history](#version-history).
+**Current version: v4.45.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1253,6 +1253,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.45 | **The Wi-Fi login screen waits for a Wi-Fi that disappears mid-handoff.** A bind refused with no VPN up is now retried even when no Wi-Fi is listed at that instant, because a teardown and rejoin can leave the network list empty for a moment; each retry looks the Wi-Fi up afresh, and a Wi-Fi that never comes back is reported as gone (`portal/PortalActivity.kt`, light-reports#686) |
 | v4.44 | **The Wi-Fi login screen waits for a Wi-Fi that is still joining.** A bind refused with no VPN up, on a Wi-Fi that is still listed, is tried again after 0.25, 0.5, 1, 2 and 3 seconds before it counts as a failure. The page loads and the probes start on the first bind that holds (`portal/BindRetry.kt`, light-reports#672) |
 | v4.43 | **SEND LOG on the Wi-Fi login screen files once per log, not once per tap.** A repeat tap with nothing new in the log since the last report says it was already sent and posts nothing; the button's own lines do not count as new (`portal/PortalLog.kt`) |
 | v4.42 | **The pairing walk starts from the top-level Settings screen.** With the reader armed on the main Settings list, the walk now taps System, and on the System screen it taps Developer options instead of scrolling past it, so a user who wanders Settings by hand is carried to the pairing dialog. Both screens are matched on their heading plus rows only they carry (`adb/AdbPairWalk.kt`) |
