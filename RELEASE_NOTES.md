@@ -1,9 +1,9 @@
-## BrightControl v4.43 -- SEND LOG files once per log, not once per tap
+## BrightControl v4.44 -- the Wi-Fi login screen waits for a Wi-Fi that is still joining
 
-**Tapping SEND LOG three times on the Wi-Fi login screen filed three identical reports.** light-reports#673, #674 and #675 are the same log: the screen opened with no Wi-Fi network connected, said so, and the user tapped SEND LOG at 3.5s, 5.9s and 7.3s. Each tap posted a full report, and the only difference between them is the extra "SEND LOG tapped" lines at the end.
+**Opening Wi-Fi login right after the phone joined a network failed at once with "Android refused to route this app over the Wi-Fi network."** light-reports#672 shows the screen finding the Wi-Fi 0.4 seconds after it opened. The network was listed but had no DNS server and was not yet validated, which means the phone was still joining it. The bind failed, the screen looked the network up again 2 milliseconds later, found the same one, and filed the failure. The whole attempt took 4 milliseconds.
 
-The button was written to always file, since it is the user asking, and nothing checked whether the previous tap had already filed the same thing. On the Light Phone a tap often gives no visible feedback until the send comes back, so tapping again is the natural thing to do.
+Android lists a Wi-Fi as soon as the phone starts joining it, before the network has an address. An app can't bind to it until the platform has finished setting it up, and that takes a moment. The v4.41 retry only helped when the network had been replaced by a new one. Here it was the same network, just not ready yet.
 
-The log now counts the lines that say something about the network, and leaves out the lines SEND LOG writes about itself. A tap files only when that count has moved since the last tap that filed. Otherwise the status line reads "Already sent — nothing new in the log since." and nothing is posted. Anything new that happens on the screen, such as a page loading or a probe failing, makes the next tap file again.
+When the bind is refused with no VPN up and the Wi-Fi is still listed, the screen now says "waiting for the Wi-Fi to finish connecting…" and tries again after 0.25, 0.5, 1, 2 and 3 seconds. The first bind that holds loads the login page as before. The probes that check whether the gate has opened wait until then. If every retry is refused, the failure is reported as before, now noting the retries. If the Wi-Fi drops while the screen waits, it says the network is gone. A refusal under a VPN is still reported at once, because waiting doesn't change it. A retry never binds while the screen is in the background; it runs when the screen comes back.
 
-Fixes [light-reports#673] -- one Wi-Fi login log arrived as three reports after SEND LOG was tapped three times.
+Fixes [light-reports#672] -- could not bind the app to the Wi-Fi network on a Wi-Fi that was still joining.

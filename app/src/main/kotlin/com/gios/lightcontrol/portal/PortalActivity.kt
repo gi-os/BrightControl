@@ -162,6 +162,17 @@ class PortalActivity : ComponentActivity() {
     /** The probe loop only runs while this is on screen. See [onStart]. */
     private var watching = false
 
+    /** Between [onStart] and [onStop]. A bind retry only binds while this is true. */
+    private var started = false
+
+    /** A bind retry is waiting (see [retryBind]); it loads the page and starts the probes itself. */
+    private var bindPending = false
+    private var nextBindAttempt = 0
+
+    /** A retry came due while the screen was off; [onStart] runs it. */
+    private var bindDeferred = false
+    private val bindRetryTask = Runnable { bindAttempt() }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -404,6 +415,18 @@ class PortalActivity : ComponentActivity() {
                 log.add("bindProcessToNetwork → $bound (retry); process's bound network now ${cm.boundNetworkForProcess}")
             }
         }
+        // **A Wi-Fi that has only just joined.** light-reports #672: the screen found the Wi-Fi
+        // 0.4 s after opening, listed but with no DNS yet and not yet validated, and the bind
+        // failed. The retry above looked again at once, found the same network and did nothing,
+        // so the screen gave up 4 ms after its first try. Android lists a Wi-Fi as soon as it
+        // starts joining, before it has an address, and a bind to it fails until the platform has
+        // finished setting it up. That takes a moment, so wait and try again ([BindRetry]) before
+        // calling it a failure. Only with no VPN up: a VPN refusal does not go away with time.
+        if (!bound && vpn == null && findWifi() != null) {
+            status.text = "waiting for the Wi-Fi to finish connecting…"
+            retryBind(1)
+            return
+        }
         if (!bound) {
             // **This is the VPN.** light-reports #242–#244: the phone was on the portal network,
             // flagged CAPTIVE_PORTAL, WebView present, detection on — and the bind returned false,
@@ -479,6 +502,12 @@ class PortalActivity : ComponentActivity() {
         // screen with Home does not destroy the activity, so binding once here left every other
         // thing this app does -- shake-to-report, the ADB screen's own traffic -- pointed at a
         // network that goes nowhere, for as long as the activity stayed in the back stack.
+        startLoading()
+    }
+
+    /** The bind held: load the first page, and start the watchdog for a page that never comes. */
+    private fun startLoading() {
+        val web = webView ?: return
         val start = PortalRoute.startUrl(systemUrl)
         log.add("loadUrl $start" + if (start != PROBE_URL) " (the system's own portal url)" else "")
         web.loadUrl(start)
@@ -496,8 +525,88 @@ class PortalActivity : ComponentActivity() {
         }, PAGE_TIMEOUT_MS)
     }
 
+    /**
+     * Tries the bind again after the pause [BindRetry] gives for [attempt], or gives up when the
+     * retries are spent. See light-reports #672 in [onCreate].
+     */
+    private fun retryBind(attempt: Int) {
+        val delay = BindRetry.delayBefore(attempt)
+        if (delay == null) {
+            bindFailed()
+            return
+        }
+        bindPending = true
+        nextBindAttempt = attempt
+        log.add("bind retry $attempt of ${BindRetry.ATTEMPTS} in ${delay}ms: the Wi-Fi may still be joining")
+        handler.postDelayed(bindRetryTask, delay)
+    }
+
+    private fun bindAttempt() {
+        if (!bindPending || done || isFinishing || isDestroyed) return
+        // Off screen, onStop has unbound the process on purpose (see the note above
+        // [startLoading]'s call). Binding now would leave every other thing this app does pointed
+        // at the portal from the background. onStart picks the attempt up.
+        if (!started) {
+            bindDeferred = true
+            return
+        }
+        val attempt = nextBindAttempt
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val target = findWifi()
+        if (target == null) {
+            bindFailed()
+            return
+        }
+        network = target
+        val ok = cm.bindProcessToNetwork(target)
+        log.add("bindProcessToNetwork → $ok (retry $attempt); process's bound network now ${cm.boundNetworkForProcess}")
+        log.add("retry $attempt on: ${PortalDiagnostics.describe(cm, target, target == cm.activeNetwork)}")
+        if (!ok) {
+            retryBind(attempt + 1)
+            return
+        }
+        bindPending = false
+        status.text = "loading the network's login page…"
+        startLoading()
+        if (!watching) {
+            watching = true
+            handler.postDelayed(probeLoop, PROBE_EVERY_MS)
+        }
+    }
+
+    /** Every retry refused, or the Wi-Fi went away while waiting. */
+    private fun bindFailed() {
+        bindPending = false
+        bindDeferred = false
+        watching = false
+        handler.removeCallbacks(probeLoop)
+        // No Wi-Fi left at all: "Android refused to route" would blame the wrong thing.
+        if (findWifi() == null) {
+            fail(
+                what = "find a Wi-Fi network to sign in to",
+                line = "The Wi-Fi network is gone. Connect to the network in Settings first, then come back here.",
+            )
+            return
+        }
+        fail(
+            what = "bind the app to the Wi-Fi network (bindProcessToNetwork returned false, no VPN up, " +
+                "still refused after ${BindRetry.ATTEMPTS} retries over ${BindRetry.TOTAL_MS / 1000.0}s)",
+            line = "Android refused to route this app over the Wi-Fi network, so the login " +
+                "page cannot be reached. This has been reported.",
+        )
+    }
+
     override fun onStart() {
         super.onStart()
+        started = true
+        // A bind retry is waiting: it binds, loads the page and starts the probes when it lands.
+        if (bindPending) {
+            if (bindDeferred) {
+                bindDeferred = false
+                handler.post(bindRetryTask)
+            }
+            return
+        }
         val net = network ?: return
         val cm = getSystemService(ConnectivityManager::class.java)
         val bound = cm.bindProcessToNetwork(net)
@@ -508,6 +617,7 @@ class PortalActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        started = false
         watching = false
         handler.removeCallbacks(probeLoop)
         getSystemService(ConnectivityManager::class.java).bindProcessToNetwork(null)
