@@ -119,6 +119,29 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
     override fun getDeviceName(): String = "BrightControl"
 
+    /** This manager's certificate, as [LibadbTls] compares it. */
+    private val certificateBytes: ByteArray = mCertificate.encoded
+
+    /**
+     * What [LibadbTls.match] found the last time this manager was about to open a TLS socket.
+     *
+     * Read by the pairing flow for its trail. [LibadbTls.Outcome.Cleared] means the handshake
+     * would have presented an older key without the clear.
+     */
+    @Volatile
+    var lastTls: LibadbTls.Outcome? = null
+        private set
+
+    /**
+     * Before every pairing and every connect: make libadb present this manager's key.
+     *
+     * See [LibadbTls]. Without this, the first key pair to reach a handshake stays in use for the
+     * life of the process, and a pairing made with a newer key cannot connect.
+     */
+    private fun matchTls() {
+        lastTls = LibadbTls.match(certificateBytes)
+    }
+
     /**
      * Pair with the phone's own adb daemon, finding the pairing port ourselves over mDNS.
      *
@@ -136,6 +159,8 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
      * Discovery waits up to [timeoutMs] for the service to appear.
      */
     fun pairViaMdns(context: Context, code: String, timeoutMs: Long): Boolean {
+        // Pairing opens a TLS socket of its own, and libadb hands it the same stored context.
+        matchTls()
         val latch = CountDownLatch(1)
         val portRef = AtomicInteger(-1)
         val hostRef = AtomicReference<String?>(null)
@@ -163,11 +188,62 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
      * falling back to a port the user typed off the Wireless-debugging screen. The connect port is
      * stable (unlike the pairing port) so typing it is a fine fallback when mDNS finds nothing.
      */
-    fun connectAuto(context: Context, timeoutMs: Long): Boolean =
-        autoConnect(context, timeoutMs)
+    fun connectAuto(context: Context, timeoutMs: Long): Boolean {
+        matchTls()
+        return autoConnect(context, timeoutMs)
+    }
 
-    fun connectPort(context: Context, port: Int): Boolean =
-        connect(AndroidUtils.getHostIpAddress(context), port)
+    fun connectPort(context: Context, port: Int): Boolean {
+        matchTls()
+        return connect(AndroidUtils.getHostIpAddress(context), port)
+    }
+
+    /** One connect attempt: whether it connected, and what came back when it did not. */
+    data class Attempt(
+        val ok: Boolean,
+        /** For the trail: "connected", or the exception libadb threw, addresses removed. */
+        val said: String,
+        val kind: AdbFailure.Kind?,
+    )
+
+    /**
+     * [connectAuto], keeping the reason when it fails.
+     *
+     * The pairing flow used to call [connectAuto] inside `runCatching { }.getOrDefault(false)`,
+     * which turned every kind of failure into the same `false`. See [AdbFailure].
+     */
+    fun tryConnectAuto(context: Context, timeoutMs: Long): Attempt = attempt {
+        connectAuto(context, timeoutMs)
+    }
+
+    /**
+     * [connectPort], keeping the reason, and on a thread this walks away from after [CONNECT_MS].
+     *
+     * A TCP connect to a port nothing answers on can sit in SYN retries for minutes. See
+     * [withinDeadline], which [ensureAlive] already uses for the same call.
+     */
+    fun tryConnectPort(context: Context, port: Int): Attempt {
+        var result: Attempt? = null
+        val finished = withinDeadline(CONNECT_MS) {
+            result = attempt { connectPort(context, port) }
+            true
+        }
+        return result?.takeIf { finished }
+            ?: Attempt(false, "no answer in ${CONNECT_MS / 1000}s", AdbFailure.Kind.Other)
+    }
+
+    private inline fun attempt(connect: () -> Boolean): Attempt =
+        try {
+            if (connect()) {
+                Attempt(true, "connected", null)
+            } else {
+                // libadb answers false when the handshake ran out of time, and when a connection
+                // was already up. Either way there is no exception to keep.
+                Attempt(false, "the daemon did not finish the connection", AdbFailure.Kind.Other)
+            }
+        } catch (e: Throwable) {
+            Attempt(false, AdbFailure.describe(e), AdbFailure.kind(e))
+        }
 
     /**
      * Run one shell command and return everything it prints, stdout and stderr merged the way
@@ -670,6 +746,10 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             reset()
             val cert = runCatching { certFile(context).delete() }.getOrDefault(false)
             val key = runCatching { keyFile(context).delete() }.getOrDefault(false)
+            // The files are gone, but libadb still holds a TLS context built from them, and it
+            // would present that old certificate on every handshake from now until the process
+            // dies. The next manager makes a new key; this makes sure it is the one presented.
+            LibadbTls.forget()
             return cert || key
         }
 

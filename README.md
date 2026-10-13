@@ -22,7 +22,7 @@ Scan the code above with **BrightMarket** installed. This opens BrightControl th
 can install or update it directly. If you do not have BrightMarket yet, get it and browse every
 Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v4.45.** See [Version history](#version-history).
+**Current version: v4.46.** See [Version history](#version-history).
 
 ## What it does
 
@@ -1215,6 +1215,10 @@ report/                    shake to report, the crash log, and the queue
 - **The adb shell service carries no exit status.** It merges stdout and stderr and returns no
   code, so "printed nothing" covers both success and a command that never ran. The app reads
   every grant back off the phone instead.
+- **libadb keeps one TLS context for the whole process**. It builds the context from the first
+  key pair it gets. It ignores every later key pair. Change the key while the app runs, and each
+  handshake presents the old certificate. The file `adb/LibadbTls.kt` clears the context when the
+  key changes.
 - **A BLE scan with no permission does not throw.** It returns nothing, forever, which looks
   exactly like an iPad that is not there.
 
@@ -1253,6 +1257,7 @@ Real tags, newest first. `RELEASE_NOTES.md` holds the full entry for the current
 
 | Version | What changed |
 |---------|--------------|
+| v4.46 | **A pairing the phone accepts now connects**. The libadb library makes one TLS context from the first key and gives it to every later connection. After START OVER AND PAIR made a new key, each connect presented the old certificate. The phone refused it in the same second. The app now clears that context when the key changes (`adb/LibadbTls.kt`). The connect after a pairing tries three times and writes each answer to the trail. The "Reported" line at the bottom of the screen goes away after ten seconds again (light-reports#700) |
 | v4.45 | **The Wi-Fi login screen waits for a Wi-Fi that disappears mid-handoff.** A bind refused with no VPN up is now retried even when no Wi-Fi is listed at that instant, because a teardown and rejoin can leave the network list empty for a moment; each retry looks the Wi-Fi up afresh, and a Wi-Fi that never comes back is reported as gone (`portal/PortalActivity.kt`, light-reports#686) |
 | v4.44 | **The Wi-Fi login screen waits for a Wi-Fi that is still joining.** A bind refused with no VPN up, on a Wi-Fi that is still listed, is tried again after 0.25, 0.5, 1, 2 and 3 seconds before it counts as a failure. The page loads and the probes start on the first bind that holds (`portal/BindRetry.kt`, light-reports#672) |
 | v4.43 | **SEND LOG on the Wi-Fi login screen files once per log, not once per tap.** A repeat tap with nothing new in the log since the last report says it was already sent and posts nothing; the button's own lines do not count as new (`portal/PortalLog.kt`) |

@@ -253,7 +253,14 @@ class MainActivity : ComponentActivity() {
                     // Every screen starts with nothing highlighted. The rows behind it are gone,
                     // and a selection carried across a screen change is a click aimed at whatever
                     // now happens to be in that position.
-                    LaunchedEffect(screen) { cursor.reset() }
+                    LaunchedEffect(screen) {
+                        cursor.reset()
+                        // Every report names the screen it came from, and until now nothing here
+                        // set it, so every report said `buttons`, the default. A pairing that failed
+                        // from the ADB screen was filed fifty times as a fault on the buttons screen.
+                        com.gios.lightcontrol.report.ReportContext.screen =
+                            screen.javaClass.simpleName.lowercase()
+                    }
 
                     BackHandler(enabled = screen != Screen.Home && screen != Screen.Intro) {
                         screen = parentOf(screen)

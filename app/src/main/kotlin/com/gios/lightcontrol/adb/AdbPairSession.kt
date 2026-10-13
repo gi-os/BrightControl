@@ -332,8 +332,14 @@ object AdbPairSession {
         // nobody will ever read.
         prefs.notePairStep("code read, pairing")
 
-        val paired = runCatching { adb.pairViaMdns(context, code, 60_000L) }.getOrDefault(false)
-        prefs.notePairStep(if (paired) "pairing accepted" else "pairing REFUSED")
+        val pairing = runCatching { adb.pairViaMdns(context, code, 60_000L) }
+        val paired = pairing.getOrDefault(false)
+        LibadbTls.note(adb.lastTls)?.let { prefs.notePairStep(it) }
+        // The exception, not a guess. A wrong code, a closed box and a missing service each fail
+        // in their own way, and the trail is where that difference gets read.
+        val refusal = pairing.exceptionOrNull()?.let { AdbFailure.describe(it) }
+            ?: "no pairing service found in 60s"
+        prefs.notePairStep(if (paired) "pairing accepted" else "pairing REFUSED — $refusal")
         if (!paired) {
             main.post {
                 phase = Phase.Failed
@@ -344,51 +350,27 @@ object AdbPairSession {
                 "pair with the code it read off the dialog",
                 "the daemon refused the pairing. The code is fresh each time the box opens, so a " +
                     "refusal usually means the box had closed — but a stale key on this phone can " +
-                    "also be refused, which FORGET THE PAIRING clears.",
+                    "also be refused, which FORGET THE PAIRING clears.\n\nwhat came back: $refusal",
             )
             return
         }
 
-        var connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
-        if (!connected) {
-            // The port the reader took off the screen, which needs no discovery to be true.
-            val port = prefs.adbPort.toIntOrNull()
-            if (port != null) {
-                prefs.notePairStep("mDNS found nothing — trying the port from the screen: $port")
-                connected = runCatching { adb.connectPort(context, port) }.getOrDefault(false)
-            }
-        }
-        if (!connected) {
-            // **The cause the report names, checked rather than guessed.** The pairing was
-            // accepted, so the daemon was listening a moment ago. A connect that now finds
-            // nothing is usually wireless debugging switched off by the very trip through
-            // Settings this pairing walk just made — readable without any permission, and
-            // writable with the grant this app already holds. So flip it back on and try once
-            // more before reporting a pairing that worked as one that failed.
-            if (AdbWifi.on(context) != true) {
-                val turned = AdbWifi.turnOn(context)
-                prefs.notePairStep(
-                    if (turned.ok) "debugging was off — switched it back on"
-                    else "debugging off and would not switch on — ${turned.said}",
-                )
-                if (turned.ok) {
-                    connected = runCatching { adb.connectAuto(context, 15_000L) }.getOrDefault(false)
-                }
-            }
-        }
-        prefs.notePairStep(if (connected) "connected" else "connect FAILED after pairing")
-        if (!connected) {
+        main.post { message = "paired — connecting" }
+        val link = connectAfterPairing(context, prefs)
+        val linked = link.manager
+        prefs.notePairStep(if (linked != null) "connected" else "connect FAILED after pairing")
+        if (linked == null) {
             main.post {
                 phase = Phase.Failed
-                message = "paired, but could not connect. Wireless debugging was likely switched " +
-                    "off by the trip through Settings — the button at the top switches it back " +
-                    "on, then GRANT ALL reconnects."
+                message = PairConnect.failedMessage(link.wifiOn, link.kind)
             }
+            // A new name for the family, on purpose. Phones that filed the old one hold it in
+            // their once-per-install ledger and would file nothing now — and this is the first
+            // build whose report carries the exceptions and the trail, which is the whole reason
+            // to want one more.
             com.gios.lightcontrol.report.Trouble.record(
-                "connect after a pairing the daemon accepted",
-                "the pairing was accepted and mDNS then found nothing to connect to. Wireless " +
-                    "debugging may have been switched off by the trip through Settings — the app " +
-                    "checked, switched it back on if it was off, and tried again.",
+                "connect after a pairing the phone accepted",
+                PairConnect.reportDetail(link.wifiOn, link.kind, prefs.pairTrail()),
             )
             return
         }
@@ -405,7 +387,7 @@ object AdbPairSession {
         //
         // Several tries, then a reconnect and one more. Only after all of that is a refusal a fact
         // about the key rather than about the moment.
-        val usable = proven(context, adb, prefs)
+        val usable = proven(context, linked, prefs)
         prefs.notePairStep(if (usable) "shell answers" else "shell REFUSED a command")
         if (!usable) {
             // **Do the thing the message used to ask for.**
@@ -488,6 +470,80 @@ object AdbPairSession {
             phase = Phase.Done
             message = "paired, connected, and granted. You can turn the pairing reader back off."
         }
+    }
+
+    /** How the connect after a pairing ended. */
+    private class Link(
+        /** The manager that connected, or null when no try did. */
+        val manager: AdbManager?,
+        /** Wireless debugging after the last try. Null when the phone would not say. */
+        val wifiOn: Boolean?,
+        /** The most telling failure across the tries. See [PairConnect.worst]. */
+        val kind: AdbFailure.Kind?,
+    )
+
+    /**
+     * Connect after a pairing the daemon accepted: a few tries, each one written to the trail.
+     *
+     * ### Why one try was not enough, and why it looked like mDNS
+     *
+     * This used to be one mDNS connect, one try at the port read off the screen, and a check of the
+     * wireless debugging switch, all inside `runCatching { }.getOrDefault(false)`. Every failure
+     * came out as `false`, and the trail logged the first one as "mDNS found nothing". The real
+     * cause was libadb presenting an older key's certificate (see [LibadbTls]). Both connects were
+     * refused within milliseconds, and the trail called that "found nothing".
+     *
+     * [LibadbTls] fixes that cause. The tries stay, because the phone writes a newly paired key to
+     * `adb_keys` a moment after it accepts the pairing: `AdbDebuggingManager` posts the write as a
+     * separate handler message after the pairing result. A connect that lands in that gap is
+     * refused, and the same connect a second later is not. The waits are short, so the case that
+     * works on the first try costs nothing.
+     */
+    private fun connectAfterPairing(
+        context: Context,
+        prefs: com.gios.lightcontrol.Prefs,
+    ): Link {
+        val kinds = mutableListOf<AdbFailure.Kind?>()
+        var switchedOn = false
+        val tries = PairConnect.WAITS_MS.size
+        for (index in 0 until tries) {
+            val wait = PairConnect.WAITS_MS[index]
+            if (wait > 0) {
+                main.post { message = "paired — connecting, try ${index + 1} of $tries" }
+                runCatching { Thread.sleep(wait) }
+            }
+            val adb = AdbManager.getInstance(context)
+            val auto = adb.tryConnectAuto(context, PairConnect.discoveryMs(index))
+            LibadbTls.note(adb.lastTls)?.let { prefs.notePairStep(it) }
+            prefs.notePairStep("try ${index + 1}: mDNS — ${auto.said}")
+            if (auto.ok) return Link(adb, true, null)
+            kinds += auto.kind
+            // The port the reader took off the screen, which needs no discovery to be true.
+            val port = prefs.adbPort.toIntOrNull()
+            if (port != null) {
+                val direct = adb.tryConnectPort(context, port)
+                prefs.notePairStep("try ${index + 1}: port $port — ${direct.said}")
+                if (direct.ok) return Link(adb, true, null)
+                kinds += direct.kind
+            }
+            // Close what the failed tries left open, so the next one starts from nothing.
+            runCatching { adb.disconnect() }
+            // **The switch, checked rather than guessed.** The trip through Settings can turn
+            // wireless debugging off, and the app can turn it back on with the grant it already
+            // holds. Once: a phone that will not keep it on is not helped by asking again.
+            if (!switchedOn && AdbWifi.on(context) != true) {
+                switchedOn = true
+                val turned = AdbWifi.turnOn(context)
+                prefs.notePairStep(
+                    if (turned.ok) {
+                        "wireless debugging was off — switched it back on"
+                    } else {
+                        "wireless debugging was off and would not switch on — ${turned.said}"
+                    },
+                )
+            }
+        }
+        return Link(null, AdbWifi.on(context), PairConnect.worst(kinds))
     }
 
     /** Enough windows to tell what happened, few enough that a report stays readable. */

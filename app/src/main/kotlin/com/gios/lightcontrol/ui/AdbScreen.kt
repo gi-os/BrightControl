@@ -339,9 +339,10 @@ fun AdbScreen(
             // happen in, without the chances to do them out of order.
             SectionLabel("START OVER")
             Guide(
-                "Forgets the pairing, switches the debugging service on, and opens Settings with " +
-                    "the reader armed. Then go to Wireless debugging → Pair device with pairing " +
-                    "code and leave the box on screen — everything after that is automatic.",
+                "The full reset, for a pairing that went wrong. Forgets the pairing, switches the " +
+                    "debugging service on, and opens Settings with the reader armed. Then go to " +
+                    "Wireless debugging → Pair device with pairing code and leave the box on " +
+                    "screen — everything after that is automatic.",
             )
             BigButton(
                 label = "START OVER AND PAIR",

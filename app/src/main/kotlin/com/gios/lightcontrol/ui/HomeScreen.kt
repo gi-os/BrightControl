@@ -313,16 +313,21 @@ fun HomeScreen(
                         "the adb address are removed first"
                 },
                 onClick = {
-                    sent = true
-                    scope.launch {
-                        Reports.submit(
-                            context,
-                            Reports.composeSettings(
+                    // Once per visit. The row already says SENT, and every further press filed
+                    // the same configuration again: light-reports#701 to #706 are one phone's
+                    // settings, six times in about two minutes.
+                    if (!sent) {
+                        sent = true
+                        scope.launch {
+                            Reports.submit(
                                 context,
-                                prefs.exportJson(redactSecrets = true),
-                                "Sent from the phone.",
-                            ),
-                        )
+                                Reports.composeSettings(
+                                    context,
+                                    prefs.exportJson(redactSecrets = true),
+                                    "Sent from the phone.",
+                                ),
+                            )
+                        }
                     }
                 },
             )

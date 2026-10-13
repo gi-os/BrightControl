@@ -94,6 +94,22 @@ fun ReportOverlay() {
     /** The last thing sent without asking, shown for a moment so it is not silent. */
     var sent by remember { mutableStateOf<String?>(null) }
 
+    // **The line's own clock, keyed on the line.**
+    //
+    // The ten seconds used to be counted inside the failure effect below, and that effect clears
+    // [Trouble] before it gets there. Clearing [Trouble] changes `failure`, which is that effect's
+    // key, so Compose cancelled the effect in the middle of its own delay and `sent = null` never
+    // ran. The line stayed up until the activity went away. On light-reports#700's phone the line
+    // filed at 21:05 was still on screen after the next attempt at 21:13, and its owner pressed
+    // "Send my settings to the developer" six times (#701 to #706) while it stayed there.
+    // Keyed on the line, nothing else can cancel the countdown.
+    LaunchedEffect(sent) {
+        if (sent != null) {
+            kotlinx.coroutines.delay(SENT_MS)
+            sent = null
+        }
+    }
+
     // **A failure the app noticed itself is sent, not offered.**
     //
     // It used to raise the sheet, and a sheet is a thing you dismiss: it appears while somebody is
@@ -125,8 +141,6 @@ fun ReportOverlay() {
         if (prefs.failureAutoReported(found.what)) {
             Trouble.clear()
             sent = "Already reported: could not ${found.what}"
-            kotlinx.coroutines.delay(SENT_MS)
-            sent = null
             return@LaunchedEffect
         }
         prefs.noteFailureAutoReported(found.what)
@@ -142,14 +156,15 @@ fun ReportOverlay() {
         // way that would want reporting — and a failure that repeats should raise a fresh one
         // rather than find this one still sitting there.
         Trouble.clear()
-        runCatching { Reports.submit(context, report) }
+        // On the overlay's scope, not this effect's. The clear above changes this effect's key, so
+        // anything this effect suspends on after it is cancelled at the next frame. That includes
+        // the post to GitHub, which then waited in the queue for the next launch.
+        scope.launch { runCatching { Reports.submit(context, report) } }
         sent = if (Reports.canSend()) {
             "Reported: could not ${found.what}"
         } else {
             "Saved to send later: could not ${found.what}"
         }
-        kotlinx.coroutines.delay(SENT_MS)
-        sent = null
     }
 
     DisposableEffect(lifecycleOwner) {
