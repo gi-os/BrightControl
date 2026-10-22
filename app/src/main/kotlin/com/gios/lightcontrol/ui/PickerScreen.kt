@@ -51,6 +51,8 @@ fun PickerScreen(
     onDone: () -> Unit,
     /** Straight on to choosing which apps, because the action does nothing until some are. */
     onChooseResumeApps: () -> Unit,
+    /** One more level down: the shortcuts inside apps, which are too many to list here. */
+    onChooseShortcut: () -> Unit,
 ) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
@@ -208,6 +210,18 @@ fun PickerScreen(
                         "OPEN AN APP"
                     },
                 )
+            }
+            item {
+                // A row, not a section: every app's shortcuts together run to a list longer than
+                // the apps themselves, and this screen is read from the top.
+                MenuRow(
+                    label = "A shortcut inside an app",
+                    detail = if (current is Action.Shortcut) "•" else null,
+                    sub = (current as? Action.Shortcut)?.let { "now: ${it.label}" }
+                        ?: "straight to one screen, like Todoist's Add task",
+                    onClick = onChooseShortcut,
+                )
+                Rule()
             }
             if (apps.isEmpty()) {
                 item {

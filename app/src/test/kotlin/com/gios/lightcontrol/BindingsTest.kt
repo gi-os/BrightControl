@@ -44,6 +44,12 @@ class BindingsTest {
         Action.BrightnessUp,
         Action.BrightnessDown,
         Action.Launch("com.vandam.zero"),
+        Action.Shortcut(
+            "com.todoist",
+            "Add task",
+            "#Intent;action=com.todoist.intent.action.ADD_TASK;" +
+                "component=com.todoist/.activity.QuickAddActivity;end",
+        ),
     )
 
     @Test
@@ -63,10 +69,32 @@ class BindingsTest {
         assertNull(Action.parse(null))
     }
 
+    @Test
+    fun `a shortcut label with the separator in it still reads back`() {
+        val raw = Action.Shortcut("com.example", "Work | home", "#Intent;action=X;end").store()
+        val back = Action.parse(raw) as Action.Shortcut
+        assertEquals("Work / home", back.label)
+        assertEquals("#Intent;action=X;end", back.intent)
+    }
+
+    @Test
+    fun `a shortcut with no intent is null rather than a binding that cannot fire`() {
+        assertNull(Action.parse("shortcut:com.example|Add|"))
+        assertNull(Action.parse("shortcut:com.example"))
+    }
+
+    /** The key log is shown on screen and sent with reports, so it never carries the intent. */
+    @Test
+    fun `a shortcut's log name leaves its intent out`() {
+        val s = Action.Shortcut("com.example", "Call mum", "#Intent;action=X;S.number=555;end")
+        assertEquals("shortcut:com.example/Call mum", s.logName)
+    }
+
     /** Null is the caller's cue to substitute the app's own name; everything else answers. */
     @Test
-    fun `every action but Launch has a word for the edge indicator`() {
-        all.filter { it !is Action.Launch }.forEach { assertNotNull(it.edgeLabel) }
+    fun `every action but Launch and Shortcut has a word for the edge indicator`() {
+        all.filter { it !is Action.Launch && it !is Action.Shortcut }
+            .forEach { assertNotNull(it.edgeLabel) }
         assertNull(Action.Launch("com.vandam.zero").edgeLabel)
     }
 

@@ -30,7 +30,7 @@ Bright app at **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
 | | |
 |---|---|
-| **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app |
+| **Controls** | The wheel, the camera button, the home button and the volume keys. Each one has a tap and a hold, bindable to any installed app or to a shortcut inside an app |
 | **Edge gestures** | Swipe in from either edge, short or long. Four bindings, chosen like a button's. The left edge goes back and is on out of the box, because this phone has no back button; the right edge is off until you switch it on |
 | **Color** | Per-app color, on a phone with one global monochrome switch |
 | **Lock screen** | A Light-style lock face with notifications, now playing, signal, battery and a photo background. While BrightWay navigates it shows the current turn; when BrightNotebook has something in the next 18 hours, one quiet NEXT UP line under the date |
@@ -99,6 +99,18 @@ Every button carries a tap and a hold. You bind them separately, and either one 
 installed app. The app leaves the Light tools alone by default, and you can override any app on
 its own. Time tells a tap and a hold apart, not key repeat, because a held key on this phone
 never repeats.
+
+**A binding can also open a shortcut inside an app.** For example, Todoist's "Add task" opens
+the new-task screen directly. In the picker, select **A shortcut inside an app**. The list has
+two parts. SHORTCUTS shows the shortcuts that each app declares in its manifest. MAKE ONE IN THE
+APP shows the apps that make a shortcut after you answer a question, for example which project
+or which contact.
+
+Android gives the full shortcut list of an app only to the default home screen app. Thus this
+list does not show the shortcuts that an app adds while it runs, for example recent chats. Some
+apps keep the screen of a shortcut private. The list shows these shortcuts dimmed, because a
+launcher can open them but BrightControl cannot. If an app update removes a bound shortcut, the
+binding opens the app instead.
 
 **The release decides. Nothing fires mid-press.** That order matters more than it sounds. A
 hold that fires while the button is still down brings an app to the front during the press.

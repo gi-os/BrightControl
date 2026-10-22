@@ -156,6 +156,22 @@ sealed interface Action {
     data class Launch(val pkg: String) : Action
 
     /**
+     * One of an app's own shortcuts — "Add task" rather than Todoist — fired straight at the screen
+     * it names.
+     *
+     * Kept as the intent itself, written out with `Intent.toUri`, not as a shortcut id to look up
+     * again. The system's shortcut table belongs to the default launcher: `LauncherApps` answers
+     * nobody else, so there is no id this app could hand back to anyone. What it *can* read is the
+     * intent each shortcut is made of, either from the `android.app.shortcuts` file in the app's
+     * manifest or from the answer an app's own "create shortcut" screen gives. Both are found once,
+     * when the binding is chosen, so a press is one `startActivity` and nothing else.
+     *
+     * [label] is the shortcut's own short name, stored with it because the app's resources are a
+     * binder call away and the edge indicator wants a word on every stroke.
+     */
+    data class Shortcut(val pkg: String, val label: String, val intent: String) : Action
+
+    /**
      * Back to the app the screen went off on — if it is one you chose — and otherwise home.
      *
      * The gap this fills: using a remote, or a recipe, or a map, is minutes of picking the phone
@@ -323,7 +339,7 @@ sealed interface Action {
      * `performGlobalAction`, which needs no grant and answers honestly.
      */
     val needsActivityStart: Boolean
-        get() = this is Launch || this == LightOsHome || this == SwitchLayer ||
+        get() = this is Launch || this is Shortcut || this == LightOsHome || this == SwitchLayer ||
             this == OpenCamera || this == Resume || this == OpenSettings
 
     /**
@@ -340,7 +356,7 @@ sealed interface Action {
      * [DefaultHome] is absent on purpose: it agrees with what LightOS was going to do anyway.
      */
     val picksDestination: Boolean
-        get() = this is Launch || this == Resume || this == LightOsHome || this == SwitchLayer ||
+        get() = this is Launch || this is Shortcut || this == Resume || this == LightOsHome || this == SwitchLayer ||
             this == OpenSettings
 
     fun store(): String = when (this) {
@@ -349,6 +365,9 @@ sealed interface Action {
         Torch -> "torch"
         OpenCamera -> "camera"
         is Launch -> "launch:$pkg"
+        // The label cannot hold the separator, and a package name never does. The intent goes last
+        // because it is the one part with no alphabet of its own.
+        is Shortcut -> "shortcut:$pkg|${label.replace('|', '/')}|$intent"
         DefaultHome -> "home"
         LightOsHome -> "lightoshome"
         SwitchLayer -> "switchlayer"
@@ -373,11 +392,22 @@ sealed interface Action {
     }
 
     /**
+     * What a log line calls this action.
+     *
+     * [store] for everything but a [Shortcut], whose stored form carries a whole intent: extras,
+     * data, sometimes a phone number. The key log is shown on screen and sent with a report, and a
+     * line there only has to say which binding fired.
+     */
+    val logName: String
+        get() = if (this is Shortcut) "shortcut:$pkg/$label" else store()
+
+    /**
      * A word for the edge indicator, in the caps this phone's type is set in.
      *
      * Short because it has to fit in a box a thumb's width from the edge of a 3.9" panel, and
      * because it is read at arm's length mid-gesture rather than studied. [Launch] answers null:
      * only the service can turn a package id into an app name, so the caller substitutes one.
+     * [Shortcut] answers null too, so its name goes through the same cut to length.
      */
     val edgeLabel: String?
         get() = when (this) {
@@ -405,7 +435,7 @@ sealed interface Action {
             VolumeDown -> "VOL -"
             BrightnessUp -> "BRIGHT +"
             BrightnessDown -> "BRIGHT -"
-            is Launch -> null
+            is Launch, is Shortcut -> null
         }
 
     /** Which mark the indicator draws for this action. */
@@ -445,6 +475,9 @@ sealed interface Action {
             raw == "brightup" -> BrightnessUp
             raw == "brightdown" -> BrightnessDown
             raw.startsWith("launch:") -> Launch(raw.removePrefix("launch:"))
+            raw.startsWith("shortcut:") -> raw.removePrefix("shortcut:").split('|', limit = 3)
+                .takeIf { it.size == 3 && it[0].isNotEmpty() && it[2].isNotEmpty() }
+                ?.let { (pkg, label, intent) -> Shortcut(pkg, label, intent) }
             else -> null
         }
 

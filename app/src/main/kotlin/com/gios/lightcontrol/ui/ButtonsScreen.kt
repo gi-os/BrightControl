@@ -265,6 +265,7 @@ fun shortLabel(action: Action): String = when (action) {
     Action.BrightnessUp -> "BRIGHT +"
     Action.BrightnessDown -> "BRIGHT -"
     is Action.Launch -> "APP"
+    is Action.Shortcut -> "SHORTCUT"
 }
 
 fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
@@ -294,6 +295,7 @@ fun longLabel(pm: PackageManager, action: Action): String? = when (action) {
     Action.BrightnessUp -> "one notch brighter"
     Action.BrightnessDown -> "one notch dimmer"
     is Action.Launch -> appLabel(pm, action.pkg)
+    is Action.Shortcut -> "${appLabel(pm, action.pkg)} · ${action.label}"
 }
 
 /** An app's own name, falling back to the package when it has been uninstalled. */

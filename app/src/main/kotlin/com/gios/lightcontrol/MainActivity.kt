@@ -50,6 +50,7 @@ import com.gios.lightcontrol.ui.NotificationsScreen
 import com.gios.lightcontrol.ui.PickerScreen
 import com.gios.lightcontrol.ui.PresetsScreen
 import com.gios.lightcontrol.ui.ResumeAppsScreen
+import com.gios.lightcontrol.ui.ShortcutPickerScreen
 import com.gios.lightcontrol.ui.ResumeFallbackScreen
 import com.gios.lightcontrol.ui.SetupScreen
 import com.gios.lightcontrol.ui.SwitcherScreen
@@ -154,6 +155,9 @@ private sealed interface Screen {
         val slot: BindSlot,
         val back: Screen,
     ) : Screen
+
+    /** The shortcuts inside apps, one level under [pick]. Done returns to the list [pick] came from. */
+    data class PickShortcut(val pick: Pick) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -462,6 +466,13 @@ class MainActivity : ComponentActivity() {
                             slot = current.slot,
                             onDone = { screen = current.back },
                             onChooseResumeApps = { screen = Screen.ResumeApps },
+                            onChooseShortcut = { screen = Screen.PickShortcut(current) },
+                        )
+
+                        is Screen.PickShortcut -> ShortcutPickerScreen(
+                            slot = current.pick.slot,
+                            onDone = { screen = current.pick.back },
+                            onBack = { screen = current.pick },
                         )
                     }
                     revived?.let { line ->
@@ -554,6 +565,7 @@ private fun parentOf(screen: Screen): Screen = when (screen) {
     Screen.ResumeFallback -> Screen.ResumeApps
     Screen.SwitcherHomeApp -> Screen.Switcher
     is Screen.Pick -> screen.back
+    is Screen.PickShortcut -> screen.pick
     else -> Screen.Home
 }
 

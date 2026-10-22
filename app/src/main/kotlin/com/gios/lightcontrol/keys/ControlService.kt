@@ -950,6 +950,7 @@ class ControlService : AccessibilityService() {
 
     private fun edgeLabel(action: Action): String? {
         action.edgeLabel?.let { return it }
+        if (action is Action.Shortcut) return action.label.uppercase().take(EDGE_LABEL_CHARS)
         val pkg = (action as? Action.Launch)?.pkg ?: return null
         val name = runCatching { appName(this, pkg) }.getOrNull()?.takeIf { it.isNotBlank() }
             ?: pkg.substringAfterLast('.')
@@ -971,7 +972,7 @@ class ControlService : AccessibilityService() {
         }
         val ok = runCatching { perform(action) }.getOrDefault(false)
         log(
-            "${side.name.lowercase()} edge ${length.name.lowercase()} · ${action.store()}" +
+            "${side.name.lowercase()} edge ${length.name.lowercase()} · ${action.logName}" +
                 if (ok) "" else " REFUSED",
         )
         return ok
@@ -1836,7 +1837,7 @@ class ControlService : AccessibilityService() {
         // v3.97 shipped it resolving to LightOS for nearly everybody with nothing anywhere saying
         // so. A rule you cannot read the output of is a rule nobody can report a bug about.
         val home = list.lastOrNull { it.home }
-        val where = home?.let { " · home ${it.pkg.substringAfterLast('.')} ${it.action?.store()}" } ?: ""
+        val where = home?.let { " · home ${it.pkg.substringAfterLast('.')} ${it.action?.logName}" } ?: ""
         log("HOME double · switcher ${if (up) "${list.count { !it.home }} apps$where" else "FAILED"}")
         return up
     }
@@ -1854,7 +1855,7 @@ class ControlService : AccessibilityService() {
     private fun pickFromSwitcher(entry: SwitcherOverlay.Entry) {
         val action = entry.action
         val ok = if (action != null) {
-            perform(action).also { log("switcher → home · ${action.store()}" + if (it) "" else " · FAILED") }
+            perform(action).also { log("switcher → home · ${action.logName}" + if (it) "" else " · FAILED") }
         } else {
             log("switcher → ${entry.pkg.substringAfterLast('.')}")
             launch(entry.pkg)
@@ -2095,7 +2096,7 @@ class ControlService : AccessibilityService() {
         if (homeMisses < MAX_HOME_MISSES) return
         homeMisses = 0
         prefs.disarmHome(
-            "${action.store()} reported failure twice, so the home button is the system's again",
+            "${action.logName} reported failure twice, so the home button is the system's again",
         )
     }
 
@@ -2605,7 +2606,7 @@ class ControlService : AccessibilityService() {
     private fun act(button: Button, action: Action) {
         val now = SystemClock.uptimeMillis()
         if (action == lastAction && now - lastActionAt < DEDUPE_MS) {
-            log("${button.name} ${action.store()} DUP dropped")
+            log("${button.name} ${action.logName} DUP dropped")
             return
         }
         // Four presses of the same binding inside four seconds. The original reading was that
@@ -2628,7 +2629,7 @@ class ControlService : AccessibilityService() {
                 if (prefs.standDownOnMash) {
                     faults = MAX_FAULTS
                     lastFaultAt = now
-                    prefs.setFault("${action.store()} $MASH_PRESSES times over — stood down", true)
+                    prefs.setFault("${action.logName} $MASH_PRESSES times over — stood down", true)
                     log("${button.name} MASH — stood down")
                     return
                 }
@@ -2643,7 +2644,7 @@ class ControlService : AccessibilityService() {
         lastAction = action
         lastActionAt = now
         val ok = perform(action)
-        log("${button.name} ${action.store()}${if (ok) "" else " FAILED"}")
+        log("${button.name} ${action.logName}${if (ok) "" else " FAILED"}")
         if (button == Button.Home) noteHomeDispatch(ok, action)
     }
 
@@ -2656,7 +2657,7 @@ class ControlService : AccessibilityService() {
         // what is on screen, and putting the face away for them would mean the lock screen
         // disappearing whenever you found the flashlight in the dark.
         if (action.needsActivityStart && lockFace.showing) {
-            log("lock face away for ${action.store()}")
+            log("lock face away for ${action.logName}")
             runCatching { lockFace.dismiss() }
         }
         return performAction(action)
@@ -2669,6 +2670,7 @@ class ControlService : AccessibilityService() {
         }
         Action.OpenCamera -> openCamera()
         is Action.Launch -> launch(action.pkg)
+        is Action.Shortcut -> openShortcut(action)
         Action.DefaultHome -> goHome()
         // Arriving by this action is what makes LightOS a visit rather than a landing, which is
         // what hands it the home button while you're there. See [visitHome].
@@ -2954,6 +2956,41 @@ class ControlService : AccessibilityService() {
         return when (start(intent, target = pkg)) {
             Start.Done, Start.Throttled -> true
             Start.Failed -> goHome()
+        }
+    }
+
+    /**
+     * One of an app's own shortcuts, started from the intent stored with the binding.
+     *
+     * The flags are the ones the system gives a static shortcut that names none: a fresh task on
+     * top of home, the way a launcher opens it. Without them "Add task" lands on whatever screen the
+     * app was last left on, with the new one pushed over it, and back goes somewhere you did not
+     * come from.
+     *
+     * A shortcut that no longer resolves — the app updated and renamed the screen, or the app is
+     * gone — opens the app instead. The binding still names something you chose, and the app is
+     * the nearest thing to it. Only a start that is refused outright falls back to home, the same
+     * as [launch].
+     */
+    private fun openShortcut(action: Action.Shortcut): Boolean {
+        val intent = runCatching { Intent.parseUri(action.intent, Intent.URI_INTENT_SCHEME) }
+            .getOrNull()
+            ?.takeIf { runCatching { it.resolveActivity(packageManager) }.getOrNull() != null }
+        if (intent == null) {
+            log("shortcut ${action.pkg}/${action.label} · gone, opening the app")
+            return launch(action.pkg)
+        }
+        intent.selector = null
+        if (intent.flags == 0) {
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                Intent.FLAG_ACTIVITY_TASK_ON_HOME
+        }
+        return when (start(intent, target = action.logName)) {
+            Start.Done, Start.Throttled -> true
+            Start.Failed -> {
+                log("shortcut ${action.pkg}/${action.label} · refused")
+                goHome()
+            }
         }
     }
 

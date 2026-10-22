@@ -1,27 +1,19 @@
-## BrightControl v4.46 -- a pairing the phone accepts now connects
+## BrightControl v4.47 -- bind a button to a shortcut inside an app
 
-**The phone accepted the pairing, and then the connect failed in the same second**. This happened after START OVER AND PAIR, after FORGET THE PAIRING, and after the automatic recovery from a refused key. The trail said "mDNS found nothing", and the message blamed the wireless debugging switch. In light-reports#700 the switch was on. Each new try failed the same way until the app process ended.
+**A button or an edge swipe can now open one of the shortcuts of an app, not only the app.** For example, a hold of the camera button can open Todoist's "Add task" screen. This was requested in BrightControl#1.
 
-The fault was in libadb, the library that talks to the phone's debugging service. It makes one TLS context from the first key it gets. After that, it gives every connection the same context, whatever key the connection has. The ADB screen connects with the stored key when it opens. START OVER AND PAIR then makes a new key, and the phone pairs with it. But each connect still presented the certificate of the old key, so the phone refused it.
+To set it, open Buttons or Edge gestures, select a gesture, and then select **A shortcut inside an app**. The screen has two lists:
 
-The app now clears that TLS context when the key changes. Each connection presents the key that the phone paired. A unit test reads the libadb field that this fix uses. If a libadb update moves that field, the test fails in CI.
+SHORTCUTS shows the shortcuts that each app declares in its manifest. Select one to bind it.
 
-Other changes in this release:
+MAKE ONE IN THE APP shows the apps that make a shortcut after a question, for example which project or which contact. Select one, answer the question in that app, and BrightControl binds the result.
 
-After a pairing, the app tries to connect three times in about five seconds. The phone writes a new key to its key file a moment after the pairing. A connect that arrives before that write can fail once.
+Limits:
 
-The LAST PAIRING ATTEMPT list shows what came back from each try. Before, it showed "mDNS found nothing" for every failure.
+Android gives the full shortcut list of an app only to the default home screen app. Thus BrightControl cannot show the shortcuts that an app adds while it runs, for example recent chats.
 
-The failure message says what the tries found. It mentions the wireless debugging switch only when the switch is off.
+Some apps keep the screen of a shortcut private. A launcher can open it, but BrightControl cannot. The list shows these shortcuts dimmed.
 
-A report of this failure includes the pairing trail. Before, every report had the same fixed sentence and no trail.
+If an app update removes a bound shortcut, the binding opens the app instead.
 
-The "Reported: ..." line at the bottom of the screen goes away after ten seconds again. A fault in its timer kept it on screen until the app closed.
-
-"Send my settings to the developer" sends once for each visit to the screen. More taps sent the same settings again.
-
-Reports name the screen that they come from. Before, every report said `buttons`.
-
-**If pairing failed on v4.45**: install v4.46 and open ADB & grants. If the screen says Connected, tap GRANT ALL. If it does not, tap START OVER AND PAIR.
-
-Fixes light-reports#700. Reports #682, #699 and #708 show the same failure on other phones.
+The key log shows the app and the name of the shortcut. It does not show the data in the shortcut.
