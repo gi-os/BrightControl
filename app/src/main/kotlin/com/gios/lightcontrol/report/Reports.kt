@@ -52,7 +52,8 @@ object Reports {
     private const val TIMEOUT_MS = 45_000
 
     /** True when this build can actually send. False means reports pile up in the queue. */
-    fun canSend(): Boolean = BuildConfig.REPORT_RELAY_URL.isNotBlank()
+    // https only: a report carries a screenshot and crash detail, and the relay is a public URL.
+    fun canSend(): Boolean = BuildConfig.REPORT_RELAY_URL.startsWith("https://")
 
     fun pendingCount(context: Context): Int = queued(context).size
 
@@ -224,10 +225,9 @@ object Reports {
 
     /** @return true when the issue was created, or when it never can be and should be dropped. */
     private fun post(payload: JSONObject): Boolean {
-        val url = URL(BuildConfig.REPORT_RELAY_URL)
         var conn: HttpURLConnection? = null
         return runCatching {
-            conn = (url.openConnection() as HttpURLConnection).apply {
+            conn = (URL(BuildConfig.REPORT_RELAY_URL).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = TIMEOUT_MS
                 readTimeout = TIMEOUT_MS
@@ -237,10 +237,10 @@ object Reports {
             }
             conn!!.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val code = conn!!.responseCode
-            // 4xx that is not rate limiting will never succeed — a bad token, a deleted repo,
-            // a label that no longer exists. Dropping it is better than retrying it forever on
-            // every launch.
-            code in 200..299 || (code in 400..499 && code != 403 && code != 429)
+            // Only the payload's own fault is dropped: the relay answers 400, 413 or 422 for a
+            // report that will never post. Anything else (a mistyped relay URL's 404, a relay
+            // whose key has lapsed) is fixed by a later build, so the report waits for it.
+            code in 200..299 || code == 400 || code == 413 || code == 422
         }.getOrDefault(false).also { runCatching { conn?.disconnect() } }
     }
 
