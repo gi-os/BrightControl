@@ -52,7 +52,7 @@ object Reports {
     private const val TIMEOUT_MS = 45_000
 
     /** True when this build can actually send. False means reports pile up in the queue. */
-    fun canSend(): Boolean = BuildConfig.REPORT_TOKEN.isNotBlank()
+    fun canSend(): Boolean = BuildConfig.REPORT_RELAY_URL.isNotBlank()
 
     fun pendingCount(context: Context): Int = queued(context).size
 
@@ -224,7 +224,7 @@ object Reports {
 
     /** @return true when the issue was created, or when it never can be and should be dropped. */
     private fun post(payload: JSONObject): Boolean {
-        val url = URL("https://api.github.com/repos/${BuildConfig.REPORT_REPO}/issues")
+        val url = URL(BuildConfig.REPORT_RELAY_URL)
         var conn: HttpURLConnection? = null
         return runCatching {
             conn = (url.openConnection() as HttpURLConnection).apply {
@@ -232,8 +232,6 @@ object Reports {
                 connectTimeout = TIMEOUT_MS
                 readTimeout = TIMEOUT_MS
                 doOutput = true
-                setRequestProperty("Authorization", "Bearer ${BuildConfig.REPORT_TOKEN}")
-                setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setRequestProperty("User-Agent", ReportApp.NAME)
             }
