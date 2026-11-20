@@ -17,6 +17,9 @@ permissions:
 
 jobs:
   build:
+    # The signing secrets live only in the `release` environment, which only main may use.
+    if: github.ref == 'refs/heads/main'
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -51,44 +54,58 @@ jobs:
         env:
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
 
-      # The signing key is a secret, not a file in the repo. Written here and nowhere else; the
-      # path is gitignored so a local checkout cannot commit it back by accident.
-      - name: Restore signing keystore
-        run: |
-          mkdir -p keystore
-          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > keystore/lightcontrol.jks
-          # A missing or truncated secret would otherwise fall through to a debug-signed release
-          # that the fingerprint step rejects with a confusing message. Fail here, where the
-          # cause is obvious.
-          test -s keystore/lightcontrol.jks || { echo '::error::KEYSTORE_B64 is empty'; exit 1; }
-
       - name: Build APKs
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
         env:
           # Shake-to-report posts issues with this. Absent, the build still works —
           # reports queue on the phone until a build that has the key installs over it.
           REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
 
-      - name: Collect APK
+      # Android identifies an app by (packageName, signing cert). The original cert's key is in
+      # git history, so releases are v3-signed with a new key whose lineage chains to it: phones
+      # holding the original accept the update, and sign-release.sh fails unless the APK's
+      # signer and lineage match both pins exactly.
+      - name: Sign and verify release APK
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          SIGNING_LINEAGE_BASE64: ${{ secrets.SIGNING_LINEAGE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for secret in RELEASE_KEYSTORE_BASE64 SIGNING_LINEAGE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ ! ${!secret} =~ [^[:space:]] ]]; then
+              echo "::error::Missing required release signing secret: $secret"
+              exit 1
+            fi
+          done
+
+          umask 077
+          signing_dir=$(mktemp -d "$RUNNER_TEMP/brightcontrol-signing.XXXXXX")
+          trap 'rm -rf -- "$signing_dir"' EXIT
+          export KEYSTORE_FILE="$signing_dir/release.jks" SIGNING_LINEAGE_FILE="$signing_dir/release.lineage"
+          decode() {
+            if ! printf '%s' "${!1}" | base64 --decode > "$2" || [[ ! -s "$2" ]]; then
+              echo "::error::$1 must contain non-empty base64"
+              exit 1
+            fi
+          }
+          decode RELEASE_KEYSTORE_BASE64 "$KEYSTORE_FILE"
+          decode SIGNING_LINEAGE_BASE64 "$SIGNING_LINEAGE_FILE"
+          unset RELEASE_KEYSTORE_BASE64 SIGNING_LINEAGE_BASE64
+
+          mkdir -p out
+          bash scripts/sign-release.sh app/build/outputs/apk/release/app-release-unsigned.apk \
+            "out/LightControl-v$VERSION.apk" signing-lineage-root-fingerprint.txt signing-fingerprint.txt
+
+      - name: Collect debug APK
         run: |
           V=${{ steps.ver.outputs.version }}
-          mkdir -p out debugout
-          cp app/build/outputs/apk/release/app-release.apk "out/LightControl-v$V.apk"
+          mkdir -p debugout
           cp app/build/outputs/apk/debug/app-debug.apk "debugout/LightControl-v$V-debug.apk"
           ls -la out debugout
-
-      # Android identifies an app by (packageName, signing cert). If the cert ever
-      # changes, Obtainium updates fail with an opaque "Failure: Invalid", so pin it.
-      - name: Verify signing certificate
-        run: |
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
-          ACTUAL=$("$APKSIGNER" verify --print-certs out/*.apk \
-            | grep -i 'SHA-256 digest' | head -1 | sed -E 's/.*[Dd]igest:[[:space:]]*//' | tr -d ' ')
-          EXPECTED=$(tr -d ' :\n' < signing-fingerprint.txt | tr 'A-F' 'a-f')
-          echo "expected $EXPECTED"
-          echo "actual   $ACTUAL"
-          [ "$ACTUAL" = "$EXPECTED" ] || { echo '::error::signing certificate drifted'; exit 1; }
 
       # AGP shortens resource paths in release builds, so ic_launcher.png is renamed
       # to something like res/AB.png inside the zip. Ask the package what its icon is

@@ -41,30 +41,10 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
-    // The release key used to live in this repository with its password written three lines
-    // below it, which meant anyone could build an APK that Android would accept as an update to
-    // this one — and this app holds an adb shell, an accessibility key filter and the lock face.
-    // It is a CI secret now: the workflow decodes KEYSTORE_B64 to keystore/lightcontrol.jks,
-    // which is gitignored, and KEYSTORE_PASSWORD opens it.
-    //
-    // A build without the secret still works and still produces an installable APK — it is just
-    // signed with the local debug key and will not install over a release. That is the right
-    // failure. An unsigned build that announces itself beats one that silently is not the real
-    // thing, and the fingerprint check in build.yml catches it before anything is published.
-    val keystoreFile = rootProject.file("keystore/lightcontrol.jks")
-    val keystorePassword: String = System.getenv("KEYSTORE_PASSWORD") ?: ""
-    val canSignRelease = keystoreFile.exists() && keystorePassword.isNotEmpty()
-
-    signingConfigs {
-        if (canSignRelease) {
-            create("release") {
-                storeFile = keystoreFile
-                storePassword = keystorePassword
-                keyAlias = "lightcontrol"
-                keyPassword = keystorePassword
-            }
-        }
-    }
+    // No release signingConfig. The original key and its password are in this repository's git
+    // history, so CI signs the unsigned release APK with a new key plus an APK Signature Scheme v3
+    // lineage from the old one (scripts/sign-release.sh) — a Gradle-signed APK would carry no
+    // lineage and would not install over existing releases. See "Release signing" in README.md.
 
     buildTypes {
         release {
@@ -72,7 +52,6 @@ android {
             // separate change with its own way of going wrong, and it is not this one.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (canSignRelease) signingConfigs.getByName("release") else null
         }
     }
     compileOptions {
