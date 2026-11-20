@@ -1336,8 +1336,8 @@ BrightControl's `minSdk` is 29, so no v1/v2 signature is needed.
 
    Then delete the old repository-level `KEYSTORE_B64` and `KEYSTORE_PASSWORD` secrets, which
    hold the original key. Repository secrets can be read by a workflow on any branch, and CI no
-   longer uses them. Do not upload the original key anywhere. `REPORT_TOKEN` and
-   `INDEX_DISPATCH_TOKEN` stay as they are.
+   longer uses them. Do not upload the original key anywhere. `INDEX_DISPATCH_TOKEN`
+   stays as it is.
 
    ```sh
    gh secret delete KEYSTORE_B64 --repo gi-os/BrightControl

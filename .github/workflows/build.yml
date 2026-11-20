@@ -52,14 +52,14 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
         env:
-          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+          # Where shake-to-report posts: a URL, not a secret. Unset, reports queue on the phone.
+          REPORT_RELAY_URL: ${{ vars.REPORT_RELAY_URL }}
 
       - name: Build APKs
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
         env:
-          # Shake-to-report posts issues with this. Absent, the build still works —
-          # reports queue on the phone until a build that has the key installs over it.
-          REPORT_TOKEN: ${{ secrets.REPORT_TOKEN }}
+          # Where shake-to-report posts: a URL, not a secret. Unset, reports queue on the phone.
+          REPORT_RELAY_URL: ${{ vars.REPORT_RELAY_URL }}
 
       # Android identifies an app by (packageName, signing cert). The original cert's key is in
       # git history, so releases are v3-signed with a new key whose lineage chains to it: phones
