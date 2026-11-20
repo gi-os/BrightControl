@@ -1257,13 +1257,111 @@ Solo repo, no PR workflow. Commits go straight to `main`. Every push to `main` t
 builds, signs and publishes a GitHub Release. **A push is a release, not a cosmetic
 action.** Verify before you push, not after. `paths-ignore` excludes documentation-only pushes.
 
-The release keystore is a repository secret, not a file in the tree. CI decodes `KEYSTORE_B64`
-to `keystore/lightcontrol.jks` — a gitignored path — and opens it with `KEYSTORE_PASSWORD`. A
-build without those secrets still produces an installable APK; it is just signed with the local
-debug key and will not install over a release. CI pins the certificate SHA-256 in
-`signing-fingerprint.txt` and fails on drift. `versionCode` is the workflow run number.
+Releases are signed by CI, never by Gradle: `assembleRelease` builds an unsigned APK, and
+build.yml signs it with `scripts/sign-release.sh` (see [Release signing](#release-signing)).
+`versionCode` is the workflow run number.
 `versionName` in the committed `build.gradle.kts` is only the `major.minor` base. CI stamps
 `major.minor.RUN` at build time and tags it `vX.Y.Z`.
+
+## Release signing
+
+The original release key (`keystore/lightcontrol.jks`, SHA-256
+`A3:88:58:D9:…:93:E8`) and its password are in this repository's git history, and every
+release so far is signed with it. Taking it out of HEAD did not un-publish it. Releases now
+use APK Signature Scheme v3 key rotation: CI signs with a new key and a lineage signed by the
+original key, so phones that have the app accept the update and keep their data.
+BrightControl's `minSdk` is 29, so no v1/v2 signature is needed.
+
+- `signing-lineage-root-fingerprint.txt` pins the original certificate. Do not change it.
+- `signing-fingerprint.txt` pins the new certificate. `scripts/sign-release.sh` refuses to
+  sign while the two pins are identical, and fails unless the APK verifies with v3 under the
+  new pin and its lineage is exactly original → new, with installed data kept and signer
+  rollback off.
+- The five signing secrets live only in a `release` environment restricted to `main`.
+  build.yml's job runs only on `main` and uses that environment. check.yml never sees them: it
+  tests the same signing script with disposable keys on every branch and PR.
+
+### Rotating the key (Giovanni, once)
+
+1. **Disable publishing.** Before merging this change, disable
+   [Build & Release APK](https://github.com/gi-os/BrightControl/actions/workflows/build.yml).
+   A push to `main` publishes. Keep it disabled until steps 2–6 are done and you intend to
+   publish.
+
+2. **Make the new key and the lineage offline.** In a private directory outside the checkout,
+   use Android Build Tools 35.0.0. The original key is the one in history (alias
+   `lightcontrol`; its password is in the same commit's `app/build.gradle.kts`) and the
+   current `KEYSTORE_B64` secret. Use it only for this step. Use fresh passwords for the new
+   key.
+
+   ```sh
+   umask 077
+   git -C /path/to/BrightControl show aa5093f^:keystore/lightcontrol.jks > lightcontrol-original.jks
+   keytool -genkeypair -storetype JKS -keystore brightcontrol-new.jks -alias brightcontrol-release \
+     -keyalg RSA -keysize 3072 -validity 10000
+
+   apksigner rotate --out brightcontrol.lineage \
+     --old-signer --ks lightcontrol-original.jks --ks-key-alias lightcontrol \
+     --set-installed-data true --set-rollback false \
+     --new-signer --ks brightcontrol-new.jks --ks-key-alias brightcontrol-release
+
+   apksigner lineage --in brightcontrol.lineage --print-certs
+   ```
+
+3. **Pins.** Check that signer #1's SHA-256 digest equals `signing-lineage-root-fingerprint.txt`
+   (`a38858d9…98b593e8`). Replace `signing-fingerprint.txt` in this PR with signer #2's
+   SHA-256 digest.
+
+4. **Environment and secrets.** In
+   [BrightControl's environment settings](https://github.com/gi-os/BrightControl/settings/environments),
+   create an environment named `release`. Under **Deployment branches and tags**, choose
+   **Selected branches and tags** and add one **Branch** rule for `main`, with no tag rules.
+   Add these five secrets to that environment only:
+
+   | Secret | Value |
+   | --- | --- |
+   | `RELEASE_KEYSTORE_BASE64` | Base64 of `brightcontrol-new.jks` |
+   | `SIGNING_LINEAGE_BASE64` | Base64 of `brightcontrol.lineage` |
+   | `KEYSTORE_PASSWORD` | New keystore password |
+   | `KEY_ALIAS` | `brightcontrol-release` |
+   | `KEY_PASSWORD` | New key password |
+
+   ```sh
+   base64 -w 0 brightcontrol-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo gi-os/BrightControl
+   base64 -w 0 brightcontrol.lineage | gh secret set SIGNING_LINEAGE_BASE64 --env release --repo gi-os/BrightControl
+   gh secret set KEYSTORE_PASSWORD --env release --repo gi-os/BrightControl
+   gh secret set KEY_ALIAS --env release --repo gi-os/BrightControl --body brightcontrol-release
+   gh secret set KEY_PASSWORD --env release --repo gi-os/BrightControl
+   ```
+
+   Then delete the old repository-level `KEYSTORE_B64` and `KEYSTORE_PASSWORD` secrets, which
+   hold the original key. Repository secrets can be read by a workflow on any branch, and CI no
+   longer uses them. Do not upload the original key anywhere. `INDEX_DISPATCH_TOKEN`
+   stays as it is.
+
+   ```sh
+   gh secret delete KEYSTORE_B64 --repo gi-os/BrightControl
+   gh secret delete KEYSTORE_PASSWORD --repo gi-os/BrightControl
+   ```
+
+5. **Test an update in place.** Sign a test APK locally with a greater `versionCode`, using
+   `scripts/sign-release.sh` and the new key and lineage. Install it over the last shipped
+   release on a test phone with `adb install -r`, and check that the app keeps its settings and
+   grants.
+
+6. **BrightMarket handover.** The index keeps the previous release when the signer changes. Add
+   the exact entry `("com.gios.lightcontrol", "a38858d990bb61057ef53d1f8aa3c5854d01f68585b34f115793b06298b593e8", "<signer #2 SHA-256>", "<date>: v3 key rotation, original key exposed in git history")`
+   to `HANDOVERS` in
+   [brightmarket-index `scripts/build_index.py`](https://github.com/gi-os/brightmarket-index/blob/HEAD/scripts/build_index.py).
+   Also make sure [the BrightMarket updater](https://github.com/gi-os/BrightMarket) accepts an
+   installed app whose signer is the predecessor in the lineage. Otherwise it treats existing
+   installs as foreign after the pin changes.
+
+7. Re-enable Build & Release APK when you intend to publish. The next push to `main` then
+   releases with the new key.
+
+Phones that have not yet updated still trust the original key until they install a rotated
+release, and removing the key from HEAD does not remove it from git history.
 
 ## Version history
 

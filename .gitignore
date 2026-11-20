@@ -6,5 +6,7 @@ local.properties
 .DS_Store
 .kotlin
 
-# The release key is a CI secret (KEYSTORE_B64), restored at build time.
-keystore/*.jks
+# Release keys and lineages are CI environment secrets, never files in the tree.
+*.jks
+*.keystore
+*.lineage
