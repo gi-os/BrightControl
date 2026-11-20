@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val reportRelayUrl = System.getenv("REPORT_RELAY_URL")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: "https://light-report-relay.glupo.workers.dev/report"
+
 android {
     namespace = "com.gios.lightcontrol"
     compileSdk = 35
@@ -19,7 +22,7 @@ android {
 
         // Shake-to-report posts to the relay in gi-os/BrightCommon (relay/), which holds the key
         // that files the issue, so no credential ships in the APK. Blank queues reports.
-        buildConfigField("String", "REPORT_RELAY_URL", "\"${System.getenv("REPORT_RELAY_URL") ?: ""}\"")
+        buildConfigField("String", "REPORT_RELAY_URL", "\"$reportRelayUrl\"")
         buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
 
         // The LPIII is arm64 only; shipping four ABIs tripled the APK for nothing.
